@@ -31,7 +31,7 @@ export default function OnboardingScreen() {
   const [targetWeight, setTargetWeight] = useState('');
   const [weeks, setWeeks] = useState('');
   const [goalDate, setGoalDate] = useState('');
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [errors, setErrors] = useState<Record<string, string | undefined>>({});
   const [warnings, setWarnings] = useState<FormWarnings>({});
   const [suggestedTarget, setSuggestedTarget] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -73,7 +73,7 @@ export default function OnboardingScreen() {
   }
 
   function validateInputs(): boolean {
-    const next: Record<string, string> = {};
+    const next: Record<string, string | undefined> = {};
 
     if (!currentWeightNum || currentWeightNum <= 0) {
       next.currentWeight = 'Ingresa tu peso actual.';

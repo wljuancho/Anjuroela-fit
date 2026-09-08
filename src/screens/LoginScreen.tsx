@@ -24,7 +24,7 @@ export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [errors, setErrors] = useState<Record<string, string | undefined>>({});
   const [submitting, setSubmitting] = useState(false);
   const [loadingSession, setLoadingSession] = useState(false);
 
@@ -34,7 +34,7 @@ export default function LoginScreen() {
   }
 
   function validate(): boolean {
-    const next: Record<string, string> = {};
+    const next: Record<string, string | undefined> = {};
     if (!isValidEmail(email)) {
       next.email = 'Ingresa un correo válido.';
     }
