@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.jpg" alt="Anjuroela Fit Logo" width="180" />
+  <img src="assets/icon.png" alt="Anjuroela Fit Logo" width="180" />
 </p>
 
 <h1 align="center">Anjuroela Fit</h1>
