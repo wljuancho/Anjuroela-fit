@@ -142,6 +142,8 @@ export async function initDatabase(): Promise<void> {
       set_number INTEGER NOT NULL,
       weight_kg REAL,
       reps INTEGER,
+      set_type TEXT DEFAULT 'reps',
+      time_seconds REAL,
       FOREIGN KEY (session_id) REFERENCES workout_sessions (id) ON DELETE CASCADE,
       FOREIGN KEY (exercise_id) REFERENCES exercises_v2 (id) ON DELETE CASCADE
     );
@@ -154,6 +156,33 @@ export async function initDatabase(): Promise<void> {
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
   `);
+
+  await database.execAsync(`
+    CREATE INDEX IF NOT EXISTS idx_user_profiles_user ON user_profiles (user_id);
+    CREATE INDEX IF NOT EXISTS idx_exercises_v2_body_part ON exercises_v2 (body_part_id);
+    CREATE INDEX IF NOT EXISTS idx_meals_v2_user_date ON meals_v2 (user_id, date);
+    CREATE INDEX IF NOT EXISTS idx_workout_sessions_day_date ON workout_sessions (day_of_week, date);
+    CREATE INDEX IF NOT EXISTS idx_workout_sets_session ON workout_sets (session_id);
+    CREATE INDEX IF NOT EXISTS idx_workout_sets_exercise ON workout_sets (exercise_id);
+    CREATE INDEX IF NOT EXISTS idx_workout_sets_session_exercise_set
+      ON workout_sets (session_id, exercise_id, set_number);
+    CREATE INDEX IF NOT EXISTS idx_weight_logs_date ON weight_logs (date);
+  `);
+
+  await migrateWorkoutSets(database);
+}
+
+async function migrateWorkoutSets(db: SQLite.SQLiteDatabase): Promise<void> {
+  const columns = await db.getAllAsync<{ name: string }>(
+    'PRAGMA table_info(workout_sets)',
+  );
+  const names = columns.map((c) => c.name);
+  if (!names.includes('set_type')) {
+    await db.execAsync(`ALTER TABLE workout_sets ADD COLUMN set_type TEXT DEFAULT 'reps'`);
+  }
+  if (!names.includes('time_seconds')) {
+    await db.execAsync('ALTER TABLE workout_sets ADD COLUMN time_seconds REAL');
+  }
 }
 
 export async function closeDatabase(): Promise<void> {

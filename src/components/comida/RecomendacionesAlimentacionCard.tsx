@@ -1,3 +1,4 @@
+import { colors } from '../../theme/colors';
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,7 +21,7 @@ export default function RecomendacionesAlimentacionCard({ goal }: Recomendacione
             <Ionicons
               name={rec.icon as keyof typeof Ionicons.glyphMap}
               size={20}
-              color="#e94560"
+              color={colors.primary}
             />
           </View>
           <View style={styles.itemInfo}>
@@ -35,16 +36,16 @@ export default function RecomendacionesAlimentacionCard({ goal }: Recomendacione
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#16213e',
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: '#2a2a4a',
+    borderColor: colors.cardAlt,
     borderRadius: 14,
     padding: 18,
     marginHorizontal: 16,
     marginBottom: 16,
   },
   cardTitle: {
-    color: '#ffffff',
+    color: colors.text,
     fontSize: 17,
     fontWeight: '700',
     marginBottom: 14,
@@ -59,9 +60,9 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#1a1a2e',
+    backgroundColor: colors.background,
     borderWidth: 1,
-    borderColor: '#2a2a4a',
+    borderColor: colors.cardAlt,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -69,13 +70,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   itemTitle: {
-    color: '#ffffff',
+    color: colors.text,
     fontSize: 14,
     fontWeight: '600',
     marginBottom: 2,
   },
   itemDescription: {
-    color: '#a0a0b8',
+    color: colors.textMuted,
     fontSize: 13,
     lineHeight: 18,
   },

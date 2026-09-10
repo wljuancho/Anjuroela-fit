@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { colors } from '../theme/colors';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -16,68 +17,32 @@ import {
   HistorialPesoLista,
   HistorialFuerzaCard,
 } from '../components/progreso';
-import {
-  getGoalSummary,
-  getWeightHistory,
-  addWeightLog,
-  updateWeightLog,
-  deleteWeightLog,
-  getStrengthExerciseRecords,
-} from '../services/progressService';
 import { useAuth } from '../context';
-import type {
-  GoalSummary,
-  WeightLog,
-  NewWeightLog,
-  ExerciseStrengthRecord,
-} from '../types/progress';
+import { useProgressData } from '../hooks/useProgressData';
+import type { WeightLog, NewWeightLog } from '../types/progress';
 
 export default function ProgresoScreen() {
   const { user } = useAuth();
-  const [summary, setSummary] = useState<GoalSummary | null>(null);
-  const [weightLogs, setWeightLogs] = useState<WeightLog[]>([]);
-  const [strengthRecords, setStrengthRecords] = useState<ExerciseStrengthRecord[]>([]);
-  const [selectedExerciseId, setSelectedExerciseId] = useState<number | null>(null);
-  const [loading, setLoading] = useState(true);
+  const {
+    summary,
+    weightLogs,
+    strengthRecords,
+    selectedExerciseId,
+    setSelectedExerciseId,
+    loading,
+    error,
+    saveWeight,
+    removeWeight,
+  } = useProgressData(user?.id ?? 0);
 
   const [modalVisible, setModalVisible] = useState(false);
   const [editingLog, setEditingLog] = useState<WeightLog | null>(null);
 
-  const reloadAll = useCallback(async () => {
-    if (!user) return;
-    const [goal, logs, records] = await Promise.all([
-      getGoalSummary(user.id),
-      getWeightHistory(),
-      getStrengthExerciseRecords(),
-    ]);
-    setSummary(goal);
-    setWeightLogs(logs);
-    setStrengthRecords(records);
-    setSelectedExerciseId((prev) => {
-      if (records.length === 0) return null;
-      if (prev && records.some((r) => r.exerciseId === prev)) return prev;
-      return records[0].exerciseId;
-    });
-  }, [user]);
-
   useEffect(() => {
-    (async () => {
-      try {
-        await reloadAll();
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [reloadAll]);
-
-  const handleNewWeight = async (data: NewWeightLog, id?: number) => {
-    if (id) {
-      await updateWeightLog(id, data);
-    } else {
-      await addWeightLog(data);
+    if (error) {
+      Alert.alert('Error', error);
     }
-    await reloadAll();
-  };
+  }, [error]);
 
   const handleDeleteWeight = (id: number) => {
     Alert.alert(
@@ -89,8 +54,7 @@ export default function ProgresoScreen() {
           text: 'Eliminar',
           style: 'destructive',
           onPress: async () => {
-            await deleteWeightLog(id);
-            await reloadAll();
+            await removeWeight(id);
           },
         },
       ],
@@ -114,7 +78,7 @@ export default function ProgresoScreen() {
     return (
       <SafeAreaView style={styles.safe}>
         <View style={styles.center}>
-          <ActivityIndicator size="large" color="#e94560" />
+          <ActivityIndicator size="large" color={colors.primary} />
         </View>
       </SafeAreaView>
     );
@@ -128,7 +92,7 @@ export default function ProgresoScreen() {
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Historial de Peso</Text>
           <TouchableOpacity style={styles.addBtn} onPress={openNewModal}>
-            <Ionicons name="add" size={18} color="#e94560" />
+            <Ionicons name="add" size={18} color={colors.primary} />
             <Text style={styles.addBtnText}>Añadir</Text>
           </TouchableOpacity>
         </View>
@@ -183,7 +147,7 @@ export default function ProgresoScreen() {
         visible={modalVisible}
         editingLog={editingLog}
         onClose={() => setModalVisible(false)}
-        onSave={handleNewWeight}
+        onSave={saveWeight}
       />
     </SafeAreaView>
   );
@@ -192,7 +156,7 @@ export default function ProgresoScreen() {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: '#1a1a2e',
+    backgroundColor: colors.background,
   },
   content: {
     paddingTop: 16,
@@ -201,7 +165,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#1a1a2e',
+    backgroundColor: colors.background,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -212,7 +176,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   sectionTitle: {
-    color: '#ffffff',
+    color: colors.text,
     fontSize: 17,
     fontWeight: '700',
   },
@@ -223,7 +187,7 @@ const styles = StyleSheet.create({
     padding: 6,
   },
   addBtnText: {
-    color: '#e94560',
+    color: colors.primary,
     fontSize: 14,
     fontWeight: '600',
   },
@@ -233,24 +197,24 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   chip: {
-    backgroundColor: '#16213e',
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: '#2a2a4a',
+    borderColor: colors.cardAlt,
     borderRadius: 20,
     paddingHorizontal: 14,
     paddingVertical: 8,
   },
   chipActive: {
-    backgroundColor: '#e94560',
-    borderColor: '#e94560',
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   chipText: {
-    color: '#a0a0b8',
+    color: colors.textMuted,
     fontSize: 13,
     fontWeight: '500',
   },
   chipTextActive: {
-    color: '#ffffff',
+    color: colors.text,
   },
   bottomSpacer: {
     height: 24,

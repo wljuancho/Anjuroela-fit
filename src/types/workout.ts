@@ -29,6 +29,8 @@ export interface WorkoutSession {
   created_at?: string;
 }
 
+export type SetType = 'reps' | 'time';
+
 export interface WorkoutSet {
   id: number;
   session_id: number;
@@ -37,6 +39,8 @@ export interface WorkoutSet {
   set_number: number;
   weight_kg: number | null;
   reps: number | null;
+  set_type?: SetType;
+  time_seconds?: number | null;
 }
 
 export interface WorkoutSetInput {
@@ -44,6 +48,8 @@ export interface WorkoutSetInput {
   set_number: number;
   weight_kg: number | null;
   reps: number | null;
+  set_type?: SetType;
+  time_seconds?: number | null;
 }
 
 export interface ExerciseWithSets {

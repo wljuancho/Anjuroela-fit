@@ -23,19 +23,71 @@ export interface UserProfileRecord {
   goal_date?: string | null;
 }
 
-async function hashPassword(password: string): Promise<string> {
+const HASH_PREFIX = 'v1';
+const LEGACY_SALT = '-anjuroela-fix-salt';
+const SALT_BYTE_LENGTH = 16;
+
+function constantTimeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+  let diff = 0;
+  for (let i = 0; i < a.length; i += 1) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
+async function generateSalt(): Promise<string> {
+  const bytes = await Crypto.getRandomBytesAsync(SALT_BYTE_LENGTH);
+  return Array.from(bytes)
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+async function hashPassword(password: string, salt: string): Promise<string> {
   const digest = await Crypto.digestStringAsync(
     Crypto.CryptoDigestAlgorithm.SHA256,
-    `${password}-anjuroela-fix-salt`,
+    `${salt}:${password}`,
   );
-  return digest;
+  return `${HASH_PREFIX}:${salt}:${digest}`;
+}
+
+async function verifyPassword(password: string, storedHash: string): Promise<boolean> {
+  if (!storedHash.startsWith(`${HASH_PREFIX}:`)) {
+    const legacyDigest = await Crypto.digestStringAsync(
+      Crypto.CryptoDigestAlgorithm.SHA256,
+      `${password}${LEGACY_SALT}`,
+    );
+    return constantTimeEqual(legacyDigest, storedHash);
+  }
+  const [prefix, salt, expectedHash] = storedHash.split(':');
+  if (prefix !== HASH_PREFIX || !salt) {
+    return false;
+  }
+  const digest = await Crypto.digestStringAsync(
+    Crypto.CryptoDigestAlgorithm.SHA256,
+    `${salt}:${password}`,
+  );
+  return constantTimeEqual(digest, expectedHash);
+}
+
+async function upgradeLegacyHash(userId: number, storedHash: string, password: string): Promise<void> {
+  if (storedHash.startsWith(`${HASH_PREFIX}:`)) {
+    return;
+  }
+  const salt = await generateSalt();
+  const nextHash = await hashPassword(password, salt);
+  const db = getDatabase();
+  await db.runAsync('UPDATE users SET password_hash = ? WHERE id = ?', [nextHash, userId]);
 }
 
 export async function findUserByEmail(email: string): Promise<UserRecord | null> {
   const db = getDatabase();
+  const normalizedEmail = email.toLowerCase().trim();
   const result = await db.getAllAsync<UserRecord>(
     'SELECT * FROM users WHERE email = ? LIMIT 1',
-    [email],
+    [normalizedEmail],
   );
   return result[0] ?? null;
 }
@@ -46,7 +98,8 @@ export async function createLocalUser(
   password: string,
 ): Promise<UserRecord> {
   const db = getDatabase();
-  const passwordHash = await hashPassword(password);
+  const salt = await generateSalt();
+  const passwordHash = await hashPassword(password, salt);
   const result = await db.runAsync(
     'INSERT INTO users (name, email, password_hash, auth_provider) VALUES (?, ?, ?, ?)',
     [name, email.toLowerCase().trim(), passwordHash, 'local'],
@@ -77,10 +130,12 @@ export async function verifyLocalCredentials(
     return null;
   }
 
-  const hash = await hashPassword(password);
-  if (hash !== result[0].password_hash) {
+  const hashValid = await verifyPassword(password, result[0].password_hash);
+  if (!hashValid) {
     return null;
   }
+
+  await upgradeLegacyHash(result[0].id, result[0].password_hash, password);
 
   return {
     id: result[0].id,

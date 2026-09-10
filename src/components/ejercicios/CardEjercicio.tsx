@@ -1,3 +1,4 @@
+import { colors } from '../../theme/colors';
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import type { ExerciseWithBodyPart } from '../../types/exercise';
@@ -26,9 +27,9 @@ export default function CardEjercicio({ exercise }: CardEjercicioProps) {
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#16213e',
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: '#2a2a4a',
+    borderColor: colors.cardAlt,
     borderRadius: 12,
     padding: 16,
     marginBottom: 12,
@@ -40,24 +41,24 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   name: {
-    color: '#ffffff',
+    color: colors.text,
     fontSize: 16,
     fontWeight: '600',
     flex: 1,
   },
   equipmentBadge: {
-    backgroundColor: '#2a2a4a',
+    backgroundColor: colors.cardAlt,
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 4,
     marginLeft: 8,
   },
   equipmentText: {
-    color: '#a0a0b8',
+    color: colors.textMuted,
     fontSize: 12,
   },
   description: {
-    color: '#a0a0b8',
+    color: colors.textMuted,
     fontSize: 14,
     lineHeight: 20,
   },

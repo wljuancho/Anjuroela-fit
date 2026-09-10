@@ -1,3 +1,6 @@
+import * as FileSystem from 'expo-file-system';
+import { AI_CONFIG } from '../constants/config';
+import { getVisionApiKey } from './configService';
 import type { NutritionEstimate } from '../types/meal';
 
 export interface NutritionVisionInput {
@@ -7,6 +10,75 @@ export interface NutritionVisionInput {
 
 export interface NutritionVisionProvider {
   estimate(input: NutritionVisionInput): Promise<NutritionEstimate | null>;
+}
+
+const GEMINI_PROMPT =
+  'Analiza la siguiente imagen de comida. Identifica los alimentos presentes, detecta ' +
+  'detalles de cocción (ej. si es frito, hervido, a la plancha, etc.) y devuelve un JSON ' +
+  'estricto con: { "mealName": string, "calories": number, "protein_g": number, ' +
+  '"carbs_g": number, "fat_g": number, "description": string }. ' +
+  'Solo devuelve el JSON sin texto adicional.';
+
+export class GeminiVisionProvider implements NutritionVisionProvider {
+  async estimate(input: NutritionVisionInput): Promise<NutritionEstimate | null> {
+    const apiKey = await getVisionApiKey();
+    if (!apiKey || !input.imageUri) {
+      return null;
+    }
+
+    try {
+      const base64 = await FileSystem.readAsStringAsync(input.imageUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      const url = `${AI_CONFIG.GEMINI_API_URL}?key=${apiKey}`;
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                { text: GEMINI_PROMPT },
+                { inline_data: { mime_type: 'image/jpeg', data: base64 } },
+              ],
+            },
+          ],
+        }),
+      });
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const data = await response.json();
+      const text: string | undefined =
+        data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+      if (!text) {
+        return null;
+      }
+
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        return null;
+      }
+
+      const parsed = JSON.parse(jsonMatch[0]);
+
+      return {
+        mealName: parsed.mealName ?? undefined,
+        description: parsed.description ?? undefined,
+        calories: Number(parsed.calories) || 0,
+        proteinG: Number(parsed.protein_g) || 0,
+        carbsG: Number(parsed.carbs_g) || 0,
+        fatG: Number(parsed.fat_g) || 0,
+      };
+    } catch {
+      return null;
+    }
+  }
 }
 
 const FOOD_DB: Array<{
@@ -55,11 +127,19 @@ const FOOD_DB: Array<{
   },
 ];
 
-const DEFAULT_ESTIMATE: NutritionEstimate = { calories: 300, proteinG: 20, carbsG: 35, fatG: 10 };
+const DEFAULT_ESTIMATE: NutritionEstimate = {
+  calories: 300,
+  proteinG: 20,
+  carbsG: 35,
+  fatG: 10,
+};
 
 export class MockNutritionVisionProvider implements NutritionVisionProvider {
   async estimate(input: NutritionVisionInput): Promise<NutritionEstimate | null> {
-    const text = [input.description, input.imageUri].filter(Boolean).join(' ').toLowerCase();
+    const text = [input.description, input.imageUri]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
     if (!text) {
       return null;
     }
@@ -70,13 +150,26 @@ export class MockNutritionVisionProvider implements NutritionVisionProvider {
   }
 }
 
-let provider: NutritionVisionProvider | null = null;
+let primaryProvider: NutritionVisionProvider | null = null;
+const fallbackProvider = new MockNutritionVisionProvider();
 
 export function setNutritionVisionProvider(next: NutritionVisionProvider): void {
-  provider = next;
+  primaryProvider = next;
 }
 
-export async function estimateNutrition(input: NutritionVisionInput): Promise<NutritionEstimate | null> {
-  const active = provider ?? new MockNutritionVisionProvider();
-  return active.estimate(input);
+export async function estimateNutrition(
+  input: NutritionVisionInput,
+): Promise<NutritionEstimate | null> {
+  const primary = primaryProvider ?? new GeminiVisionProvider();
+
+  try {
+    const result = await primary.estimate(input);
+    if (result) {
+      return result;
+    }
+  } catch {
+    // fall through to mock
+  }
+
+  return fallbackProvider.estimate(input);
 }

@@ -1,3 +1,4 @@
+import { colors } from '../theme/colors';
 import React from 'react';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -12,7 +13,7 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 function LoadingScreen() {
   return (
     <View style={styles.loading}>
-      <ActivityIndicator size="large" color="#e94560" />
+      <ActivityIndicator size="large" color={colors.primary} />
     </View>
   );
 }
@@ -44,7 +45,7 @@ export default function RootNavigator() {
       initialRouteName={initialRoute}
       screenOptions={{
         headerShown: false,
-        contentStyle: { backgroundColor: '#1a1a2e' },
+        contentStyle: { backgroundColor: colors.background },
       }}
     >
       <Stack.Screen name="Login" component={LoginScreen} />
@@ -59,6 +60,6 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#1a1a2e',
+    backgroundColor: colors.background,
   },
 });

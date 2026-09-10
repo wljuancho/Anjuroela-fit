@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { colors } from '../theme/colors';
+import React, { useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -18,76 +19,68 @@ import {
   addExercise,
   addBodyPart,
 } from '../services/exerciseService';
+import { useLoadOnMount } from '../hooks/useLoadOnMount';
 import type { BodyPart, ExerciseWithBodyPart, NewExercise, NewBodyPart } from '../types/exercise';
 
 export default function EjerciciosScreen() {
-  const [bodyParts, setBodyParts] = useState<BodyPart[]>([]);
   const [selectedBodyPart, setSelectedBodyPart] = useState<BodyPart | null>(null);
-  const [exercises, setExercises] = useState<ExerciseWithBodyPart[]>([]);
-  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showExerciseModal, setShowExerciseModal] = useState(false);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
 
-  const loadBodyParts = useCallback(async () => {
-    await initExerciseData();
-    const parts = await getAllBodyParts();
-    setBodyParts(parts);
-    if (parts.length > 0 && !selectedBodyPart) {
-      setSelectedBodyPart(parts[0]);
-    }
-  }, [selectedBodyPart]);
+  const selectedRef = useRef<BodyPart | null>(null);
+  selectedRef.current = selectedBodyPart;
 
-  const loadExercises = useCallback(async (bodyPartId: number) => {
-    const items = await getExercisesByBodyPart(bodyPartId);
-    setExercises(items);
-  }, []);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        await loadBodyParts();
-      } finally {
-        setLoading(false);
+  const { data: bodyParts, loading, reload: reloadBodyParts } = useLoadOnMount<BodyPart[]>(
+    useCallback(async () => {
+      await initExerciseData();
+      const parts = await getAllBodyParts();
+      if (!selectedRef.current && parts.length > 0) {
+        setSelectedBodyPart(parts[0]);
       }
-    })();
-  }, []);
+      return parts;
+    }, []),
+    [],
+  );
 
-  useEffect(() => {
-    if (selectedBodyPart) {
-      loadExercises(selectedBodyPart.id);
-    }
-  }, [selectedBodyPart]);
+  const { data: exercises, reload: reloadExercises } = useLoadOnMount<ExerciseWithBodyPart[]>(
+    useCallback(
+      () =>
+        selectedRef.current
+          ? getExercisesByBodyPart(selectedRef.current.id)
+          : Promise.resolve(null),
+      [],
+    ),
+    [selectedBodyPart?.id],
+  );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await loadBodyParts();
-      if (selectedBodyPart) {
-        await loadExercises(selectedBodyPart.id);
-      }
+      await reloadBodyParts();
+      await reloadExercises();
     } finally {
       setRefreshing(false);
     }
-  }, [loadBodyParts, loadExercises, selectedBodyPart]);
+  }, [reloadBodyParts, reloadExercises]);
 
   const handleSaveExercise = async (data: NewExercise) => {
     await addExercise(data);
     if (selectedBodyPart) {
-      await loadExercises(selectedBodyPart.id);
+      await reloadExercises();
     }
   };
 
   const handleSaveCategory = async (data: NewBodyPart) => {
     await addBodyPart(data);
-    await loadBodyParts();
+    await reloadBodyParts();
   };
 
   if (loading) {
     return (
       <SafeAreaView style={styles.safe}>
         <View style={styles.center}>
-          <ActivityIndicator size="large" color="#e94560" />
+          <ActivityIndicator size="large" color={colors.primary} />
         </View>
       </SafeAreaView>
     );
@@ -101,7 +94,7 @@ export default function EjerciciosScreen() {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.tabsContainer}
         >
-          {bodyParts.map((bp) => (
+          {(bodyParts ?? []).map((bp) => (
             <TouchableOpacity
               key={bp.id}
               style={[styles.tab, selectedBodyPart?.id === bp.id ? styles.tabActive : null]}
@@ -116,7 +109,7 @@ export default function EjerciciosScreen() {
             style={[styles.tab, styles.tabAdd]}
             onPress={() => setShowCategoryModal(true)}
           >
-            <Ionicons name="add" size={18} color="#e94560" />
+            <Ionicons name="add" size={18} color={colors.primary} />
           </TouchableOpacity>
         </ScrollView>
 
@@ -127,29 +120,29 @@ export default function EjerciciosScreen() {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={onRefresh}
-              tintColor="#e94560"
+              tintColor={colors.primary}
             />
           }
         >
-          {exercises.length === 0 ? (
+          {(exercises ?? []).length === 0 ? (
             <View style={styles.emptyState}>
-              <Ionicons name="barbell-outline" size={48} color="#2a2a4a" />
+              <Ionicons name="barbell-outline" size={48} color={colors.cardAlt} />
               <Text style={styles.emptyText}>No hay ejercicios aún</Text>
               <Text style={styles.emptySubtext}>Toca + para añadir uno</Text>
             </View>
           ) : (
-            exercises.map((ex) => <CardEjercicio key={ex.id} exercise={ex} />)
+            (exercises ?? []).map((ex) => <CardEjercicio key={ex.id} exercise={ex} />)
           )}
         </ScrollView>
 
         <TouchableOpacity style={styles.fab} onPress={() => setShowExerciseModal(true)}>
-          <Ionicons name="add" size={28} color="#ffffff" />
+          <Ionicons name="add" size={28} color={colors.text} />
         </TouchableOpacity>
       </View>
 
       <ModalNuevoEjercicio
         visible={showExerciseModal}
-        bodyParts={bodyParts}
+        bodyParts={bodyParts ?? []}
         onClose={() => setShowExerciseModal(false)}
         onSave={handleSaveExercise}
       />
@@ -166,7 +159,7 @@ export default function EjerciciosScreen() {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: '#1a1a2e',
+    backgroundColor: colors.background,
   },
   container: {
     flex: 1,
@@ -175,7 +168,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#1a1a2e',
+    backgroundColor: colors.background,
   },
   tabsContainer: {
     paddingHorizontal: 16,
@@ -183,16 +176,16 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   tab: {
-    backgroundColor: '#16213e',
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: '#2a2a4a',
+    borderColor: colors.cardAlt,
     borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 10,
   },
   tabActive: {
-    backgroundColor: '#e94560',
-    borderColor: '#e94560',
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   tabAdd: {
     paddingHorizontal: 12,
@@ -200,12 +193,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   tabText: {
-    color: '#a0a0b8',
+    color: colors.textMuted,
     fontSize: 14,
     fontWeight: '500',
   },
   tabTextActive: {
-    color: '#ffffff',
+    color: colors.text,
   },
   exercisesList: {
     flex: 1,
@@ -216,13 +209,13 @@ const styles = StyleSheet.create({
     marginTop: 64,
   },
   emptyText: {
-    color: '#a0a0b8',
+    color: colors.textMuted,
     fontSize: 16,
     marginTop: 12,
     fontWeight: '600',
   },
   emptySubtext: {
-    color: '#7a7a96',
+    color: colors.textSubtle,
     fontSize: 14,
     marginTop: 4,
   },
@@ -233,11 +226,11 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: '#e94560',
+    backgroundColor: colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
     elevation: 6,
-    shadowColor: '#e94560',
+    shadowColor: colors.primary,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,

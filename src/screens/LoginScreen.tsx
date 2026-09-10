@@ -1,3 +1,4 @@
+import { colors } from '../theme/colors';
 import React, { useState } from 'react';
 import {
   View,
@@ -202,7 +203,7 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#1a1a2e',
+    backgroundColor: colors.background,
   },
   flex: {
     flex: 1,
@@ -217,18 +218,18 @@ const styles = StyleSheet.create({
     marginBottom: 32,
   },
   logo: {
-    color: '#ffffff',
+    color: colors.text,
     fontSize: 30,
     fontWeight: '700',
     marginBottom: 8,
   },
   subtitle: {
-    color: '#a0a0b8',
+    color: colors.textMuted,
     fontSize: 15,
   },
   tabs: {
     flexDirection: 'row',
-    backgroundColor: '#16213e',
+    backgroundColor: colors.card,
     borderRadius: 10,
     marginBottom: 24,
     padding: 4,
@@ -240,18 +241,18 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   tabActive: {
-    backgroundColor: '#e94560',
+    backgroundColor: colors.primary,
   },
   tabText: {
-    color: '#a0a0b8',
+    color: colors.textMuted,
     fontSize: 14,
     fontWeight: '500',
   },
   tabTextActive: {
-    color: '#ffffff',
+    color: colors.text,
   },
   formError: {
-    color: '#e94560',
+    color: colors.primary,
     fontSize: 13,
     marginBottom: 16,
     textAlign: 'center',
@@ -267,10 +268,10 @@ const styles = StyleSheet.create({
   dividerLine: {
     flex: 1,
     height: 1,
-    backgroundColor: '#2a2a4a',
+    backgroundColor: colors.cardAlt,
   },
   dividerText: {
-    color: '#a0a0b8',
+    color: colors.textMuted,
     marginHorizontal: 12,
     fontSize: 13,
   },

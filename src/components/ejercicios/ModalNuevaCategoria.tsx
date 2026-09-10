@@ -1,3 +1,4 @@
+import { colors } from '../../theme/colors';
 import React, { useState } from 'react';
 import {
   Modal,
@@ -100,10 +101,10 @@ const styles = StyleSheet.create({
   },
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: colors.scrim,
   },
   sheet: {
-    backgroundColor: '#1a1a2e',
+    backgroundColor: colors.background,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingHorizontal: 24,
@@ -112,20 +113,20 @@ const styles = StyleSheet.create({
   handle: {
     width: 40,
     height: 4,
-    backgroundColor: '#2a2a4a',
+    backgroundColor: colors.cardAlt,
     borderRadius: 2,
     alignSelf: 'center',
     marginTop: 12,
     marginBottom: 16,
   },
   title: {
-    color: '#ffffff',
+    color: colors.text,
     fontSize: 20,
     fontWeight: '700',
     marginBottom: 20,
   },
   errorText: {
-    color: '#e94560',
+    color: colors.primary,
     fontSize: 13,
     marginBottom: 12,
   },

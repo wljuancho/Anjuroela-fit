@@ -76,21 +76,27 @@ const SEED_DATA: SeedBodyPart[] = [
 
 async function ensureSeed(): Promise<void> {
   const db = getDatabase();
-  const rows = await db.getAllAsync<{ cnt: number }>('SELECT COUNT(*) as cnt FROM body_parts');
-  if (rows[0]?.cnt > 0) return;
+  try {
+    const rows = await db.getAllAsync<{ cnt: number }>('SELECT COUNT(*) as cnt FROM body_parts');
+    if (rows[0]?.cnt > 0) return;
 
-  for (const part of SEED_DATA) {
-    const result = await db.runAsync(
-      'INSERT INTO body_parts (name) VALUES (?)',
-      [part.name],
-    );
-    const bodyPartId = result.lastInsertRowId;
-    for (const ex of part.exercises) {
-      await db.runAsync(
-        'INSERT INTO exercises_v2 (name, body_part_id, description, equipment) VALUES (?, ?, ?, ?)',
-        [ex.name, bodyPartId, ex.description, ex.equipment ?? null],
-      );
-    }
+    await db.withTransactionAsync(async () => {
+      for (const part of SEED_DATA) {
+        const result = await db.runAsync(
+          'INSERT INTO body_parts (name) VALUES (?)',
+          [part.name],
+        );
+        const bodyPartId = result.lastInsertRowId;
+        for (const ex of part.exercises) {
+          await db.runAsync(
+            'INSERT INTO exercises_v2 (name, body_part_id, description, equipment) VALUES (?, ?, ?, ?)',
+            [ex.name, bodyPartId, ex.description, ex.equipment ?? null],
+          );
+        }
+      }
+    });
+  } catch {
+    throw new Error('No se pudo inicializar el catálogo de ejercicios.');
   }
 }
 

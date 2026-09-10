@@ -1,3 +1,4 @@
+import { colors } from '../../theme/colors';
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import type { GoalSummary } from '../../types/progress';
@@ -85,16 +86,16 @@ export default function CardResumenMeta({ summary }: CardResumenMetaProps) {
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#16213e',
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: '#2a2a4a',
+    borderColor: colors.cardAlt,
     borderRadius: 14,
     padding: 18,
     marginHorizontal: 16,
     marginBottom: 16,
   },
   cardTitle: {
-    color: '#ffffff',
+    color: colors.text,
     fontSize: 17,
     fontWeight: '700',
     marginBottom: 14,
@@ -108,29 +109,29 @@ const styles = StyleSheet.create({
   metricBox: {
     flexBasis: '47%',
     flexGrow: 1,
-    backgroundColor: '#1a1a2e',
+    backgroundColor: colors.background,
     borderWidth: 1,
-    borderColor: '#2a2a4a',
+    borderColor: colors.cardAlt,
     borderRadius: 10,
     paddingVertical: 12,
     paddingHorizontal: 14,
   },
   metricBoxHighlight: {
-    borderColor: '#e94560',
-    backgroundColor: '#201d38',
+    borderColor: colors.primary,
+    backgroundColor: colors.graph,
   },
   metricLabel: {
-    color: '#a0a0b8',
+    color: colors.textMuted,
     fontSize: 12,
     marginBottom: 6,
   },
   metricValue: {
-    color: '#ffffff',
+    color: colors.text,
     fontSize: 18,
     fontWeight: '700',
   },
   metricValueHighlight: {
-    color: '#e94560',
+    color: colors.primary,
   },
   progressBlock: {
     marginBottom: 14,
@@ -141,39 +142,39 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   progressLabel: {
-    color: '#a0a0b8',
+    color: colors.textMuted,
     fontSize: 13,
   },
   progressPercent: {
-    color: '#e94560',
+    color: colors.primary,
     fontSize: 13,
     fontWeight: '700',
   },
   progressTrack: {
     height: 10,
     borderRadius: 5,
-    backgroundColor: '#1a1a2e',
+    backgroundColor: colors.background,
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
     borderRadius: 5,
-    backgroundColor: '#e94560',
+    backgroundColor: colors.primary,
   },
   footerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     borderTopWidth: 1,
-    borderTopColor: '#2a2a4a',
+    borderTopColor: colors.cardAlt,
     paddingTop: 12,
   },
   footerText: {
-    color: '#a0a0b8',
+    color: colors.textMuted,
     fontSize: 13,
   },
   footerValue: {
-    color: '#ffffff',
+    color: colors.text,
     fontSize: 14,
     fontWeight: '600',
   },

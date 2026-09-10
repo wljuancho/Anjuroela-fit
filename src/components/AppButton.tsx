@@ -1,3 +1,4 @@
+import { colors } from '../theme/colors';
 import React from 'react';
 import {
   TouchableOpacity,
@@ -35,7 +36,7 @@ export default function AppButton({
       activeOpacity={0.8}
     >
       {loading ? (
-        <ActivityIndicator color="#ffffff" />
+        <ActivityIndicator color={colors.text} />
       ) : (
         <Text style={[styles.text, variant === 'outline' ? styles.outlineText : null]}>
           {title}
@@ -55,27 +56,27 @@ const styles = StyleSheet.create({
     minHeight: 50,
   },
   primary: {
-    backgroundColor: '#e94560',
+    backgroundColor: colors.primary,
   },
   secondary: {
-    backgroundColor: '#16213e',
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: '#2a2a4a',
+    borderColor: colors.cardAlt,
   },
   outline: {
     backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: '#e94560',
+    borderColor: colors.primary,
   },
   disabled: {
     opacity: 0.5,
   },
   text: {
-    color: '#ffffff',
+    color: colors.text,
     fontSize: 16,
     fontWeight: '600',
   },
   outlineText: {
-    color: '#e94560',
+    color: colors.primary,
   },
 });

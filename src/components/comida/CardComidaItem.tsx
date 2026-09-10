@@ -1,3 +1,4 @@
+import { colors } from '../../theme/colors';
 import React from 'react';
 import { View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -31,7 +32,7 @@ export default function CardComidaItem({ meal, onEdit, onDelete }: CardComidaIte
         <Image source={{ uri: meal.image_uri }} style={styles.thumb} />
       ) : (
         <View style={[styles.thumb, styles.thumbPlaceholder]}>
-          <Ionicons name={MEAL_TYPE_ICONS[meal.meal_type]} size={22} color="#a0a0b8" />
+          <Ionicons name={MEAL_TYPE_ICONS[meal.meal_type]} size={22} color={colors.textMuted} />
         </View>
       )}
       <View style={styles.info}>
@@ -47,10 +48,10 @@ export default function CardComidaItem({ meal, onEdit, onDelete }: CardComidaIte
         </Text>
       </View>
       <TouchableOpacity style={styles.action} onPress={() => onEdit(meal)}>
-        <Ionicons name="create-outline" size={20} color="#a0a0b8" />
+        <Ionicons name="create-outline" size={20} color={colors.textMuted} />
       </TouchableOpacity>
       <TouchableOpacity style={styles.action} onPress={() => onDelete(meal.id)}>
-        <Ionicons name="trash-outline" size={20} color="#e94560" />
+        <Ionicons name="trash-outline" size={20} color={colors.primary} />
       </TouchableOpacity>
     </View>
   );
@@ -60,9 +61,9 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#16213e',
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: '#2a2a4a',
+    borderColor: colors.cardAlt,
     borderRadius: 10,
     paddingVertical: 10,
     paddingHorizontal: 12,
@@ -74,9 +75,9 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   thumbPlaceholder: {
-    backgroundColor: '#1a1a2e',
+    backgroundColor: colors.background,
     borderWidth: 1,
-    borderColor: '#2a2a4a',
+    borderColor: colors.cardAlt,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -89,22 +90,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   title: {
-    color: '#ffffff',
+    color: colors.text,
     fontSize: 15,
     fontWeight: '600',
   },
   calories: {
-    color: '#e94560',
+    color: colors.primary,
     fontSize: 14,
     fontWeight: '700',
   },
   subtitle: {
-    color: '#a0a0b8',
+    color: colors.textMuted,
     fontSize: 12,
     marginTop: 2,
   },
   macros: {
-    color: '#7a7a96',
+    color: colors.textSubtle,
     fontSize: 12,
     marginTop: 2,
   },

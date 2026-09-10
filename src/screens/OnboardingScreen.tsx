@@ -1,3 +1,4 @@
+import { colors } from '../theme/colors';
 import React, { useState } from 'react';
 import {
   View,
@@ -161,7 +162,7 @@ export default function OnboardingScreen() {
           </View>
 
           <View style={styles.infoCard}>
-            <Ionicons name="information-circle" size={18} color="#e94560" />
+            <Ionicons name="information-circle" size={18} color={colors.primary} />
             <Text style={styles.infoText}>
               Cambio saludable: máx. {MAX_WEEKLY_LOSS_KG} kg/sem en pérdida o{' '}
               {MAX_WEEKLY_GAIN_KG} kg/sem en ganancia.
@@ -223,7 +224,7 @@ export default function OnboardingScreen() {
 
           {warnings.goal ? (
             <View style={styles.warningBox}>
-              <Ionicons name="warning" size={20} color="#ffd166" />
+              <Ionicons name="warning" size={20} color={colors.warning} />
               <Text style={styles.warningText}>{warnings.goal}</Text>
             </View>
           ) : null}
@@ -249,7 +250,7 @@ export default function OnboardingScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#1a1a2e',
+    backgroundColor: colors.background,
   },
   flex: {
     flex: 1,
@@ -264,32 +265,32 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   title: {
-    color: '#ffffff',
+    color: colors.text,
     fontSize: 26,
     fontWeight: '700',
     marginBottom: 10,
   },
   subtitle: {
-    color: '#a0a0b8',
+    color: colors.textMuted,
     fontSize: 15,
     textAlign: 'center',
   },
   infoCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#16213e',
+    backgroundColor: colors.card,
     borderRadius: 10,
     padding: 12,
     marginBottom: 20,
   },
   infoText: {
-    color: '#e0e0f0',
+    color: colors.info,
     fontSize: 13,
     marginLeft: 8,
     flex: 1,
   },
   formError: {
-    color: '#e94560',
+    color: colors.primary,
     fontSize: 13,
     marginBottom: 16,
     textAlign: 'center',
@@ -297,21 +298,21 @@ const styles = StyleSheet.create({
   warningBox: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    backgroundColor: 'rgba(255, 209, 102, 0.1)',
-    borderColor: '#ffd166',
+    backgroundColor: colors.warningSoft,
+    borderColor: colors.warning,
     borderWidth: 1,
     borderRadius: 10,
     padding: 12,
     marginBottom: 12,
   },
   warningText: {
-    color: '#ffd166',
+    color: colors.warning,
     fontSize: 13,
     marginLeft: 8,
     flex: 1,
   },
   hintText: {
-    color: '#a0a0b8',
+    color: colors.textMuted,
     fontSize: 12,
     marginBottom: 16,
     textAlign: 'center',

@@ -1,3 +1,4 @@
+import { colors } from '../../theme/colors';
 import React from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import type { DayOfWeek, WeeklyScheduleEntry } from '../../types/workout';
@@ -73,29 +74,29 @@ const styles = StyleSheet.create({
   },
   dayCard: {
     width: 72,
-    backgroundColor: '#16213e',
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: '#2a2a4a',
+    borderColor: colors.cardAlt,
     borderRadius: 14,
     alignItems: 'center',
     paddingVertical: 12,
     paddingHorizontal: 4,
   },
   dayCardActive: {
-    backgroundColor: '#e94560',
-    borderColor: '#e94560',
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   dayCardCompleted: {
-    borderColor: '#4caf50',
+    borderColor: colors.success,
   },
   dayLabel: {
-    color: '#a0a0b8',
+    color: colors.textMuted,
     fontSize: 13,
     fontWeight: '600',
     marginBottom: 6,
   },
   dayLabelActive: {
-    color: '#ffffff',
+    color: colors.text,
   },
   dot: {
     width: 6,
@@ -105,18 +106,18 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   dotCompleted: {
-    backgroundColor: '#4caf50',
+    backgroundColor: colors.success,
   },
   bodyPartLabel: {
-    color: '#a0a0b8',
+    color: colors.textMuted,
     fontSize: 11,
     textAlign: 'center',
   },
   bodyPartLabelActive: {
-    color: '#ffffff',
+    color: colors.text,
   },
   restLabel: {
-    color: '#7a7a96',
+    color: colors.textSubtle,
     fontStyle: 'italic',
   },
 });

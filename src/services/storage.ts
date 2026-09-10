@@ -3,10 +3,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const PREFIX = '@anjuroela_fit';
 
 export const StorageKeys = {
+  // Legacy session key kept for one-time migration to SecureStore (see sessionStorage.ts)
   User: `${PREFIX}:user`,
   OnboardingComplete: `${PREFIX}:onboarding_complete`,
   Theme: `${PREFIX}:theme`,
-  AuthToken: `${PREFIX}:auth_token`,
 } as const;
 
 export type StorageKey = (typeof StorageKeys)[keyof typeof StorageKeys];

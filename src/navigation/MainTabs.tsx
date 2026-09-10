@@ -1,3 +1,4 @@
+import { colors } from '../theme/colors';
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
@@ -5,6 +6,7 @@ import RutinaScreen from '../screens/RutinaScreen';
 import EjerciciosScreen from '../screens/EjerciciosScreen';
 import ProgresoScreen from '../screens/ProgresoScreen';
 import ComidaScreen from '../screens/ComidaScreen';
+import SettingsScreen from '../screens/SettingsScreen';
 import type { MainTabParamList } from './types';
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
@@ -14,6 +16,7 @@ const icons: Record<keyof MainTabParamList, keyof typeof Ionicons.glyphMap> = {
   Ejercicios: 'barbell',
   Progreso: 'trending-up',
   Comida: 'restaurant',
+  Ajustes: 'settings',
 };
 
 export default function MainTabs() {
@@ -21,16 +24,16 @@ export default function MainTabs() {
     <Tab.Navigator
       screenOptions={({ route }) => ({
         headerShown: true,
-        tabBarActiveTintColor: '#e94560',
-        tabBarInactiveTintColor: '#a0a0b8',
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: colors.textMuted,
         tabBarStyle: {
-          backgroundColor: '#16213e',
-          borderTopColor: '#222244',
+          backgroundColor: colors.card,
+          borderTopColor: colors.border,
         },
         headerStyle: {
-          backgroundColor: '#1a1a2e',
+          backgroundColor: colors.background,
         },
-        headerTintColor: '#ffffff',
+        headerTintColor: colors.text,
         tabBarIcon: ({ color, size }) => (
           <Ionicons name={icons[route.name]} color={color} size={size} />
         ),
@@ -40,6 +43,7 @@ export default function MainTabs() {
       <Tab.Screen name="Ejercicios" component={EjerciciosScreen} />
       <Tab.Screen name="Progreso" component={ProgresoScreen} />
       <Tab.Screen name="Comida" component={ComidaScreen} />
+      <Tab.Screen name="Ajustes" component={SettingsScreen} />
     </Tab.Navigator>
   );
 }

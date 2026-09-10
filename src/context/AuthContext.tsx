@@ -1,5 +1,9 @@
 import React, { createContext, useContext, useState, useMemo, useEffect } from 'react';
-import { getItem, setItem, removeItem, StorageKeys } from '../services/storage';
+import {
+  getStoredSession,
+  setStoredSession,
+  removeStoredSession,
+} from '../services/sessionStorage';
 import {
   createLocalUser,
   verifyLocalCredentials,
@@ -65,7 +69,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   async function loadSession() {
     try {
-      const session = await getItem<StoredSession>(StorageKeys.User);
+      const session = await getStoredSession<StoredSession>();
       if (session?.user) {
         setUser(session.user);
         setProfile(session.profile ?? null);
@@ -83,7 +87,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user: nextUser,
       profile: nextProfile,
     };
-    await setItem(StorageKeys.User, session);
+    await setStoredSession(session);
   }
 
   async function refreshProfile(userId: number): Promise<UserProfile | null> {
@@ -174,7 +178,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       async signOut() {
         setUser(null);
         setProfile(null);
-        await removeItem(StorageKeys.User);
+        await removeStoredSession();
       },
     }),
     [user, profile, isLoading],

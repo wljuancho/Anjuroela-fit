@@ -1,3 +1,4 @@
+import { colors } from '../../theme/colors';
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import type { ExerciseStrengthRecord } from '../../types/progress';
@@ -78,36 +79,36 @@ export default function HistorialFuerzaCard({ record }: HistorialFuerzaCardProps
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: '#16213e',
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: '#2a2a4a',
+    borderColor: colors.cardAlt,
     borderRadius: 14,
     padding: 18,
     marginHorizontal: 16,
     marginBottom: 16,
   },
   emptyContainer: {
-    backgroundColor: '#16213e',
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: '#2a2a4a',
+    borderColor: colors.cardAlt,
     borderRadius: 14,
     padding: 20,
     marginHorizontal: 16,
     marginBottom: 16,
   },
   emptyText: {
-    color: '#a0a0b8',
+    color: colors.textMuted,
     fontSize: 14,
     textAlign: 'center',
     lineHeight: 20,
   },
   exerciseName: {
-    color: '#ffffff',
+    color: colors.text,
     fontSize: 16,
     fontWeight: '700',
   },
   bodyPartName: {
-    color: '#a0a0b8',
+    color: colors.textMuted,
     fontSize: 12,
     marginTop: 2,
     marginBottom: 16,
@@ -128,18 +129,18 @@ const styles = StyleSheet.create({
     minWidth: 44,
   },
   barValue: {
-    color: '#a0a0b8',
+    color: colors.textMuted,
     fontSize: 10,
     marginBottom: 4,
   },
   bar: {
     width: 22,
-    backgroundColor: '#e94560',
+    backgroundColor: colors.primary,
     borderTopLeftRadius: 4,
     borderTopRightRadius: 4,
   },
   barDate: {
-    color: '#7a7a96',
+    color: colors.textSubtle,
     fontSize: 11,
     marginTop: 6,
   },
@@ -148,15 +149,15 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginTop: 16,
     borderTopWidth: 1,
-    borderTopColor: '#2a2a4a',
+    borderTopColor: colors.cardAlt,
     paddingTop: 12,
   },
   legendText: {
-    color: '#a0a0b8',
+    color: colors.textMuted,
     fontSize: 13,
   },
   legendValue: {
-    color: '#e94560',
+    color: colors.primary,
     fontSize: 14,
     fontWeight: '700',
   },
@@ -165,17 +166,17 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   singleLabel: {
-    color: '#a0a0b8',
+    color: colors.textMuted,
     fontSize: 13,
     marginBottom: 6,
   },
   singleValue: {
-    color: '#e94560',
+    color: colors.primary,
     fontSize: 26,
     fontWeight: '800',
   },
   singleDate: {
-    color: '#7a7a96',
+    color: colors.textSubtle,
     fontSize: 12,
     marginTop: 4,
   },

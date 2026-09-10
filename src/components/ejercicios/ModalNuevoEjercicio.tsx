@@ -1,3 +1,4 @@
+import { colors } from '../../theme/colors';
 import React, { useState } from 'react';
 import {
   Modal,
@@ -161,10 +162,10 @@ const styles = StyleSheet.create({
   },
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: colors.scrim,
   },
   sheet: {
-    backgroundColor: '#1a1a2e',
+    backgroundColor: colors.background,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingHorizontal: 24,
@@ -174,20 +175,20 @@ const styles = StyleSheet.create({
   handle: {
     width: 40,
     height: 4,
-    backgroundColor: '#2a2a4a',
+    backgroundColor: colors.cardAlt,
     borderRadius: 2,
     alignSelf: 'center',
     marginTop: 12,
     marginBottom: 16,
   },
   title: {
-    color: '#ffffff',
+    color: colors.text,
     fontSize: 20,
     fontWeight: '700',
     marginBottom: 20,
   },
   label: {
-    color: '#a0a0b8',
+    color: colors.textMuted,
     fontSize: 14,
     marginBottom: 8,
     fontWeight: '500',
@@ -199,30 +200,30 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   chip: {
-    backgroundColor: '#16213e',
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: '#2a2a4a',
+    borderColor: colors.cardAlt,
     borderRadius: 20,
     paddingHorizontal: 14,
     paddingVertical: 8,
   },
   chipActive: {
-    backgroundColor: '#e94560',
-    borderColor: '#e94560',
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   chipText: {
-    color: '#a0a0b8',
+    color: colors.textMuted,
     fontSize: 13,
   },
   chipTextActive: {
-    color: '#ffffff',
+    color: colors.text,
   },
   textArea: {
     height: 80,
     textAlignVertical: 'top',
   },
   errorText: {
-    color: '#e94560',
+    color: colors.primary,
     fontSize: 13,
     marginBottom: 12,
   },

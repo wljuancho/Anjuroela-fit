@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { colors } from '../theme/colors';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -16,54 +17,28 @@ import {
   ModalAgregarComida,
   RecomendacionesAlimentacionCard,
 } from '../components/comida';
-import {
-  getDailySummary,
-  addMeal,
-  updateMeal,
-  deleteMeal,
-} from '../services/mealService';
 import { estimateNutrition } from '../services/nutritionVisionService';
 import { useAuth } from '../context';
+import { useNutritionLogs } from '../hooks/useNutritionLogs';
 import { formatDate } from '../services/utils';
-import type {
-  DailyMealSummary,
-  MealRecord,
-  NewMeal,
-} from '../types/meal';
+import type { MealRecord, NewMeal } from '../types/meal';
 
 export default function ComidaScreen() {
   const { user } = useAuth();
   const [date] = useState(() => formatDate(new Date()));
-  const [summary, setSummary] = useState<DailyMealSummary | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { summary, loading, error, saveMeal, removeMeal } = useNutritionLogs(
+    user?.id ?? 0,
+    date,
+  );
 
   const [modalVisible, setModalVisible] = useState(false);
   const [editingMeal, setEditingMeal] = useState<MealRecord | null>(null);
 
-  const reloadAll = useCallback(async () => {
-    if (!user) return;
-    const daily = await getDailySummary(user.id, date);
-    setSummary(daily);
-  }, [user, date]);
-
   useEffect(() => {
-    (async () => {
-      try {
-        await reloadAll();
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [reloadAll]);
-
-  const handleSaveMeal = async (data: NewMeal, id?: number) => {
-    if (id) {
-      await updateMeal(id, data);
-    } else {
-      await addMeal(data);
+    if (error) {
+      Alert.alert('Error', error);
     }
-    await reloadAll();
-  };
+  }, [error]);
 
   const handleDeleteMeal = (id: number) => {
     Alert.alert(
@@ -75,8 +50,7 @@ export default function ComidaScreen() {
           text: 'Eliminar',
           style: 'destructive',
           onPress: async () => {
-            await deleteMeal(id);
-            await reloadAll();
+            await removeMeal(id);
           },
         },
       ],
@@ -97,7 +71,7 @@ export default function ComidaScreen() {
     return (
       <SafeAreaView style={styles.safe}>
         <View style={styles.center}>
-          <ActivityIndicator size="large" color="#e94560" />
+          <ActivityIndicator size="large" color={colors.primary} />
         </View>
       </SafeAreaView>
     );
@@ -112,7 +86,7 @@ export default function ComidaScreen() {
             <Text style={styles.headerSubtitle}>{date}</Text>
           </View>
           <TouchableOpacity style={styles.addBtn} onPress={openNewModal}>
-            <Ionicons name="add" size={18} color="#e94560" />
+            <Ionicons name="add" size={18} color={colors.primary} />
             <Text style={styles.addBtnText}>Añadir</Text>
           </TouchableOpacity>
         </View>
@@ -125,7 +99,7 @@ export default function ComidaScreen() {
 
         {summary && summary.meals.length === 0 ? (
           <View style={styles.empty}>
-            <Ionicons name="restaurant-outline" size={40} color="#2a2a4a" />
+            <Ionicons name="restaurant-outline" size={40} color={colors.cardAlt} />
             <Text style={styles.emptyText}>Sin comidas registradas</Text>
             <Text style={styles.emptySubtext}>
               Añade tu primera comida para llevar el control de calorías y macronutrientes
@@ -157,7 +131,7 @@ export default function ComidaScreen() {
         date={date}
         editingMeal={editingMeal}
         onClose={() => setModalVisible(false)}
-        onSave={handleSaveMeal}
+        onSave={saveMeal}
         onEstimate={estimateNutrition}
       />
     </SafeAreaView>
@@ -167,7 +141,7 @@ export default function ComidaScreen() {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: '#1a1a2e',
+    backgroundColor: colors.background,
   },
   content: {
     paddingTop: 16,
@@ -176,7 +150,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#1a1a2e',
+    backgroundColor: colors.background,
   },
   header: {
     flexDirection: 'row',
@@ -186,12 +160,12 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   headerTitle: {
-    color: '#ffffff',
+    color: colors.text,
     fontSize: 22,
     fontWeight: '800',
   },
   headerSubtitle: {
-    color: '#a0a0b8',
+    color: colors.textMuted,
     fontSize: 13,
     marginTop: 2,
   },
@@ -202,7 +176,7 @@ const styles = StyleSheet.create({
     padding: 6,
   },
   addBtnText: {
-    color: '#e94560',
+    color: colors.primary,
     fontSize: 14,
     fontWeight: '600',
   },
@@ -215,7 +189,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   sectionTitle: {
-    color: '#ffffff',
+    color: colors.text,
     fontSize: 17,
     fontWeight: '700',
   },
@@ -230,13 +204,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
   },
   emptyText: {
-    color: '#a0a0b8',
+    color: colors.textMuted,
     fontSize: 15,
     fontWeight: '600',
     marginTop: 10,
   },
   emptySubtext: {
-    color: '#7a7a96',
+    color: colors.textSubtle,
     fontSize: 13,
     marginTop: 4,
     textAlign: 'center',

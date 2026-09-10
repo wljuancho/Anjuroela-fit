@@ -33,6 +33,8 @@ export interface NutritionEstimate {
   proteinG: number;
   carbsG: number;
   fatG: number;
+  mealName?: string;
+  description?: string;
 }
 
 export interface DailyCalorieGoal {

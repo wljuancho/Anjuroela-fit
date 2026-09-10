@@ -1,3 +1,4 @@
+import { colors } from '../theme/colors';
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -24,7 +25,7 @@ export default function PlaceholderScreen({ title, description }: PlaceholderScr
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#1a1a2e',
+    backgroundColor: colors.background,
   },
   content: {
     flex: 1,
@@ -33,25 +34,25 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   title: {
-    color: '#ffffff',
+    color: colors.text,
     fontSize: 24,
     fontWeight: '700',
     marginBottom: 8,
   },
   description: {
-    color: '#a0a0b8',
+    color: colors.textMuted,
     fontSize: 16,
     textAlign: 'center',
     marginBottom: 24,
   },
   badge: {
-    backgroundColor: '#e94560',
+    backgroundColor: colors.primary,
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
   },
   badgeText: {
-    color: '#ffffff',
+    color: colors.text,
     fontSize: 14,
     fontWeight: '600',
   },

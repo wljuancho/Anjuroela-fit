@@ -1,3 +1,4 @@
+import { colors } from '../../theme/colors';
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,7 +21,7 @@ export default function HistorialPesoLista({ logs, onDelete, onEdit }: Historial
   if (logs.length === 0) {
     return (
       <View style={styles.empty}>
-        <Ionicons name="scale-outline" size={40} color="#2a2a4a" />
+        <Ionicons name="scale-outline" size={40} color={colors.cardAlt} />
         <Text style={styles.emptyText}>Sin registros todavía</Text>
         <Text style={styles.emptySubtext}>Registra tu primer peso para empezar a seguir tu evolución</Text>
       </View>
@@ -37,10 +38,10 @@ export default function HistorialPesoLista({ logs, onDelete, onEdit }: Historial
           </View>
           <Text style={styles.weight}>{formatNumber(log.weight_kg, 1)} kg</Text>
           <TouchableOpacity style={styles.action} onPress={() => onEdit(log)}>
-            <Ionicons name="create-outline" size={20} color="#a0a0b8" />
+            <Ionicons name="create-outline" size={20} color={colors.textMuted} />
           </TouchableOpacity>
           <TouchableOpacity style={styles.action} onPress={() => onDelete(log.id)}>
-            <Ionicons name="trash-outline" size={20} color="#e94560" />
+            <Ionicons name="trash-outline" size={20} color={colors.primary} />
           </TouchableOpacity>
         </View>
       ))}
@@ -56,9 +57,9 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#16213e',
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: '#2a2a4a',
+    borderColor: colors.cardAlt,
     borderRadius: 10,
     paddingVertical: 12,
     paddingHorizontal: 14,
@@ -68,17 +69,17 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   date: {
-    color: '#ffffff',
+    color: colors.text,
     fontSize: 15,
     fontWeight: '600',
   },
   notes: {
-    color: '#a0a0b8',
+    color: colors.textMuted,
     fontSize: 12,
     marginTop: 2,
   },
   weight: {
-    color: '#e94560',
+    color: colors.primary,
     fontSize: 16,
     fontWeight: '700',
   },
@@ -91,13 +92,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
   },
   emptyText: {
-    color: '#a0a0b8',
+    color: colors.textMuted,
     fontSize: 15,
     fontWeight: '600',
     marginTop: 10,
   },
   emptySubtext: {
-    color: '#7a7a96',
+    color: colors.textSubtle,
     fontSize: 13,
     marginTop: 4,
     textAlign: 'center',

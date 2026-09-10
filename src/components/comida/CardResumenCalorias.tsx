@@ -1,3 +1,4 @@
+import { colors } from '../../theme/colors';
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import type { DailyMealSummary } from '../../types/meal';
@@ -60,16 +61,16 @@ export default function CardResumenCalorias({ summary }: CardResumenCaloriasProp
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#16213e',
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: '#2a2a4a',
+    borderColor: colors.cardAlt,
     borderRadius: 14,
     padding: 18,
     marginHorizontal: 16,
     marginBottom: 16,
   },
   cardTitle: {
-    color: '#ffffff',
+    color: colors.text,
     fontSize: 17,
     fontWeight: '700',
     marginBottom: 14,
@@ -84,50 +85,50 @@ const styles = StyleSheet.create({
     height: 96,
     borderRadius: 48,
     borderWidth: 6,
-    borderColor: '#e94560',
+    borderColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 18,
   },
   ringValue: {
-    color: '#ffffff',
+    color: colors.text,
     fontSize: 22,
     fontWeight: '800',
   },
   ringLabel: {
-    color: '#a0a0b8',
+    color: colors.textMuted,
     fontSize: 12,
   },
   goalBox: {
     flex: 1,
   },
   goalLabel: {
-    color: '#a0a0b8',
+    color: colors.textMuted,
     fontSize: 13,
     marginBottom: 4,
   },
   goalValue: {
-    color: '#ffffff',
+    color: colors.text,
     fontSize: 18,
     fontWeight: '700',
     marginBottom: 4,
   },
   remainingLabel: {
-    color: '#e94560',
+    color: colors.primary,
     fontSize: 13,
     fontWeight: '600',
   },
   progressTrack: {
     height: 10,
     borderRadius: 5,
-    backgroundColor: '#1a1a2e',
+    backgroundColor: colors.background,
     overflow: 'hidden',
     marginBottom: 16,
   },
   progressFill: {
     height: '100%',
     borderRadius: 5,
-    backgroundColor: '#e94560',
+    backgroundColor: colors.primary,
   },
   macrosRow: {
     flexDirection: 'row',
@@ -135,20 +136,20 @@ const styles = StyleSheet.create({
   },
   macroBox: {
     flex: 1,
-    backgroundColor: '#1a1a2e',
+    backgroundColor: colors.background,
     borderWidth: 1,
-    borderColor: '#2a2a4a',
+    borderColor: colors.cardAlt,
     borderRadius: 10,
     paddingVertical: 10,
     alignItems: 'center',
   },
   macroValue: {
-    color: '#ffffff',
+    color: colors.text,
     fontSize: 15,
     fontWeight: '700',
   },
   macroLabel: {
-    color: '#a0a0b8',
+    color: colors.textMuted,
     fontSize: 11,
     marginTop: 2,
   },

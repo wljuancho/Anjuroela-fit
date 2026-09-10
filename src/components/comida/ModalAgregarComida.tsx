@@ -1,3 +1,4 @@
+import { colors } from '../../theme/colors';
 import React, { useState } from 'react';
 import {
   Modal,
@@ -9,12 +10,14 @@ import {
   Platform,
   ScrollView,
   Image,
+  ActivityIndicator,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import AppTextInput from '../AppTextInput';
 import AppButton from '../AppButton';
 import type { MealRecord, MealType, NewMeal, NutritionEstimate } from '../../types/meal';
 import type { NutritionVisionInput } from '../../services/nutritionVisionService';
+import { getVisionApiKey } from '../../services/configService';
 
 interface ModalAgregarComidaProps {
   visible: boolean;
@@ -53,6 +56,7 @@ export default function ModalAgregarComida({
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [estimating, setEstimating] = useState(false);
+  const [hasApiKey, setHasApiKey] = useState(false);
   const [error, setError] = useState('');
 
   React.useEffect(() => {
@@ -66,8 +70,14 @@ export default function ModalAgregarComida({
       setFatG(editingMeal ? String(editingMeal.fat_g) : '');
       setNotes(editingMeal?.notes ?? '');
       setError('');
+      checkApiKey();
     }
   }, [visible, editingMeal]);
+
+  const checkApiKey = async () => {
+    const key = await getVisionApiKey();
+    setHasApiKey(!!key);
+  };
 
   const resetForm = () => {
     setMealType('desayuno');
@@ -91,6 +101,12 @@ export default function ModalAgregarComida({
     setProteinG(String(estimate.proteinG));
     setCarbsG(String(estimate.carbsG));
     setFatG(String(estimate.fatG));
+    if (estimate.mealName || estimate.description) {
+      const aiDesc = [estimate.mealName, estimate.description]
+        .filter(Boolean)
+        .join(': ');
+      setDescription(aiDesc);
+    }
   };
 
   const pickImage = async (source: 'camera' | 'library') => {
@@ -259,12 +275,21 @@ export default function ModalAgregarComida({
 
             {onEstimate ? (
               <AppButton
-                title={estimating ? 'Estimando...' : 'Estimar con IA'}
+                title={estimating ? 'Analizando...' : 'Estimar con IA'}
                 variant="secondary"
                 onPress={handleEstimateFromDescription}
                 disabled={estimating}
                 style={styles.estimateButton}
               />
+            ) : null}
+
+            {onEstimate && !hasApiKey ? (
+              <View style={styles.aiInfoNote}>
+                <Text style={styles.aiInfoText}>
+                  Añade tu API Key en Ajustes para activar el reconocimiento
+                  inteligente por foto. Mientras tanto se usa la estimación local.
+                </Text>
+              </View>
             ) : null}
 
             <AppTextInput
@@ -323,6 +348,15 @@ export default function ModalAgregarComida({
 
             <AppButton title="Cancelar" variant="outline" onPress={handleClose} />
           </ScrollView>
+
+          {estimating ? (
+            <View style={styles.loadingOverlay}>
+              <View style={styles.loadingCard}>
+                <ActivityIndicator size="large" color={colors.primary} />
+                <Text style={styles.loadingText}>Analizando platillo con IA...</Text>
+              </View>
+            </View>
+          ) : null}
         </View>
       </KeyboardAvoidingView>
     </Modal>
@@ -336,10 +370,10 @@ const styles = StyleSheet.create({
   },
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: colors.scrim,
   },
   sheet: {
-    backgroundColor: '#1a1a2e',
+    backgroundColor: colors.background,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingHorizontal: 24,
@@ -349,20 +383,20 @@ const styles = StyleSheet.create({
   handle: {
     width: 40,
     height: 4,
-    backgroundColor: '#2a2a4a',
+    backgroundColor: colors.cardAlt,
     borderRadius: 2,
     alignSelf: 'center',
     marginTop: 12,
     marginBottom: 16,
   },
   title: {
-    color: '#ffffff',
+    color: colors.text,
     fontSize: 20,
     fontWeight: '700',
     marginBottom: 20,
   },
   label: {
-    color: '#a0a0b8',
+    color: colors.textMuted,
     fontSize: 14,
     marginBottom: 8,
     fontWeight: '500',
@@ -374,23 +408,23 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   chip: {
-    backgroundColor: '#16213e',
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: '#2a2a4a',
+    borderColor: colors.cardAlt,
     borderRadius: 20,
     paddingHorizontal: 14,
     paddingVertical: 8,
   },
   chipActive: {
-    backgroundColor: '#e94560',
-    borderColor: '#e94560',
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   chipText: {
-    color: '#a0a0b8',
+    color: colors.textMuted,
     fontSize: 13,
   },
   chipTextActive: {
-    color: '#ffffff',
+    color: colors.text,
   },
   photoRow: {
     flexDirection: 'row',
@@ -413,12 +447,12 @@ const styles = StyleSheet.create({
     width: 22,
     height: 22,
     borderRadius: 11,
-    backgroundColor: '#e94560',
+    backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
   },
   photoRemoveText: {
-    color: '#ffffff',
+    color: colors.text,
     fontSize: 12,
     fontWeight: '700',
   },
@@ -430,6 +464,20 @@ const styles = StyleSheet.create({
   estimateButton: {
     marginBottom: 16,
   },
+  aiInfoNote: {
+    backgroundColor: colors.primarySofter,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 16,
+  },
+  aiInfoText: {
+    color: colors.primary,
+    fontSize: 13,
+    lineHeight: 18,
+  },
   macroRow: {
     flexDirection: 'row',
     gap: 10,
@@ -438,11 +486,35 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   errorText: {
-    color: '#e94560',
+    color: colors.primary,
     fontSize: 13,
     marginBottom: 12,
   },
   saveButton: {
     marginBottom: 12,
+  },
+  loadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: colors.scrimStrong,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+  },
+  loadingCard: {
+    backgroundColor: colors.card,
+    borderRadius: 14,
+    paddingHorizontal: 28,
+    paddingVertical: 24,
+    alignItems: 'center',
+    gap: 14,
+  },
+  loadingText: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '600',
   },
 });
