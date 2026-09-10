@@ -2,7 +2,7 @@ import { colors } from '../theme/colors';
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
-import RutinaScreen from '../screens/RutinaScreen';
+import RutinaStack from './RutinaStack';
 import EjerciciosScreen from '../screens/EjerciciosScreen';
 import ProgresoScreen from '../screens/ProgresoScreen';
 import ComidaScreen from '../screens/ComidaScreen';
@@ -39,7 +39,7 @@ export default function MainTabs() {
         ),
       })}
     >
-      <Tab.Screen name="Rutina" component={RutinaScreen} />
+      <Tab.Screen name="Rutina" component={RutinaStack} />
       <Tab.Screen name="Ejercicios" component={EjerciciosScreen} />
       <Tab.Screen name="Progreso" component={ProgresoScreen} />
       <Tab.Screen name="Comida" component={ComidaScreen} />

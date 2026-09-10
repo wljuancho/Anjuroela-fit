@@ -86,7 +86,7 @@ export async function findUserByEmail(email: string): Promise<UserRecord | null>
   const db = getDatabase();
   const normalizedEmail = email.toLowerCase().trim();
   const result = await db.getAllAsync<UserRecord>(
-    'SELECT * FROM users WHERE email = ? LIMIT 1',
+    'SELECT id, name, email, auth_provider, google_id FROM users WHERE email = ? LIMIT 1',
     [normalizedEmail],
   );
   return result[0] ?? null;
@@ -124,7 +124,9 @@ export async function verifyLocalCredentials(
     email: string;
     password_hash: string;
     auth_provider: string;
-  }>('SELECT * FROM users WHERE email = ? LIMIT 1', [normalizedEmail]);
+  }>('SELECT id, name, email, password_hash, auth_provider FROM users WHERE email = ? LIMIT 1', [
+    normalizedEmail,
+  ]);
 
   if (!result[0]) {
     return null;
@@ -135,7 +137,7 @@ export async function verifyLocalCredentials(
     return null;
   }
 
-  await upgradeLegacyHash(result[0].id, result[0].password_hash, password);
+  void upgradeLegacyHash(result[0].id, result[0].password_hash, password);
 
   return {
     id: result[0].id,
@@ -190,7 +192,7 @@ export interface UserSession {
 export async function getProfile(userId: number): Promise<UserProfileRecord | null> {
   const db = getDatabase();
   const result = await db.getAllAsync<UserProfileRecord>(
-    'SELECT * FROM user_profiles WHERE user_id = ? LIMIT 1',
+    'SELECT id, user_id, age, height, current_weight, target_weight, goal_weeks, goal_date FROM user_profiles WHERE user_id = ? LIMIT 1',
     [userId],
   );
   return result[0] ?? null;
@@ -229,7 +231,7 @@ export async function saveProfile(userId: number, data: {
 export async function getUserSession(userId: number): Promise<UserSession> {
   const db = getDatabase();
   const userResult = await db.getAllAsync<UserRecord>(
-    'SELECT * FROM users WHERE id = ? LIMIT 1',
+    'SELECT id, name, email, auth_provider, google_id FROM users WHERE id = ? LIMIT 1',
     [userId],
   );
   const user = userResult[0];

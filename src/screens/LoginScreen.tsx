@@ -9,6 +9,7 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppButton, AppTextInput } from '../components';
@@ -18,7 +19,7 @@ import { isValidEmail } from '../services/utils';
 type Mode = 'login' | 'register';
 
 export default function LoginScreen() {
-  const { signIn, signUp, signInWithGoogle } = useAuth();
+  const { signIn, signUp, signInWithGoogle, isAuthenticated } = useAuth();
 
   const [mode, setMode] = useState<Mode>('login');
   const [name, setName] = useState('');
@@ -28,6 +29,13 @@ export default function LoginScreen() {
   const [errors, setErrors] = useState<Record<string, string | undefined>>({});
   const [submitting, setSubmitting] = useState(false);
   const [loadingSession, setLoadingSession] = useState(false);
+
+  const showLoadingOverlay = (submitting || loadingSession) && !isAuthenticated;
+  const loadingText = loadingSession
+    ? 'Iniciando sesión con Google...'
+    : mode === 'login'
+      ? 'Iniciando sesión...'
+      : 'Creando cuenta...';
 
   function switchMode(next: Mode) {
     setMode(next);
@@ -42,37 +50,57 @@ export default function LoginScreen() {
     if (password.length < 6) {
       next.password = 'La contraseña debe tener al menos 6 caracteres.';
     }
-    if (mode === 'register') {
-      if (!name.trim()) {
-        next.name = 'Ingresa tu nombre.';
-      }
-      if (password !== confirmPassword) {
-        next.confirmPassword = 'Las contraseñas no coinciden.';
-      }
+    if (mode === 'register' && !name.trim()) {
+      next.name = 'Ingresa tu nombre.';
     }
     setErrors(next);
     return Object.keys(next).length === 0;
   }
 
+  function hasEmptyFields(): boolean {
+    if (mode === 'register') {
+      return !name.trim() || !email.trim() || !password || !confirmPassword;
+    }
+    return !email.trim() || !password;
+  }
+
   async function handleSubmit() {
+    if (hasEmptyFields()) {
+      setErrors({});
+      Alert.alert('Campos incompletos', 'Por favor, completa todos los campos.');
+      return;
+    }
+
+    if (mode === 'register' && password !== confirmPassword) {
+      setErrors({ confirmPassword: 'Las contraseñas no coinciden.' });
+      Alert.alert('Contraseñas', 'Las contraseñas no coinciden.');
+      return;
+    }
+
     if (!validate()) return;
+
     setSubmitting(true);
     try {
       if (mode === 'register') {
         await signUp(name.trim(), email, password);
+        Alert.alert('¡Éxito!', '¡Cuenta creada con éxito! Ahora puedes iniciar sesión.');
+        switchMode('login');
       } else {
         const ok = await signIn(email, password);
         if (!ok) {
-          setErrors({ password: 'Correo o contraseña incorrectos.' });
-          setSubmitting(false);
+          Alert.alert(
+            'Error de inicio de sesión',
+            'Credenciales incorrectas o usuario no encontrado.',
+          );
           return;
         }
+        // El RootNavigator redirige automáticamente según estado de sesión/perfil
       }
-      // El RootNavigator redirige automáticamente según estado de sesión/perfil
     } catch (error) {
-      setErrors({
-        form: error instanceof Error ? error.message : 'Ocurrió un error inesperado.',
-      });
+      Alert.alert(
+        'Error',
+        error instanceof Error ? error.message : 'Ocurrió un error inesperado.',
+      );
     } finally {
       setSubmitting(false);
     }
@@ -196,6 +224,15 @@ export default function LoginScreen() {
           />
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {showLoadingOverlay ? (
+        <View style={styles.loadingOverlay}>
+          <View style={styles.loadingCard}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={styles.loadingText}>{loadingText}</Text>
+          </View>
+        </View>
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -204,6 +241,31 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  loadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+  },
+  loadingCard: {
+    backgroundColor: colors.card,
+    borderRadius: 14,
+    paddingVertical: 28,
+    paddingHorizontal: 32,
+    alignItems: 'center',
+    gap: 14,
+  },
+  loadingText: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
   },
   flex: {
     flex: 1,

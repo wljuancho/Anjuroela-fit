@@ -21,6 +21,24 @@ export interface WeeklyScheduleEntry {
   body_part_name: string | null;
 }
 
+export interface DayMuscle {
+  id: number;
+  day_of_week: DayOfWeek;
+  body_part_id: number;
+  body_part_name: string;
+  position: number;
+  completed: number;
+  completed_date: string | null;
+  isCompletedInCycle: boolean;
+}
+
+export interface MuscleExercise {
+  id: number;
+  name: string;
+  equipment: string | null;
+  lastWeightKg: number | null;
+}
+
 export interface WorkoutSession {
   id: number;
   day_of_week: DayOfWeek;
@@ -30,6 +48,22 @@ export interface WorkoutSession {
 }
 
 export type SetType = 'reps' | 'time';
+
+export interface RepsPlan {
+  mode: 'reps';
+  series: number;
+  reps: number;
+  restSeconds: number;
+}
+
+export interface TimePlan {
+  mode: 'time';
+  series: number;
+  workSeconds: number;
+  restSeconds: number;
+}
+
+export type WorkoutPlan = RepsPlan | TimePlan;
 
 export interface WorkoutSet {
   id: number;

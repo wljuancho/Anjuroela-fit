@@ -116,16 +116,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (existing) {
           throw new Error('Ya existe una cuenta con este correo.');
         }
-        const record = await createLocalUser(name, email, password);
-        const nextUser: AuthUser = {
-          id: record.id,
-          name: record.name,
-          email: record.email,
-          authProvider: 'local',
-        };
-        setUser(nextUser);
-        setProfile(null);
-        await persistSession(nextUser, null);
+        await createLocalUser(name, email, password);
       },
 
       async signIn(email: string, password: string) {
@@ -139,10 +130,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           email: record.email,
           authProvider: 'local',
         };
-        const nextProfile = await refreshProfile(record.id);
+        let nextProfile: UserProfile | null = null;
+        try {
+          nextProfile = await refreshProfile(record.id);
+        } catch {
+          // Profile fetch failed; user is still authenticated without profile
+        }
         setUser(nextUser);
         setProfile(nextProfile);
-        await persistSession(nextUser, nextProfile);
+        persistSession(nextUser, nextProfile);
         return true;
       },
 
@@ -157,7 +153,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const nextProfile = await refreshProfile(record.id);
         setUser(nextUser);
         setProfile(nextProfile);
-        await persistSession(nextUser, nextProfile);
+        persistSession(nextUser, nextProfile);
       },
 
       async saveHealthProfile(data: HealthProfileData) {

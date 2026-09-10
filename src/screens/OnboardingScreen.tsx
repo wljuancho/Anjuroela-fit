@@ -7,7 +7,9 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Pressable,
 } from 'react-native';
+import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { AppButton, AppTextInput } from '../components';
@@ -25,6 +27,19 @@ interface FormWarnings {
   goal?: string;
 }
 
+function toISODate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function formatDisplayDate(date: Date): string {
+  const day = String(date.getDate()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  return `${day}/${month}/${date.getFullYear()}`;
+}
+
 export default function OnboardingScreen() {
   const { user, saveHealthProfile } = useAuth();
 
@@ -32,6 +47,8 @@ export default function OnboardingScreen() {
   const [targetWeight, setTargetWeight] = useState('');
   const [weeks, setWeeks] = useState('');
   const [goalDate, setGoalDate] = useState('');
+  const [goalDateLabel, setGoalDateLabel] = useState('');
+  const [showDatePicker, setShowDatePicker] = useState(false);
   const [errors, setErrors] = useState<Record<string, string | undefined>>({});
   const [warnings, setWarnings] = useState<FormWarnings>({});
   const [suggestedTarget, setSuggestedTarget] = useState<number | null>(null);
@@ -71,6 +88,28 @@ export default function OnboardingScreen() {
 
     setWarnings(nextWarnings);
     setSuggestedTarget(nextSuggested);
+  }
+
+  function onDateChange(event: DateTimePickerEvent, selected?: Date) {
+    if (Platform.OS === 'android') {
+      setShowDatePicker(false);
+    }
+    if (event.type === 'dismissed' || !selected) {
+      return;
+    }
+
+    setGoalDate(toISODate(selected));
+    setGoalDateLabel(formatDisplayDate(selected));
+    setErrors((prev) => ({ ...prev, goal: undefined, weeks: undefined }));
+    setWarnings((prev) => ({ ...prev, goal: undefined }));
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const target = new Date(selected);
+    target.setHours(0, 0, 0, 0);
+    const diffDays = Math.round((target.getTime() - today.getTime()) / 86400000);
+    const weeksCalc = Math.max(1, Math.round(diffDays / 7));
+    setWeeks(String(weeksCalc));
   }
 
   function validateInputs(): boolean {
@@ -214,13 +253,39 @@ export default function OnboardingScreen() {
             onBlur={handleGoalValidation}
           />
 
-          <AppTextInput
-            label="Fecha meta (opcional, YYYY-MM-DD)"
-            value={goalDate}
-            onChangeText={setGoalDate}
-            placeholder="Ej: 2026-12-31"
-            autoCapitalize="none"
-          />
+          <View style={styles.fieldContainer}>
+            <Text style={styles.fieldLabel}>Fecha meta {goalDateLabel ? '' : '(opcional)'}</Text>
+            <Pressable
+              style={({ pressed }) => [
+                styles.dateField,
+                errors.goal ? styles.dateFieldError : null,
+                pressed ? styles.dateFieldPressed : null,
+              ]}
+              onPress={() => setShowDatePicker(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Seleccionar fecha meta"
+            >
+              <Ionicons name="calendar-outline" size={20} color={colors.textMuted} />
+              <Text
+                style={goalDateLabel ? styles.dateFieldText : styles.dateFieldPlaceholder}
+                numberOfLines={1}
+              >
+                {goalDateLabel || 'Selecciona una fecha límite'}
+              </Text>
+              <Ionicons name="chevron-down" size={18} color={colors.textMuted} />
+            </Pressable>
+            {errors.goal ? <Text style={styles.dateFieldErrorText}>{errors.goal}</Text> : null}
+          </View>
+
+          {showDatePicker ? (
+            <DateTimePicker
+              value={goalDate ? new Date(`${goalDate}T00:00:00`) : new Date()}
+              mode="date"
+              display={Platform.OS === 'ios' ? 'inline' : 'default'}
+              minimumDate={new Date()}
+              onChange={onDateChange}
+            />
+          ) : null}
 
           {warnings.goal ? (
             <View style={styles.warningBox}>
@@ -316,6 +381,48 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginBottom: 16,
     textAlign: 'center',
+  },
+  fieldContainer: {
+    marginBottom: 16,
+    width: '100%',
+  },
+  fieldLabel: {
+    color: colors.textMuted,
+    fontSize: 14,
+    marginBottom: 6,
+    fontWeight: '500',
+  },
+  dateField: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.cardAlt,
+    borderRadius: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 10,
+  },
+  dateFieldPressed: {
+    opacity: 0.7,
+  },
+  dateFieldError: {
+    borderColor: colors.primary,
+  },
+  dateFieldText: {
+    flex: 1,
+    color: colors.text,
+    fontSize: 16,
+  },
+  dateFieldPlaceholder: {
+    flex: 1,
+    color: colors.textSubtle,
+    fontSize: 16,
+  },
+  dateFieldErrorText: {
+    color: colors.primary,
+    fontSize: 12,
+    marginTop: 4,
   },
   submitButton: {
     marginTop: 8,

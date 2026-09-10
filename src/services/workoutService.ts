@@ -2,12 +2,22 @@ import { getDatabase } from './database';
 import { formatDate } from './utils';
 import type {
   DayOfWeek,
+  DayMuscle,
   WeeklyScheduleEntry,
   WorkoutSession,
   WorkoutSet,
   WorkoutSetInput,
   ExerciseWithSets,
 } from '../types/workout';
+
+const CYCLE_DAYS = 4;
+
+export function getCycleKey(date: Date): number {
+  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const ref = new Date(2024, 0, 1).getTime();
+  const days = Math.floor((start.getTime() - ref) / 86400000);
+  return Math.floor(days / CYCLE_DAYS);
+}
 
 const DEFAULT_SCHEDULE: { day: DayOfWeek; bodyPartName: string | null }[] = [
   { day: 'lunes', bodyPartName: 'Pecho' },
@@ -238,5 +248,139 @@ export async function getExerciseHistory(exerciseId: number): Promise<WorkoutSet
     );
   } catch {
     throw new Error('No se pudo cargar el historial del ejercicio.');
+  }
+}
+
+export async function getDayMuscles(day: DayOfWeek): Promise<DayMuscle[]> {
+  const db = getDatabase();
+  try {
+    const currentKey = getCycleKey(new Date());
+    const rows = await db.getAllAsync<{
+      id: number;
+      day_of_week: DayOfWeek;
+      body_part_id: number;
+      body_part_name: string;
+      position: number;
+      completed: number;
+      completed_date: string | null;
+    }>(
+      `SELECT dm.id, dm.day_of_week, dm.body_part_id, bp.name as body_part_name,
+              dm.position, dm.completed, dm.completed_date
+       FROM day_muscles dm
+       INNER JOIN body_parts bp ON bp.id = dm.body_part_id
+       WHERE dm.day_of_week = ?
+       ORDER BY dm.position, dm.id`,
+      [day],
+    );
+    return rows.map((r) => ({
+      ...r,
+      isCompletedInCycle:
+        r.completed === 1 &&
+        !!r.completed_date &&
+        getCycleKey(new Date(r.completed_date)) === currentKey,
+    }));
+  } catch {
+    throw new Error('No se pudieron cargar los músculos del día.');
+  }
+}
+
+export async function getAllDayMuscles(): Promise<DayMuscle[]> {
+  const db = getDatabase();
+  try {
+    const rows = await db.getAllAsync<DayMuscle & { body_part_name: string }>(
+      `SELECT dm.id, dm.day_of_week, dm.body_part_id, bp.name as body_part_name,
+              dm.position, dm.completed, dm.completed_date
+       FROM day_muscles dm
+       INNER JOIN body_parts bp ON bp.id = dm.body_part_id
+       ORDER BY dm.day_of_week, dm.position, dm.id`,
+    );
+    const currentKey = getCycleKey(new Date());
+    return rows.map((r) => ({
+      ...r,
+      isCompletedInCycle:
+        r.completed === 1 &&
+        !!r.completed_date &&
+        getCycleKey(new Date(r.completed_date)) === currentKey,
+    }));
+  } catch {
+    throw new Error('No se pudo cargar la rutina.');
+  }
+}
+
+export async function addMusclesToDay(day: DayOfWeek, bodyPartIds: number[]): Promise<void> {
+  const db = getDatabase();
+  try {
+    await db.withTransactionAsync(async () => {
+      for (const bodyPartId of bodyPartIds) {
+        const pos = await db.getAllAsync<{ mx: number }>(
+          'SELECT COALESCE(MAX(position), -1) + 1 as mx FROM day_muscles WHERE day_of_week = ?',
+          [day],
+        );
+        await db.runAsync(
+          'INSERT OR IGNORE INTO day_muscles (day_of_week, body_part_id, position, completed) VALUES (?, ?, ?, 0)',
+          [day, bodyPartId, pos[0]?.mx ?? 0],
+        );
+      }
+    });
+  } catch {
+    throw new Error('No se pudo agregar el músculo al día.');
+  }
+}
+
+export async function removeMuscleFromDay(muscleId: number): Promise<void> {
+  const db = getDatabase();
+  try {
+    await db.runAsync('DELETE FROM day_muscles WHERE id = ?', [muscleId]);
+  } catch {
+    throw new Error('No se pudo quitar el músculo del día.');
+  }
+}
+
+export async function markMuscleCompleted(muscleId: number): Promise<void> {
+  const db = getDatabase();
+  try {
+    await db.runAsync(
+      'UPDATE day_muscles SET completed = 1, completed_date = ? WHERE id = ?',
+      [formatDate(new Date()), muscleId],
+    );
+  } catch {
+    throw new Error('No se pudo marcar el músculo como terminado.');
+  }
+}
+
+export async function resetStaleCompletions(): Promise<void> {
+  const db = getDatabase();
+  try {
+    const currentKey = getCycleKey(new Date());
+    const rows = await db.getAllAsync<{ id: number; completed_date: string | null }>(
+      'SELECT id, completed_date FROM day_muscles WHERE completed = 1',
+    );
+    for (const row of rows) {
+      if (!row.completed_date || getCycleKey(new Date(row.completed_date)) !== currentKey) {
+        await db.runAsync(
+          'UPDATE day_muscles SET completed = 0, completed_date = NULL WHERE id = ?',
+          [row.id],
+        );
+      }
+    }
+  } catch {
+    // Reset no requiere error al usuario; se ignora
+  }
+}
+
+export async function getLastWeightForExercise(exerciseId: number): Promise<number | null> {
+  const db = getDatabase();
+  try {
+    const rows = await db.getAllAsync<{ weight_kg: number | null }>(
+      `SELECT ws.weight_kg
+       FROM workout_sets ws
+       WHERE ws.exercise_id = ? AND ws.weight_kg IS NOT NULL AND ws.weight_kg > 0
+       ORDER BY ws.session_id DESC, ws.set_number ASC
+       LIMIT 1`,
+      [exerciseId],
+    );
+    return rows[0]?.weight_kg ?? null;
+  } catch {
+    return null;
   }
 }

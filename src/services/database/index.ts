@@ -127,6 +127,17 @@ export async function initDatabase(): Promise<void> {
       FOREIGN KEY (body_part_id) REFERENCES body_parts (id) ON DELETE SET NULL
     );
 
+    CREATE TABLE IF NOT EXISTS day_muscles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      day_of_week TEXT NOT NULL,
+      body_part_id INTEGER NOT NULL,
+      position INTEGER DEFAULT 0,
+      completed INTEGER DEFAULT 0,
+      completed_date TEXT,
+      FOREIGN KEY (body_part_id) REFERENCES body_parts (id) ON DELETE CASCADE,
+      UNIQUE (day_of_week, body_part_id)
+    );
+
     CREATE TABLE IF NOT EXISTS workout_sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       day_of_week TEXT NOT NULL,
@@ -159,6 +170,7 @@ export async function initDatabase(): Promise<void> {
 
   await database.execAsync(`
     CREATE INDEX IF NOT EXISTS idx_user_profiles_user ON user_profiles (user_id);
+    CREATE INDEX IF NOT EXISTS idx_day_muscles_day ON day_muscles (day_of_week);
     CREATE INDEX IF NOT EXISTS idx_exercises_v2_body_part ON exercises_v2 (body_part_id);
     CREATE INDEX IF NOT EXISTS idx_meals_v2_user_date ON meals_v2 (user_id, date);
     CREATE INDEX IF NOT EXISTS idx_workout_sessions_day_date ON workout_sessions (day_of_week, date);
@@ -170,6 +182,22 @@ export async function initDatabase(): Promise<void> {
   `);
 
   await migrateWorkoutSets(database);
+  await migrateDayMuscles(database);
+}
+
+async function migrateDayMuscles(db: SQLite.SQLiteDatabase): Promise<void> {
+  const rows = await db.getAllAsync<{ cnt: number }>('SELECT COUNT(*) as cnt FROM day_muscles');
+  if ((rows[0]?.cnt ?? 0) > 0) return;
+
+  const legacy = await db.getAllAsync<{ day_of_week: string; body_part_id: number }>(
+    'SELECT day_of_week, body_part_id FROM weekly_schedule WHERE body_part_id IS NOT NULL',
+  );
+  for (const item of legacy) {
+    await db.runAsync(
+      'INSERT OR IGNORE INTO day_muscles (day_of_week, body_part_id, position, completed) VALUES (?, ?, ?, 0)',
+      [item.day_of_week, item.body_part_id, 0],
+    );
+  }
 }
 
 async function migrateWorkoutSets(db: SQLite.SQLiteDatabase): Promise<void> {
