@@ -3,20 +3,35 @@ import { formatDate } from './utils';
 import type {
   DayOfWeek,
   DayMuscle,
+  DayExercise,
   WeeklyScheduleEntry,
   WorkoutSession,
   WorkoutSet,
   WorkoutSetInput,
   ExerciseWithSets,
 } from '../types/workout';
+import { DAYS_ORDER } from '../types/workout';
 
-const CYCLE_DAYS = 4;
+export function getTargetDateForDay(day: DayOfWeek): string {
+  const today = new Date();
+  const todayJs = today.getDay();
+  const todayIdx = todayJs === 0 ? 6 : todayJs - 1;
+  const diff = DAYS_ORDER.indexOf(day) - todayIdx;
+  const d = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  d.setDate(d.getDate() + diff);
+  return formatDate(d);
+}
 
-export function getCycleKey(date: Date): number {
-  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const ref = new Date(2024, 0, 1).getTime();
-  const days = Math.floor((start.getTime() - ref) / 86400000);
-  return Math.floor(days / CYCLE_DAYS);
+function isCompletedOnDate(r: {
+  completed: number;
+  completed_date: string | null;
+  day_of_week: DayOfWeek;
+}): boolean {
+  return (
+    r.completed === 1 &&
+    !!r.completed_date &&
+    r.completed_date === getTargetDateForDay(r.day_of_week)
+  );
 }
 
 const DEFAULT_SCHEDULE: { day: DayOfWeek; bodyPartName: string | null }[] = [
@@ -97,17 +112,19 @@ export async function getOrCreateSession(dayOfWeek: DayOfWeek): Promise<WorkoutS
   const db = getDatabase();
   try {
     const today = formatDate(new Date());
-    const existing = await db.getAllAsync<WorkoutSession>(
+    await db.runAsync(
+      'INSERT OR IGNORE INTO workout_sessions (day_of_week, date, completed) VALUES (?, ?, 0)',
+      [dayOfWeek, today],
+    );
+    const rows = await db.getAllAsync<WorkoutSession>(
       'SELECT * FROM workout_sessions WHERE day_of_week = ? AND date = ? LIMIT 1',
       [dayOfWeek, today],
     );
-    if (existing[0]) return existing[0];
-
-    const result = await db.runAsync(
-      'INSERT INTO workout_sessions (day_of_week, date, completed) VALUES (?, ?, 0)',
-      [dayOfWeek, today],
-    );
-    return { id: result.lastInsertRowId, day_of_week: dayOfWeek, date: today, completed: 0 };
+    const session = rows[0];
+    if (!session) {
+      throw new Error('No se pudo iniciar la sesión de entrenamiento.');
+    }
+    return session;
   } catch {
     throw new Error('No se pudo iniciar la sesión de entrenamiento.');
   }
@@ -234,6 +251,102 @@ export async function getExercisesForBodyPart(bodyPartId: number): Promise<{ id:
   }
 }
 
+export async function getDayExercises(day: DayOfWeek, bodyPartId: number): Promise<DayExercise[]> {
+  const db = getDatabase();
+  try {
+    return await db.getAllAsync<DayExercise>(
+      `SELECT de.id, de.day_of_week, de.body_part_id, de.exercise_id,
+              e.name as exercise_name, e.equipment, de.position
+       FROM day_exercises de
+       INNER JOIN exercises_v2 e ON e.id = de.exercise_id
+       WHERE de.day_of_week = ? AND de.body_part_id = ?
+       ORDER BY de.position, de.id`,
+      [day, bodyPartId],
+    );
+  } catch {
+    throw new Error('No se pudieron cargar los ejercicios de la rutina.');
+  }
+}
+
+export async function addExercisesToDay(
+  day: DayOfWeek,
+  bodyPartId: number,
+  exerciseIds: number[],
+): Promise<number> {
+  const db = getDatabase();
+  try {
+    let added = 0;
+    await db.withTransactionAsync(async () => {
+      for (const exerciseId of exerciseIds) {
+        const pos = await db.getAllAsync<{ mx: number }>(
+          'SELECT COALESCE(MAX(position), -1) + 1 as mx FROM day_exercises WHERE day_of_week = ?',
+          [day],
+        );
+        const result = await db.runAsync(
+          'INSERT OR IGNORE INTO day_exercises (day_of_week, body_part_id, exercise_id, position) VALUES (?, ?, ?, ?)',
+          [day, bodyPartId, exerciseId, pos[0]?.mx ?? 0],
+        );
+        added += result.changes;
+      }
+    });
+    return added;
+  } catch {
+    throw new Error('No se pudieron agregar los ejercicios a la rutina.');
+  }
+}
+
+export async function removeExerciseFromDay(
+  day: DayOfWeek,
+  bodyPartId: number,
+  exerciseId: number,
+): Promise<void> {
+  const db = getDatabase();
+  try {
+    await db.runAsync(
+      'DELETE FROM day_exercises WHERE day_of_week = ? AND body_part_id = ? AND exercise_id = ?',
+      [day, bodyPartId, exerciseId],
+    );
+  } catch {
+    throw new Error('No se pudo quitar el ejercicio de la rutina.');
+  }
+}
+
+export async function getRandomExercises(
+  bodyPartId: number,
+  limit = 4,
+): Promise<{ id: number; name: string; equipment: string | null }[]> {
+  const db = getDatabase();
+  try {
+    return await db.getAllAsync(
+      'SELECT id, name, equipment FROM exercises_v2 WHERE body_part_id = ? ORDER BY RANDOM() LIMIT ?',
+      [bodyPartId, limit],
+    );
+  } catch {
+    throw new Error('No se pudieron seleccionar ejercicios al azar.');
+  }
+}
+
+export async function addRandomExercisesToDay(
+  day: DayOfWeek,
+  bodyPartId: number,
+  limit = 4,
+): Promise<number> {
+  const db = getDatabase();
+  try {
+    const random = await getRandomExercises(bodyPartId, limit);
+    const existing = await db.getAllAsync<{ exercise_id: number }>(
+      'SELECT exercise_id FROM day_exercises WHERE day_of_week = ? AND body_part_id = ?',
+      [day, bodyPartId],
+    );
+    const addedIds = new Set(existing.map((r) => r.exercise_id));
+    const toAdd = random.map((e) => e.id).filter((id) => !addedIds.has(id));
+    if (toAdd.length === 0) return 0;
+    return await addExercisesToDay(day, bodyPartId, toAdd);
+  } catch {
+    throw new Error('No se pudieron agregar ejercicios al azar.');
+  }
+}
+
 export async function getExerciseHistory(exerciseId: number): Promise<WorkoutSet[]> {
   const db = getDatabase();
   try {
@@ -254,7 +367,6 @@ export async function getExerciseHistory(exerciseId: number): Promise<WorkoutSet
 export async function getDayMuscles(day: DayOfWeek): Promise<DayMuscle[]> {
   const db = getDatabase();
   try {
-    const currentKey = getCycleKey(new Date());
     const rows = await db.getAllAsync<{
       id: number;
       day_of_week: DayOfWeek;
@@ -274,10 +386,7 @@ export async function getDayMuscles(day: DayOfWeek): Promise<DayMuscle[]> {
     );
     return rows.map((r) => ({
       ...r,
-      isCompletedInCycle:
-        r.completed === 1 &&
-        !!r.completed_date &&
-        getCycleKey(new Date(r.completed_date)) === currentKey,
+      isCompleted: isCompletedOnDate(r),
     }));
   } catch {
     throw new Error('No se pudieron cargar los músculos del día.');
@@ -287,20 +396,24 @@ export async function getDayMuscles(day: DayOfWeek): Promise<DayMuscle[]> {
 export async function getAllDayMuscles(): Promise<DayMuscle[]> {
   const db = getDatabase();
   try {
-    const rows = await db.getAllAsync<DayMuscle & { body_part_name: string }>(
+    const rows = await db.getAllAsync<{
+      id: number;
+      day_of_week: DayOfWeek;
+      body_part_id: number;
+      body_part_name: string;
+      position: number;
+      completed: number;
+      completed_date: string | null;
+    }>(
       `SELECT dm.id, dm.day_of_week, dm.body_part_id, bp.name as body_part_name,
               dm.position, dm.completed, dm.completed_date
        FROM day_muscles dm
        INNER JOIN body_parts bp ON bp.id = dm.body_part_id
        ORDER BY dm.day_of_week, dm.position, dm.id`,
     );
-    const currentKey = getCycleKey(new Date());
     return rows.map((r) => ({
       ...r,
-      isCompletedInCycle:
-        r.completed === 1 &&
-        !!r.completed_date &&
-        getCycleKey(new Date(r.completed_date)) === currentKey,
+      isCompleted: isCompletedOnDate(r),
     }));
   } catch {
     throw new Error('No se pudo cargar la rutina.');
@@ -351,12 +464,15 @@ export async function markMuscleCompleted(muscleId: number): Promise<void> {
 export async function resetStaleCompletions(): Promise<void> {
   const db = getDatabase();
   try {
-    const currentKey = getCycleKey(new Date());
-    const rows = await db.getAllAsync<{ id: number; completed_date: string | null }>(
-      'SELECT id, completed_date FROM day_muscles WHERE completed = 1',
+    const rows = await db.getAllAsync<{
+      id: number;
+      day_of_week: DayOfWeek;
+      completed_date: string | null;
+    }>(
+      'SELECT id, day_of_week, completed_date FROM day_muscles WHERE completed = 1',
     );
     for (const row of rows) {
-      if (!row.completed_date || getCycleKey(new Date(row.completed_date)) !== currentKey) {
+      if (!row.completed_date || row.completed_date !== getTargetDateForDay(row.day_of_week)) {
         await db.runAsync(
           'UPDATE day_muscles SET completed = 0, completed_date = NULL WHERE id = ?',
           [row.id],
@@ -382,5 +498,34 @@ export async function getLastWeightForExercise(exerciseId: number): Promise<numb
     return rows[0]?.weight_kg ?? null;
   } catch {
     return null;
+  }
+}
+
+export async function getAverageWeightForExercise(exerciseId: number): Promise<number | null> {
+  const db = getDatabase();
+  try {
+    const rows = await db.getAllAsync<{ avg: number | null }>(
+      `SELECT AVG(ws.weight_kg) as avg
+       FROM workout_sets ws
+       WHERE ws.exercise_id = ? AND ws.weight_kg IS NOT NULL AND ws.weight_kg > 0`,
+      [exerciseId],
+    );
+    const avg = rows[0]?.avg;
+    return typeof avg === 'number' ? Math.round(avg * 10) / 10 : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function getCompletedExerciseIds(sessionId: number): Promise<Set<number>> {
+  const db = getDatabase();
+  try {
+    const rows = await db.getAllAsync<{ exercise_id: number }>(
+      'SELECT DISTINCT exercise_id FROM workout_sets WHERE session_id = ?',
+      [sessionId],
+    );
+    return new Set(rows.map((r) => r.exercise_id));
+  } catch {
+    throw new Error('No se pudieron cargar los ejercicios completados.');
   }
 }

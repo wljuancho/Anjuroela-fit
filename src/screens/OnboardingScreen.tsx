@@ -9,7 +9,7 @@ import {
   ScrollView,
   Pressable,
 } from 'react-native';
-import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
+import DateTimePicker, { DateTimePickerChangeEvent } from '@react-native-community/datetimepicker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { AppButton, AppTextInput } from '../components';
@@ -90,14 +90,13 @@ export default function OnboardingScreen() {
     setSuggestedTarget(nextSuggested);
   }
 
-  function onDateChange(event: DateTimePickerEvent, selected?: Date) {
+  function onDateChange(event: DateTimePickerChangeEvent, selected?: Date) {
     if (Platform.OS === 'android') {
       setShowDatePicker(false);
     }
-    if (event.type === 'dismissed' || !selected) {
+    if (!selected) {
       return;
     }
-
     setGoalDate(toISODate(selected));
     setGoalDateLabel(formatDisplayDate(selected));
     setErrors((prev) => ({ ...prev, goal: undefined, weeks: undefined }));
@@ -283,7 +282,8 @@ export default function OnboardingScreen() {
               mode="date"
               display={Platform.OS === 'ios' ? 'inline' : 'default'}
               minimumDate={new Date()}
-              onChange={onDateChange}
+              onValueChange={onDateChange}
+              onDismiss={() => setShowDatePicker(false)}
             />
           ) : null}
 

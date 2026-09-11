@@ -15,16 +15,23 @@ import type { RouteProp } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import AppButton from '../components/AppButton';
-import { ModalNuevoEjercicio } from '../components/ejercicios';
+import { ModalAgregarEjercicioRutina } from '../components/rutina';
 import type { RutinaStackParamList } from '../navigation/types';
 import { DAY_LABELS, type MuscleExercise } from '../types/workout';
 import { addExercise } from '../services/exerciseService';
 import {
   getOrCreateSession,
   getExercisesForBodyPart,
+  getDayExercises,
+  addExercisesToDay,
+  addRandomExercisesToDay,
+  removeExerciseFromDay,
   getDayMuscles,
   markMuscleCompleted,
+  completeSession,
   getLastWeightForExercise,
+  getAverageWeightForExercise,
+  getCompletedExerciseIds,
 } from '../services/workoutService';
 import type { NewExercise } from '../types/exercise';
 
@@ -37,27 +44,36 @@ export default function MusclePanelScreen() {
   const { day, muscleId, bodyPartId, bodyPartName } = route.params;
 
   const [exercises, setExercises] = useState<MuscleExercise[]>([]);
+  const [catalogExercises, setCatalogExercises] = useState<
+    { id: number; name: string; equipment: string | null }[]
+  >([]);
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [completed, setCompleted] = useState(false);
+  const [completedExerciseIds, setCompletedExerciseIds] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(true);
   const [showAddExercise, setShowAddExercise] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [session, muscles] = await Promise.all([
+      const [session, muscles, catalog] = await Promise.all([
         getOrCreateSession(day),
         getDayMuscles(day),
+        getExercisesForBodyPart(bodyPartId),
       ]);
       setSessionId(session.id);
-      setCompleted(muscles.find((m) => m.id === muscleId)?.isCompletedInCycle ?? false);
+      setCatalogExercises(catalog);
+      const completedIds = await getCompletedExerciseIds(session.id);
+      setCompletedExerciseIds(completedIds);
+      setCompleted(muscles.find((m) => m.id === muscleId)?.isCompleted ?? false);
 
-      const raw = await getExercisesForBodyPart(bodyPartId);
+      const planned = await getDayExercises(day, bodyPartId);
       const withWeights: MuscleExercise[] = await Promise.all(
-        raw.map(async (ex) => ({
-          id: ex.id,
-          name: ex.name,
-          equipment: ex.equipment,
-          lastWeightKg: await getLastWeightForExercise(ex.id),
+        planned.map(async (de) => ({
+          id: de.exercise_id,
+          name: de.exercise_name,
+          equipment: de.equipment,
+          lastWeightKg: await getLastWeightForExercise(de.exercise_id),
+          avgWeightKg: await getAverageWeightForExercise(de.exercise_id),
         })),
       );
       setExercises(withWeights);
@@ -75,6 +91,13 @@ export default function MusclePanelScreen() {
   );
 
   const handleTerminar = () => {
+    if (completedExerciseIds.size === 0) {
+      Alert.alert(
+        'Sin ejercicios registrados',
+        'Registra al menos un ejercicio de este músculo hoy antes de terminar.',
+      );
+      return;
+    }
     Alert.alert(
       '¡Terminé!',
       `¿Marcar ${bodyPartName} como terminado para ${DAY_LABELS[day]}?`,
@@ -85,6 +108,9 @@ export default function MusclePanelScreen() {
           onPress: async () => {
             try {
               await markMuscleCompleted(muscleId);
+              if (sessionId) {
+                await completeSession(sessionId);
+              }
               navigation.goBack();
             } catch (e) {
               Alert.alert('Error', e instanceof Error ? e.message : 'No se pudo marcar.');
@@ -95,9 +121,44 @@ export default function MusclePanelScreen() {
     );
   };
 
-  const handleSaveExercise = async (data: NewExercise) => {
-    await addExercise(data);
+  const handleCreateAndInclude = async (data: NewExercise) => {
+    const created = await addExercise(data);
+    await addExercisesToDay(day, bodyPartId, [created.id]);
     await load();
+  };
+
+  const handleAddExisting = async (exerciseId: number) => {
+    await addExercisesToDay(day, bodyPartId, [exerciseId]);
+    await load();
+  };
+
+  const handleAddRandom = async (): Promise<number> => {
+    const count = await addRandomExercisesToDay(day, bodyPartId, 4);
+    await load();
+    return count;
+  };
+
+  const handleRemoveExercise = (exerciseId: number) => {
+    const ex = exercises.find((e) => e.id === exerciseId);
+    Alert.alert(
+      'Quitar ejercicio',
+      `¿Deseas quitar "${ex?.name ?? 'este ejercicio'}" de la rutina del día?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Quitar',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await removeExerciseFromDay(day, bodyPartId, exerciseId);
+              await load();
+            } catch (e) {
+              Alert.alert('Error', e instanceof Error ? e.message : 'No se pudo quitar.');
+            }
+          },
+        },
+      ],
+    );
   };
 
   const startExercise = (exercise: MuscleExercise) => {
@@ -158,39 +219,77 @@ export default function MusclePanelScreen() {
         {exercises.length === 0 ? (
           <View style={styles.emptyState}>
             <Ionicons name="barbell-outline" size={48} color={colors.cardAlt} />
-            <Text style={styles.emptyText}>No hay ejercicios para este grupo</Text>
-            <Text style={styles.emptySubtext}>Toca + para añadir uno</Text>
+            <Text style={styles.emptyText}>Sin ejercicios asignados</Text>
+            <Text style={styles.emptySubtext}>Toca + para elegir, buscar o sortear al azar</Text>
           </View>
         ) : (
-          exercises.map((ex) => (
-            <TouchableOpacity
-              key={ex.id}
-              style={styles.exerciseCard}
-              onPress={() => startExercise(ex)}
-              activeOpacity={0.75}
-            >
-              <View style={styles.exerciseInfo}>
-                <Text style={styles.exerciseName}>{ex.name}</Text>
-                {ex.equipment ? (
-                  <Text style={styles.equipment}>{ex.equipment}</Text>
-                ) : null}
-                <Text style={styles.lastWeight}>
-                  {ex.lastWeightKg !== null && ex.lastWeightKg > 0
-                    ? `Último peso: ${ex.lastWeightKg} kg`
-                    : 'Sin registro de peso aún'}
-                </Text>
-              </View>
-              <Ionicons name="play-circle" size={32} color={colors.primary} />
-            </TouchableOpacity>
-          ))
+          <>
+            {exercises.map((ex) => {
+              const isDone = completedExerciseIds.has(ex.id);
+              return (
+                <View key={ex.id} style={styles.exerciseCard}>
+                  <TouchableOpacity
+                    style={styles.exerciseMain}
+                    onPress={() => startExercise(ex)}
+                    onLongPress={() => handleRemoveExercise(ex.id)}
+                    delayLongPress={400}
+                    activeOpacity={0.75}
+                  >
+                    <View style={styles.exerciseInfo}>
+                      <View style={styles.exerciseNameRow}>
+                        <Text style={styles.exerciseName}>{ex.name}</Text>
+                        {isDone ? (
+                          <View style={styles.doneBadge}>
+                            <Ionicons name="checkmark" size={12} color={colors.success} />
+                            <Text style={styles.doneBadgeText}>Hoy</Text>
+                          </View>
+                        ) : null}
+                      </View>
+                      {ex.equipment ? (
+                        <Text style={styles.equipment}>{ex.equipment}</Text>
+                      ) : null}
+                      <Text style={styles.lastWeight}>
+                        {ex.lastWeightKg !== null && ex.lastWeightKg > 0
+                          ? `Último peso: ${ex.lastWeightKg} kg`
+                          : 'Sin registro de peso aún'}
+                        {ex.avgWeightKg !== null && ex.avgWeightKg > 0
+                          ? ` · Promedio: ${ex.avgWeightKg} kg`
+                          : ''}
+                      </Text>
+                    </View>
+                    <Ionicons
+                      name={isDone ? 'checkmark-circle' : 'play-circle'}
+                      size={32}
+                      color={isDone ? colors.success : colors.primary}
+                    />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => handleRemoveExercise(ex.id)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    style={styles.removeBtn}
+                  >
+                    <Ionicons name="trash-outline" size={22} color={colors.primary} />
+                  </TouchableOpacity>
+                </View>
+              );
+            })}
+            <Text style={styles.holdHint}>
+              Toca para entrenar · papelera o mantener presionado para quitar
+            </Text>
+          </>
         )}
       </ScrollView>
 
-      <ModalNuevoEjercicio
+      <ModalAgregarEjercicioRutina
         visible={showAddExercise}
-        bodyParts={[{ id: bodyPartId, name: bodyPartName }]}
+        bodyPartId={bodyPartId}
+        bodyPartName={bodyPartName}
+        catalogExercises={catalogExercises}
+        addedExerciseIds={exercises.map((e) => e.id)}
+        onCreateExercise={handleCreateAndInclude}
+        onAddExisting={handleAddExisting}
+        onAddRandom={handleAddRandom}
         onClose={() => setShowAddExercise(false)}
-        onSave={handleSaveExercise}
       />
     </SafeAreaView>
   );
@@ -279,6 +378,20 @@ const styles = StyleSheet.create({
     borderColor: colors.cardAlt,
     borderRadius: 14,
     padding: 16,
+    gap: 4,
+  },
+  exerciseMain: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  removeBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primarySoft,
   },
   exerciseInfo: {
     flex: 1,
@@ -286,6 +399,25 @@ const styles = StyleSheet.create({
   exerciseName: {
     color: colors.text,
     fontSize: 16,
+    fontWeight: '600',
+  },
+  exerciseNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  doneBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.successSoft,
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    gap: 3,
+  },
+  doneBadgeText: {
+    color: colors.success,
+    fontSize: 11,
     fontWeight: '600',
   },
   equipment: {
@@ -312,6 +444,12 @@ const styles = StyleSheet.create({
   emptySubtext: {
     color: colors.textSubtle,
     fontSize: 14,
+    marginTop: 4,
+  },
+  holdHint: {
+    color: colors.textSubtle,
+    fontSize: 12,
+    textAlign: 'center',
     marginTop: 4,
   },
 });

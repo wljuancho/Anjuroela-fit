@@ -142,6 +142,13 @@ export async function getAllExercises(): Promise<ExerciseWithBodyPart[]> {
 
 export async function addExercise(data: NewExercise): Promise<ExerciseWithBodyPart> {
   const db = getDatabase();
+  const existing = await db.getAllAsync<{ id: number }>(
+    'SELECT id FROM exercises_v2 WHERE body_part_id = ? AND LOWER(name) = LOWER(?) LIMIT 1',
+    [data.body_part_id, data.name.trim()],
+  );
+  if (existing[0]) {
+    throw new Error('Ya existe un ejercicio con ese nombre en esta parte del cuerpo.');
+  }
   const result = await db.runAsync(
     'INSERT INTO exercises_v2 (name, body_part_id, description, equipment) VALUES (?, ?, ?, ?)',
     [data.name.trim(), data.body_part_id, data.description?.trim() ?? null, data.equipment?.trim() ?? null],

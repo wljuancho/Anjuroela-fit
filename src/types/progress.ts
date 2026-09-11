@@ -36,3 +36,22 @@ export interface ExerciseStrengthRecord {
   bodyPartName: string;
   history: StrengthHistoryEntry[];
 }
+
+export interface MuscleGroupStrengthHistory {
+  bodyPartId: number;
+  bodyPartName: string;
+  history: StrengthHistoryEntry[];
+}
+
+export interface MuscleSessionPoint {
+  date: string;
+  avgWeightKg: number;
+  setCount: number;
+}
+
+export interface GoalDeadlineEvaluation {
+  reached: boolean;
+  currentWeight: number | null;
+  targetWeight: number;
+  goalDate: string;
+}

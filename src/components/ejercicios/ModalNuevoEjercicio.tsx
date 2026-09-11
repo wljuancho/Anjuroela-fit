@@ -1,5 +1,5 @@
 import { colors } from '../../theme/colors';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Modal,
   View,
@@ -12,20 +12,27 @@ import {
 } from 'react-native';
 import AppTextInput from '../AppTextInput';
 import AppButton from '../AppButton';
+import { Ionicons } from '@expo/vector-icons';
 import type { BodyPart, NewExercise } from '../../types/exercise';
 
 interface ModalNuevoEjercicioProps {
   visible: boolean;
   bodyParts: BodyPart[];
+  existingExercises?: { id: number; name: string }[];
+  initialName?: string;
   onClose: () => void;
   onSave: (data: NewExercise) => Promise<void>;
+  onSelectExisting?: (exerciseId: number) => void;
 }
 
 export default function ModalNuevoEjercicio({
   visible,
   bodyParts,
+  existingExercises,
+  initialName,
   onClose,
   onSave,
+  onSelectExisting,
 }: ModalNuevoEjercicioProps) {
   const [name, setName] = useState('');
   const [selectedBodyPartId, setSelectedBodyPartId] = useState<number | null>(null);
@@ -33,6 +40,18 @@ export default function ModalNuevoEjercicio({
   const [equipment, setEquipment] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (visible && initialName) {
+      setName(initialName);
+    }
+  }, [visible, initialName]);
+
+  const trimmedName = name.trim();
+  const matchedExisting =
+    trimmedName.length > 1 && existingExercises && existingExercises.length > 0
+      ? existingExercises.filter((e) => e.name.toLowerCase().includes(trimmedName.toLowerCase()))
+      : [];
 
   const resetForm = () => {
     setName('');
@@ -47,13 +66,22 @@ export default function ModalNuevoEjercicio({
     onClose();
   };
 
-  const handleSave = async () => {
+const handleSave = async () => {
     if (!name.trim()) {
       setError('El nombre es obligatorio');
       return;
     }
     if (!selectedBodyPartId) {
       setError('Selecciona una parte del cuerpo');
+      return;
+    }
+    const exactMatch = existingExercises?.find(
+      (e) => e.name.toLowerCase() === name.trim().toLowerCase(),
+    );
+    if (exactMatch && onSelectExisting) {
+      resetForm();
+      onClose();
+      onSelectExisting(exactMatch.id);
       return;
     }
     setError('');
@@ -115,6 +143,39 @@ export default function ModalNuevoEjercicio({
                 </TouchableOpacity>
               ))}
             </View>
+
+            {existingExercises && existingExercises.length > 0 && matchedExisting.length > 0 ? (
+              <View style={styles.catalogSection}>
+                <Text style={styles.catalogLabel}>Ejercicios en el catálogo</Text>
+                {matchedExisting.map((ex) => (
+                  <TouchableOpacity
+                    key={ex.id}
+                    style={styles.catalogItem}
+                    onPress={() => {
+                      resetForm();
+                      onClose();
+                      onSelectExisting?.(ex.id);
+                    }}
+                  >
+                    <Text style={styles.catalogItemText}>{ex.name}</Text>
+                    <Ionicons name="arrow-forward" size={14} color={colors.textMuted} />
+                  </TouchableOpacity>
+                ))}
+                <Text style={styles.catalogHint}>
+                  Selecciona uno existente o cambia el nombre para crear uno nuevo
+                </Text>
+              </View>
+            ) : null}
+
+            {trimmedName.length > 2 &&
+            existingExercises &&
+            existingExercises.some(
+              (e) => e.name.toLowerCase() === trimmedName.toLowerCase(),
+            ) ? (
+              <Text style={styles.catalogWarning}>
+                Ya existe un ejercicio con ese nombre en el catálogo
+              </Text>
+            ) : null}
 
             <AppTextInput
               label="Descripción (opcional)"
@@ -221,6 +282,44 @@ const styles = StyleSheet.create({
   textArea: {
     height: 80,
     textAlignVertical: 'top',
+  },
+  catalogSection: {
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.cardAlt,
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 16,
+  },
+  catalogLabel: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  catalogItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.cardAlt,
+  },
+  catalogItemText: {
+    color: colors.text,
+    fontSize: 14,
+  },
+  catalogHint: {
+    color: colors.textSubtle,
+    fontSize: 11,
+    marginTop: 8,
+  },
+  catalogWarning: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: '500',
+    marginBottom: 12,
   },
   errorText: {
     color: colors.primary,

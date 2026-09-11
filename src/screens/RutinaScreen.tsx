@@ -49,6 +49,8 @@ export default function RutinaScreen() {
   const [saving, setSaving] = useState(false);
   const [addModalVisible, setAddModalVisible] = useState(false);
 
+  const todayDay = getTodayDayOfWeek();
+
   const loadData = useCallback(async () => {
     try {
       await initWorkoutData();
@@ -75,9 +77,10 @@ export default function RutinaScreen() {
   );
 
   const dayMuscles = musclesByDay[selectedDay] ?? [];
+  const todayMuscles = musclesByDay[todayDay] ?? [];
   const completedDays = DAYS_ORDER.filter((day) => {
     const list = musclesByDay[day] ?? [];
-    return list.length > 0 && list.every((m) => m.isCompletedInCycle);
+    return list.length > 0 && list.every((m) => m.isCompleted);
   });
 
   const pseudoSchedule: WeeklyScheduleEntry[] = DAYS_ORDER.map((day) => {
@@ -149,9 +152,46 @@ export default function RutinaScreen() {
           completedDays={completedDays}
         />
 
-        <View style={styles.dayHeader}>
+        <View style={styles.hoySection}>
+          <View style={styles.hoyHeader}>
+            <Text style={styles.hoyTitle}>Rutina de Hoy</Text>
+            <Text style={styles.hoySubtitle}>{DAY_LABELS[todayDay]}</Text>
+          </View>
+          {todayMuscles.length === 0 ? (
+            <Text style={styles.hoyEmpty}>Día de descanso</Text>
+          ) : (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.hoyChips}
+            >
+              {todayMuscles.map((muscle) => (
+                <TouchableOpacity
+                  key={muscle.id}
+                  style={[styles.hoyChip, muscle.isCompleted ? styles.hoyChipDone : null]}
+                  onPress={() =>
+                    navigation.navigate('MusclePanel', {
+                      day: todayDay,
+                      muscleId: muscle.id,
+                      bodyPartId: muscle.body_part_id,
+                      bodyPartName: muscle.body_part_name,
+                    })
+                  }
+                  activeOpacity={0.75}
+                >
+                  <Text style={styles.hoyChipText}>{muscle.body_part_name}</Text>
+                  {muscle.isCompleted ? (
+                    <Ionicons name="checkmark" size={14} color={colors.success} />
+                  ) : null}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
+        </View>
+
+        <View style={styles.planHeader}>
           <View>
-            <Text style={styles.dayHeaderLabel}>Músculos de hoy</Text>
+            <Text style={styles.dayHeaderLabel}>Planificación</Text>
             <Text style={styles.dayTitle}>{DAY_LABELS[selectedDay]}</Text>
           </View>
           <TouchableOpacity
@@ -166,9 +206,9 @@ export default function RutinaScreen() {
         {dayMuscles.length === 0 ? (
           <View style={styles.restContainer}>
             <Ionicons name="calendar-outline" size={56} color={colors.cardAlt} />
-            <Text style={styles.restTitle}>Día libre</Text>
+            <Text style={styles.restTitle}>Día sin asignar</Text>
             <Text style={styles.restSubtitle}>
-              Toca + para asignar un grupo muscular a este día
+              Toca + para asignar un grupo muscular a {(DAY_LABELS[selectedDay]).toLowerCase()}
             </Text>
           </View>
         ) : (
@@ -217,7 +257,7 @@ function MuscleCard({
   onStart: () => void;
   onRemove: () => void;
 }) {
-  const done = muscle.isCompletedInCycle;
+  const done = muscle.isCompleted;
   return (
     <TouchableOpacity
       style={[styles.muscleCard, done ? styles.muscleCardDone : null]}
@@ -271,13 +311,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: themeColors.background,
   },
-  dayHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingBottom: 12,
-  },
   dayHeaderLabel: {
     color: themeColors.textMuted,
     fontSize: 13,
@@ -288,6 +321,68 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: '700',
     textTransform: 'capitalize',
+  },
+  hoySection: {
+    marginHorizontal: 16,
+    marginBottom: 12,
+    backgroundColor: themeColors.card,
+    borderWidth: 1,
+    borderColor: themeColors.cardAlt,
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  hoyHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  hoyTitle: {
+    color: themeColors.text,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  hoySubtitle: {
+    color: themeColors.primary,
+    fontSize: 13,
+    fontWeight: '600',
+    textTransform: 'capitalize',
+  },
+  hoyChips: {
+    gap: 8,
+    paddingRight: 8,
+  },
+  hoyChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: themeColors.background,
+    borderWidth: 1,
+    borderColor: themeColors.cardAlt,
+    borderRadius: 18,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  hoyChipDone: {
+    borderColor: themeColors.success,
+    backgroundColor: themeColors.successSoft,
+  },
+  hoyChipText: {
+    color: themeColors.textMuted,
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  hoyEmpty: {
+    color: themeColors.textSubtle,
+    fontSize: 13,
+  },
+  planHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingBottom: 12,
   },
   addBtn: {
     width: 44,

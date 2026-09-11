@@ -29,7 +29,7 @@ export interface DayMuscle {
   position: number;
   completed: number;
   completed_date: string | null;
-  isCompletedInCycle: boolean;
+  isCompleted: boolean;
 }
 
 export interface MuscleExercise {
@@ -37,6 +37,17 @@ export interface MuscleExercise {
   name: string;
   equipment: string | null;
   lastWeightKg: number | null;
+  avgWeightKg: number | null;
+}
+
+export interface DayExercise {
+  id: number;
+  day_of_week: DayOfWeek;
+  body_part_id: number;
+  exercise_id: number;
+  exercise_name: string;
+  equipment: string | null;
+  position: number;
 }
 
 export interface WorkoutSession {

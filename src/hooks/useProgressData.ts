@@ -7,23 +7,32 @@ import {
   updateWeightLog,
   deleteWeightLog,
   getStrengthExerciseRecords,
+  getMuscleProgressHistory,
 } from '../services/progressService';
+import { getAllBodyParts } from '../services/exerciseService';
 import type {
   GoalSummary,
   WeightLog,
   NewWeightLog,
   ExerciseStrengthRecord,
+  MuscleSessionPoint,
 } from '../types/progress';
+import type { BodyPart } from '../types/exercise';
 
 export interface ProgressData {
   summary: GoalSummary | null;
   weightLogs: WeightLog[];
   strengthRecords: ExerciseStrengthRecord[];
+  bodyParts: BodyPart[];
+  selectedMuscleGroupId: number | null;
+  setSelectedMuscleGroupId: (id: number | null) => void;
+  muscleSessionHistory: MuscleSessionPoint[];
   selectedExerciseId: number | null;
   setSelectedExerciseId: (id: number | null) => void;
   loading: boolean;
   error: string | null;
   reload: () => Promise<void>;
+  refresh: () => Promise<void>;
   saveWeight: (data: NewWeightLog, id?: number) => Promise<void>;
   removeWeight: (id: number) => Promise<void>;
 }
@@ -32,48 +41,72 @@ export function useProgressData(userId: number): ProgressData {
   const [summary, setSummary] = useState<GoalSummary | null>(null);
   const [weightLogs, setWeightLogs] = useState<WeightLog[]>([]);
   const [strengthRecords, setStrengthRecords] = useState<ExerciseStrengthRecord[]>([]);
+  const [bodyParts, setBodyParts] = useState<BodyPart[]>([]);
+  const [selectedMuscleGroupId, setSelectedMuscleGroupId] = useState<number | null>(null);
+  const [muscleSessionHistory, setMuscleSessionHistory] = useState<MuscleSessionPoint[]>([]);
   const [selectedExerciseId, setSelectedExerciseId] = useState<number | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const mounted = useRef(true);
 
-  const reload = useCallback(async () => {
-    if (!userId) {
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
-      const [goal, logs, records] = await Promise.all([
-        getGoalSummary(userId),
-        getWeightHistory(),
-        getStrengthExerciseRecords(),
-      ]);
-      if (!mounted.current) {
+  const loadData = useCallback(
+    async (silent: boolean) => {
+      if (!userId) {
         return;
       }
-      setSummary(goal);
-      setWeightLogs(logs);
-      setStrengthRecords(records);
-      setSelectedExerciseId((prev) => {
-        if (records.length === 0) {
-          return null;
-        }
-        if (prev && records.some((r) => r.exerciseId === prev)) {
-          return prev;
-        }
-        return records[0].exerciseId;
-      });
-    } catch (e) {
-      if (mounted.current) {
-        setError(e instanceof Error ? e.message : 'No se pudieron cargar tus datos.');
+      if (!silent) {
+        setLoading(true);
+        setError(null);
       }
-    } finally {
-      if (mounted.current) {
-        setLoading(false);
+      try {
+        const [goal, logs, records, parts] = await Promise.all([
+          getGoalSummary(userId),
+          getWeightHistory(),
+          getStrengthExerciseRecords(),
+          getAllBodyParts(),
+        ]);
+        if (!mounted.current) {
+          return;
+        }
+        setSummary(goal);
+        setWeightLogs(logs);
+        setStrengthRecords(records);
+        setBodyParts(parts);
+        setSelectedMuscleGroupId((prev) => {
+          if (parts.length === 0) {
+            return null;
+          }
+          if (prev && parts.some((bp) => bp.id === prev)) {
+            return prev;
+          }
+          return parts[0].id;
+        });
+        setSelectedExerciseId((prev) => {
+          if (records.length === 0) {
+            return null;
+          }
+          if (prev && records.some((r) => r.exerciseId === prev)) {
+            return prev;
+          }
+          return records[0].exerciseId;
+        });
+        setRefreshKey((k) => k + 1);
+      } catch (e) {
+        if (!silent && mounted.current) {
+          setError(e instanceof Error ? e.message : 'No se pudieron cargar tus datos.');
+        }
+      } finally {
+        if (!silent && mounted.current) {
+          setLoading(false);
+        }
       }
-    }
-  }, [userId]);
+    },
+    [userId],
+  );
+
+  const reload = useCallback(() => loadData(false), [loadData]);
+  const refresh = useCallback(() => loadData(true), [loadData]);
 
   useEffect(() => {
     mounted.current = true;
@@ -82,6 +115,28 @@ export function useProgressData(userId: number): ProgressData {
       mounted.current = false;
     };
   }, [reload]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setMuscleSessionHistory([]);
+    if (selectedMuscleGroupId === null) {
+      return;
+    }
+    getMuscleProgressHistory(selectedMuscleGroupId)
+      .then((points) => {
+        if (!cancelled) {
+          setMuscleSessionHistory(points);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setMuscleSessionHistory([]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedMuscleGroupId, refreshKey]);
 
   const saveWeight = useCallback(
     async (data: NewWeightLog, id?: number) => {
@@ -117,11 +172,16 @@ export function useProgressData(userId: number): ProgressData {
     summary,
     weightLogs,
     strengthRecords,
+    bodyParts,
+    selectedMuscleGroupId,
+    setSelectedMuscleGroupId,
+    muscleSessionHistory,
     selectedExerciseId,
     setSelectedExerciseId,
     loading,
     error,
     reload,
+    refresh,
     saveWeight,
     removeWeight,
   };

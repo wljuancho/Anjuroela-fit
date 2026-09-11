@@ -1,11 +1,14 @@
 import { getDatabase } from './database';
-import { getProfile } from './authService';
+import { getProfile, updateGoalStatus } from './authService';
 import type {
   WeightLog,
   NewWeightLog,
   GoalSummary,
   StrengthHistoryEntry,
   ExerciseStrengthRecord,
+  MuscleGroupStrengthHistory,
+  MuscleSessionPoint,
+  GoalDeadlineEvaluation,
 } from '../types/progress';
 
 export async function addWeightLog(data: NewWeightLog): Promise<WeightLog> {
@@ -83,6 +86,60 @@ export async function deleteWeightLog(id: number): Promise<void> {
     await db.runAsync('DELETE FROM weight_logs WHERE id = ?', [id]);
   } catch {
     throw new Error('No se pudo eliminar el registro.');
+  }
+}
+
+export async function evaluateGoalDeadline(userId: number): Promise<GoalDeadlineEvaluation | null> {
+  try {
+    const profile = await getProfile(userId);
+    if (!profile) return null;
+
+    const goalStatus = profile.goal_status ?? 'active';
+    const goalDate = profile.goal_date ?? null;
+    const targetWeight = profile.target_weight ?? null;
+
+    if (goalStatus !== 'active' || !goalDate || targetWeight === null) {
+      return null;
+    }
+
+    const today = new Date().toISOString().split('T')[0];
+    if (goalDate > today) {
+      return null;
+    }
+
+    const latestLog = await getLatestWeightLog();
+    const currentWeight = latestLog?.weight_kg ?? profile.current_weight ?? null;
+
+    if (currentWeight === null) {
+      return null;
+    }
+
+    const initialWeight = profile.current_weight ?? currentWeight;
+
+    let direction: 'lose' | 'gain' | 'maintain' = 'maintain';
+    if (Math.abs(targetWeight - initialWeight) >= 0.01) {
+      direction = targetWeight < initialWeight ? 'lose' : 'gain';
+    }
+
+    let reached: boolean;
+    if (direction === 'lose') {
+      reached = currentWeight <= targetWeight;
+    } else if (direction === 'gain') {
+      reached = currentWeight >= targetWeight;
+    } else {
+      reached = Math.abs(currentWeight - targetWeight) <= 0.5;
+    }
+
+    await updateGoalStatus(userId, reached ? 'completed' : 'expired');
+
+    return {
+      reached,
+      currentWeight: Math.round(currentWeight * 10) / 10,
+      targetWeight,
+      goalDate,
+    };
+  } catch {
+    return null;
   }
 }
 
@@ -195,5 +252,76 @@ export async function getStrengthHistoryForExercise(exerciseId: number): Promise
     return rows.map((r) => ({ date: r.date, maxWeightKg: r.maxWeightKg }));
   } catch {
     throw new Error('No se pudo cargar el historial del ejercicio.');
+  }
+}
+
+export async function getMuscleProgressHistory(bodyPartId: number): Promise<MuscleSessionPoint[]> {
+  const db = getDatabase();
+  try {
+    const rows = await db.getAllAsync<{
+      date: string;
+      avgWeightKg: number;
+      setCount: number;
+    }>(
+      `SELECT sess.date,
+              COALESCE(AVG(NULLIF(ws.weight_kg, 0)), 0) AS avgWeightKg,
+              COUNT(ws.id) AS setCount
+       FROM workout_sets ws
+       INNER JOIN workout_sessions sess ON sess.id = ws.session_id
+       INNER JOIN exercises_v2 e ON e.id = ws.exercise_id
+       WHERE e.body_part_id = ?
+         AND (ws.reps IS NOT NULL OR ws.time_seconds IS NOT NULL)
+       GROUP BY sess.id, sess.date
+       ORDER BY sess.date, sess.id`,
+      [bodyPartId],
+    );
+    return rows.map((r) => ({
+      date: r.date,
+      avgWeightKg: Math.round(r.avgWeightKg * 10) / 10,
+      setCount: r.setCount,
+    }));
+  } catch {
+    throw new Error('No se pudo cargar el progreso por sesión del músculo.');
+  }
+}
+
+export async function getMuscleGroupStrengthHistory(): Promise<MuscleGroupStrengthHistory[]> {
+  const db = getDatabase();
+  try {
+    const rows = await db.getAllAsync<{
+      body_part_id: number;
+      body_part_name: string;
+      set_date: string;
+      avgWeightKg: number;
+    }>(
+      `SELECT bp.id AS body_part_id, bp.name AS body_part_name,
+              sess.date AS set_date, AVG(ws.weight_kg) AS avgWeightKg
+       FROM workout_sets ws
+       INNER JOIN exercises_v2 e ON e.id = ws.exercise_id
+       INNER JOIN body_parts bp ON bp.id = e.body_part_id
+       INNER JOIN workout_sessions sess ON sess.id = ws.session_id
+       WHERE ws.weight_kg IS NOT NULL AND ws.weight_kg > 0
+       GROUP BY bp.id, bp.name, sess.date
+       ORDER BY bp.name, sess.date`,
+    );
+    const grouped = new Map<number, MuscleGroupStrengthHistory>();
+    for (const row of rows) {
+      let entry = grouped.get(row.body_part_id);
+      if (!entry) {
+        entry = {
+          bodyPartId: row.body_part_id,
+          bodyPartName: row.body_part_name,
+          history: [],
+        };
+        grouped.set(row.body_part_id, entry);
+      }
+      entry.history.push({
+        date: row.set_date,
+        maxWeightKg: Math.round(row.avgWeightKg * 10) / 10,
+      });
+    }
+    return Array.from(grouped.values());
+  } catch {
+    throw new Error('No se pudo cargar el historial por grupo muscular.');
   }
 }

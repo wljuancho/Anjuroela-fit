@@ -1,5 +1,5 @@
 import { colors } from '../theme/colors';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -10,6 +10,7 @@ import AppButton from '../components/AppButton';
 import AppTextInput from '../components/AppTextInput';
 import type { RutinaStackParamList } from '../navigation/types';
 import { DAY_LABELS } from '../types/workout';
+import { getLastWeightForExercise } from '../services/workoutService';
 
 type ConfigNav = NativeStackNavigationProp<RutinaStackParamList, 'ExerciseConfig'>;
 type ConfigRoute = RouteProp<RutinaStackParamList, 'ExerciseConfig'>;
@@ -25,8 +26,15 @@ export default function ExerciseConfigScreen() {
   const [series, setSeries] = useState('3');
   const [reps, setReps] = useState('10');
   const [workSeconds, setWorkSeconds] = useState('30');
-  const [restSeconds, setRestSeconds] = useState('45');
+  const [restSeconds, setRestSeconds] = useState('60');
+  const [lastWeightKg, setLastWeightKg] = useState<number | null>(exercise.lastWeightKg ?? null);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    getLastWeightForExercise(exercise.id)
+      .then((weight) => setLastWeightKg(weight))
+      .catch(() => setLastWeightKg(null));
+  }, [exercise.id]);
 
   const parsePositive = (v: string): number => parseInt(v, 10);
   const parseNonNegative = (v: string): number => parseInt(v, 10);
@@ -34,6 +42,10 @@ export default function ExerciseConfigScreen() {
   const validateReps = () => {
     if (parsePositive(series) <= 0 || parsePositive(reps) <= 0) {
       setError('Indica un número de series y repeticiones mayor a 0.');
+      return false;
+    }
+    if (parseNonNegative(restSeconds) < 0) {
+      setError('El tiempo de descanso no puede ser negativo.');
       return false;
     }
     return true;
@@ -60,7 +72,7 @@ export default function ExerciseConfigScreen() {
       muscleId,
       bodyPartId,
       bodyPartName,
-      plan: { mode: 'reps', series: parsePositive(series), reps: parsePositive(reps), restSeconds: parsePositive(restSeconds) || 45 },
+      plan: { mode: 'reps', series: parsePositive(series), reps: parsePositive(reps), restSeconds: parsePositive(restSeconds) || 60 },
     });
   };
 
@@ -98,8 +110,8 @@ export default function ExerciseConfigScreen() {
         <View style={styles.lastWeightBox}>
           <Ionicons name="trending-up" size={16} color={colors.primary} />
           <Text style={styles.lastWeightText}>
-            {exercise.lastWeightKg !== null && exercise.lastWeightKg > 0
-              ? `Último peso registrado: ${exercise.lastWeightKg} kg`
+            {lastWeightKg !== null && lastWeightKg > 0
+              ? `Último peso en este ejercicio: ${lastWeightKg} kg`
               : 'Aún no tienes peso registrado en este ejercicio'}
           </Text>
         </View>
@@ -141,13 +153,22 @@ export default function ExerciseConfigScreen() {
         />
 
         {mode === 'reps' ? (
-          <AppTextInput
-            label="Repeticiones por serie"
-            value={reps}
-            onChangeText={(t) => setReps(t.replace(/[^0-9]/g, ''))}
-            keyboardType="number-pad"
-            placeholder="Ej: 10"
-          />
+          <>
+            <AppTextInput
+              label="Repeticiones por serie"
+              value={reps}
+              onChangeText={(t) => setReps(t.replace(/[^0-9]/g, ''))}
+              keyboardType="number-pad"
+              placeholder="Ej: 10"
+            />
+            <AppTextInput
+              label="Tiempo de descanso (segundos)"
+              value={restSeconds}
+              onChangeText={(t) => setRestSeconds(t.replace(/[^0-9]/g, ''))}
+              keyboardType="number-pad"
+              placeholder="Ej: 60"
+            />
+          </>
         ) : (
           <>
             <AppTextInput

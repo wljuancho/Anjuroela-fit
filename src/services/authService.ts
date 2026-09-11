@@ -21,6 +21,7 @@ export interface UserProfileRecord {
   target_weight?: number | null;
   goal_weeks?: number | null;
   goal_date?: string | null;
+  goal_status?: string | null;
 }
 
 const HASH_PREFIX = 'v1';
@@ -28,12 +29,14 @@ const LEGACY_SALT = '-anjuroela-fix-salt';
 const SALT_BYTE_LENGTH = 16;
 
 function constantTimeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) {
+  const left = a.toLowerCase().trim();
+  const right = b.toLowerCase().trim();
+  if (left.length !== right.length) {
     return false;
   }
   let diff = 0;
-  for (let i = 0; i < a.length; i += 1) {
-    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  for (let i = 0; i < left.length; i += 1) {
+    diff |= left.charCodeAt(i) ^ right.charCodeAt(i);
   }
   return diff === 0;
 }
@@ -54,6 +57,9 @@ async function hashPassword(password: string, salt: string): Promise<string> {
 }
 
 async function verifyPassword(password: string, storedHash: string): Promise<boolean> {
+  if (!storedHash || !storedHash.trim()) {
+    return false;
+  }
   if (!storedHash.startsWith(`${HASH_PREFIX}:`)) {
     const legacyDigest = await Crypto.digestStringAsync(
       Crypto.CryptoDigestAlgorithm.SHA256,
@@ -192,10 +198,18 @@ export interface UserSession {
 export async function getProfile(userId: number): Promise<UserProfileRecord | null> {
   const db = getDatabase();
   const result = await db.getAllAsync<UserProfileRecord>(
-    'SELECT id, user_id, age, height, current_weight, target_weight, goal_weeks, goal_date FROM user_profiles WHERE user_id = ? LIMIT 1',
+    'SELECT id, user_id, age, height, current_weight, target_weight, goal_weeks, goal_date, goal_status FROM user_profiles WHERE user_id = ? LIMIT 1',
     [userId],
   );
   return result[0] ?? null;
+}
+
+export async function updateGoalStatus(userId: number, status: 'active' | 'completed' | 'expired'): Promise<void> {
+  const db = getDatabase();
+  await db.runAsync('UPDATE user_profiles SET goal_status = ? WHERE user_id = ?', [
+    status,
+    userId,
+  ]);
 }
 
 export async function hasProfile(userId: number): Promise<boolean> {

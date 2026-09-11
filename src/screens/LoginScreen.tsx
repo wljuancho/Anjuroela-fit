@@ -19,7 +19,7 @@ import { isValidEmail } from '../services/utils';
 type Mode = 'login' | 'register';
 
 export default function LoginScreen() {
-  const { signIn, signUp, signInWithGoogle, isAuthenticated } = useAuth();
+  const { signIn, signUp, signInWithGoogle } = useAuth();
 
   const [mode, setMode] = useState<Mode>('login');
   const [name, setName] = useState('');
@@ -30,7 +30,7 @@ export default function LoginScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [loadingSession, setLoadingSession] = useState(false);
 
-  const showLoadingOverlay = (submitting || loadingSession) && !isAuthenticated;
+  const showLoadingOverlay = submitting || loadingSession;
   const loadingText = loadingSession
     ? 'Iniciando sesión con Google...'
     : mode === 'login'

@@ -7,11 +7,13 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import AppButton from '../components/AppButton';
 import AppTextInput from '../components/AppTextInput';
+import { useAuth } from '../context';
 import {
   getVisionApiKey,
   saveVisionApiKey,
@@ -28,6 +30,18 @@ export default function SettingsScreen() {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [status, setStatus] = useState<Status>('idle');
+  const { signOut } = useAuth();
+
+  const handleSignOut = () => {
+    Alert.alert(
+      'Cerrar sesión',
+      '¿Seguro que deseas cerrar sesión? Tu historial permanece guardado en el dispositivo.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Cerrar sesión', style: 'destructive', onPress: () => signOut() },
+      ],
+    );
+  };
 
   useEffect(() => {
     (async () => {
@@ -172,6 +186,18 @@ export default function SettingsScreen() {
               <Text style={styles.deleteText}>Eliminar clave guardada</Text>
             </TouchableOpacity>
           ) : null}
+        </View>
+
+<View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Ionicons name="log-out-outline" size={22} color={colors.primary} />
+            <Text style={styles.sectionTitle}>Sesión</Text>
+          </View>
+          <Text style={styles.sectionSubtitle}>
+            Tu sesión se mantiene activa al cerrar o reiniciar la app. Si cierras
+            sesión, tus datos de progreso permanecen guardados en el dispositivo.
+          </Text>
+          <AppButton title="Cerrar Sesión" variant="outline" onPress={handleSignOut} />
         </View>
 
         <View style={styles.section}>

@@ -34,6 +34,7 @@ export async function initDatabase(): Promise<void> {
       target_weight REAL,
       goal_weeks INTEGER,
       goal_date TEXT,
+      goal_status TEXT DEFAULT 'active',
       username TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
@@ -138,6 +139,18 @@ export async function initDatabase(): Promise<void> {
       UNIQUE (day_of_week, body_part_id)
     );
 
+    CREATE TABLE IF NOT EXISTS day_exercises (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      day_of_week TEXT NOT NULL,
+      body_part_id INTEGER NOT NULL,
+      exercise_id INTEGER NOT NULL,
+      position INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (body_part_id) REFERENCES body_parts (id) ON DELETE CASCADE,
+      FOREIGN KEY (exercise_id) REFERENCES exercises_v2 (id) ON DELETE CASCADE,
+      UNIQUE (day_of_week, body_part_id, exercise_id)
+    );
+
     CREATE TABLE IF NOT EXISTS workout_sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       day_of_week TEXT NOT NULL,
@@ -171,9 +184,10 @@ export async function initDatabase(): Promise<void> {
   await database.execAsync(`
     CREATE INDEX IF NOT EXISTS idx_user_profiles_user ON user_profiles (user_id);
     CREATE INDEX IF NOT EXISTS idx_day_muscles_day ON day_muscles (day_of_week);
+    CREATE INDEX IF NOT EXISTS idx_day_exercises_day ON day_exercises (day_of_week);
     CREATE INDEX IF NOT EXISTS idx_exercises_v2_body_part ON exercises_v2 (body_part_id);
     CREATE INDEX IF NOT EXISTS idx_meals_v2_user_date ON meals_v2 (user_id, date);
-    CREATE INDEX IF NOT EXISTS idx_workout_sessions_day_date ON workout_sessions (day_of_week, date);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_workout_sessions_day_date ON workout_sessions (day_of_week, date);
     CREATE INDEX IF NOT EXISTS idx_workout_sets_session ON workout_sets (session_id);
     CREATE INDEX IF NOT EXISTS idx_workout_sets_exercise ON workout_sets (exercise_id);
     CREATE INDEX IF NOT EXISTS idx_workout_sets_session_exercise_set
@@ -183,6 +197,27 @@ export async function initDatabase(): Promise<void> {
 
   await migrateWorkoutSets(database);
   await migrateDayMuscles(database);
+  await migrateUniqueSessionIndex(database);
+  await migrateUserProfileGoalStatus(database);
+  await migrateUserProfilesUnique(database);
+  await cleanLegacyTestRecords(database);
+}
+
+async function migrateUniqueSessionIndex(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.execAsync(`
+    DELETE FROM workout_sessions
+    WHERE id NOT IN (SELECT MIN(id) FROM workout_sessions GROUP BY day_of_week, date);
+    DROP INDEX IF EXISTS idx_workout_sessions_day_date;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_workout_sessions_day_date ON workout_sessions (day_of_week, date);
+  `);
+}
+
+async function cleanLegacyTestRecords(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.execAsync(`
+    DELETE FROM workout_exercises;
+    DELETE FROM workouts;
+    DELETE FROM exercises;
+  `);
 }
 
 async function migrateDayMuscles(db: SQLite.SQLiteDatabase): Promise<void> {
@@ -211,6 +246,25 @@ async function migrateWorkoutSets(db: SQLite.SQLiteDatabase): Promise<void> {
   if (!names.includes('time_seconds')) {
     await db.execAsync('ALTER TABLE workout_sets ADD COLUMN time_seconds REAL');
   }
+}
+
+async function migrateUserProfileGoalStatus(db: SQLite.SQLiteDatabase): Promise<void> {
+  const columns = await db.getAllAsync<{ name: string }>(
+    "PRAGMA table_info(user_profiles)",
+  );
+  const names = columns.map((c) => c.name);
+  if (!names.includes('goal_status')) {
+    await db.execAsync("ALTER TABLE user_profiles ADD COLUMN goal_status TEXT DEFAULT 'active'");
+  }
+}
+
+async function migrateUserProfilesUnique(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.execAsync(`
+    DELETE FROM user_profiles
+    WHERE id NOT IN (SELECT MIN(id) FROM user_profiles GROUP BY user_id);
+    DROP INDEX IF EXISTS idx_user_profiles_user;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_user_profiles_user ON user_profiles (user_id);
+  `);
 }
 
 export async function closeDatabase(): Promise<void> {

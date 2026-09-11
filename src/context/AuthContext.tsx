@@ -28,6 +28,7 @@ export interface UserProfile {
   targetWeight?: number;
   goalWeeks?: number;
   goalDate?: string;
+  goalStatus?: string;
 }
 
 export interface HealthProfileData {
@@ -47,6 +48,7 @@ interface AuthContextValue {
   signIn: (email: string, password: string) => Promise<boolean>;
   signInWithGoogle: (name: string, email: string, googleId: string) => Promise<void>;
   saveHealthProfile: (data: HealthProfileData) => Promise<void>;
+  clearProfile: () => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -98,6 +100,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         targetWeight: profileRow.target_weight ?? undefined,
         goalWeeks: profileRow.goal_weeks ?? undefined,
         goalDate: profileRow.goal_date ?? undefined,
+        goalStatus: profileRow.goal_status ?? undefined,
       };
     }
     return null;
@@ -138,7 +141,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
         setUser(nextUser);
         setProfile(nextProfile);
-        persistSession(nextUser, nextProfile);
+        await persistSession(nextUser, nextProfile);
         return true;
       },
 
@@ -153,7 +156,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const nextProfile = await refreshProfile(record.id);
         setUser(nextUser);
         setProfile(nextProfile);
-        persistSession(nextUser, nextProfile);
+        await persistSession(nextUser, nextProfile);
       },
 
       async saveHealthProfile(data: HealthProfileData) {
@@ -166,9 +169,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           targetWeight: data.targetWeight,
           goalWeeks: data.goalWeeks,
           goalDate: data.goalDate,
+          goalStatus: 'active',
         };
         setProfile(nextProfile);
         await persistSession(user, nextProfile);
+      },
+
+      async clearProfile() {
+        if (!user) return;
+        setProfile(null);
+        await persistSession(user, null);
       },
 
       async signOut() {

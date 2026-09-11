@@ -31,26 +31,28 @@ export default function RootNavigator() {
       ? 'Onboarding'
       : 'MainTabs';
 
-  // La key fuerza el remontaje del Stack cuando el flujo de auth cambia,
-  // aplicando así el nuevo initialRouteName (Login -> Onboarding -> MainTabs).
-  const flowKey = isAuthenticated
-    ? hasProfileCompleted
-      ? 'main'
-      : 'onboarding'
-    : 'login';
-
+  // Las pantallas se montan/desmontan según el estado de auth. Cuando el estado
+  // cambia (login/registro completado), la pantalla activa se elimina y React
+  // Navigation redirige automáticamente a la primera pantalla disponible,
+  // garantizando la transición Login -> Onboarding -> MainTabs.
   return (
     <Stack.Navigator
-      key={flowKey}
       initialRouteName={initialRoute}
       screenOptions={{
         headerShown: false,
         contentStyle: { backgroundColor: colors.background },
       }}
     >
-      <Stack.Screen name="Login" component={LoginScreen} />
-      <Stack.Screen name="Onboarding" component={OnboardingScreen} />
-      <Stack.Screen name="MainTabs" component={MainTabs} />
+      {!isAuthenticated ? (
+        <Stack.Screen name="Login" component={LoginScreen} />
+      ) : (
+        <>
+          {!hasProfileCompleted ? (
+            <Stack.Screen name="Onboarding" component={OnboardingScreen} />
+          ) : null}
+          <Stack.Screen name="MainTabs" component={MainTabs} />
+        </>
+      )}
     </Stack.Navigator>
   );
 }

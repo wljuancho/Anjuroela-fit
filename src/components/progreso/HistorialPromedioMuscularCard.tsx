@@ -1,11 +1,11 @@
 import { colors } from '../../theme/colors';
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
-import type { ExerciseStrengthRecord } from '../../types/progress';
+import type { MuscleGroupStrengthHistory } from '../../types/progress';
 import { formatNumber } from '../../services/utils';
 
-interface HistorialFuerzaCardProps {
-  record: ExerciseStrengthRecord | null;
+interface HistorialPromedioMuscularCardProps {
+  record: MuscleGroupStrengthHistory | null;
 }
 
 function formatShortDate(date: string): string {
@@ -14,31 +14,30 @@ function formatShortDate(date: string): string {
   return `${parts[2]}/${parts[1]}`;
 }
 
-export default function HistorialFuerzaCard({ record }: HistorialFuerzaCardProps) {
+export default function HistorialPromedioMuscularCard({
+  record,
+}: HistorialPromedioMuscularCardProps) {
   if (!record || record.history.length === 0) {
     return (
       <View style={styles.emptyContainer}>
         <Text style={styles.emptyText}>
-          Registra sesiones y pesos levantados para ver tu evolución de fuerza aquí.
+          Registra sesiones con peso para ver el promedio por grupo muscular aquí.
         </Text>
       </View>
     );
   }
 
   const maxWeight = Math.max(...record.history.map((h) => h.maxWeightKg ?? 0), 0);
-  const avgWeight =
-    record.history.reduce((sum, h) => sum + (h.maxWeightKg ?? 0), 0) /
-    Math.max(1, record.history.length);
   const chartHeight = 80;
 
   return (
     <View style={styles.container}>
-      <Text style={styles.exerciseName}>{record.exerciseName}</Text>
-      <Text style={styles.bodyPartName}>{record.bodyPartName}</Text>
+      <Text style={styles.groupName}>{record.bodyPartName}</Text>
+      <Text style={styles.label}>Promedio de peso por sesión</Text>
 
       {record.history.length === 1 ? (
         <View style={styles.singleStat}>
-          <Text style={styles.singleLabel}>Máximo levantado</Text>
+          <Text style={styles.singleLabel}>Promedio registrado</Text>
           <Text style={styles.singleValue}>
             {record.history[0].maxWeightKg !== null
               ? `${formatNumber(record.history[0].maxWeightKg, 1)} kg`
@@ -74,7 +73,7 @@ export default function HistorialFuerzaCard({ record }: HistorialFuerzaCardProps
             </View>
           </ScrollView>
           <View style={styles.legendRow}>
-            <Text style={styles.legendText}>Máximo actual</Text>
+            <Text style={styles.legendText}>Promedio actual</Text>
             <Text style={styles.legendValue}>
               {record.history[record.history.length - 1].maxWeightKg !== null
                 ? `${formatNumber(
@@ -82,12 +81,6 @@ export default function HistorialFuerzaCard({ record }: HistorialFuerzaCardProps
                     1,
                   )} kg`
                 : '—'}
-            </Text>
-          </View>
-          <View style={styles.legendRow}>
-            <Text style={styles.legendText}>Promedio histórico</Text>
-            <Text style={styles.legendAvgValue}>
-              {avgWeight > 0 ? `${formatNumber(avgWeight, 1)} kg` : '—'}
             </Text>
           </View>
         </>
@@ -121,12 +114,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
   },
-  exerciseName: {
+  groupName: {
     color: colors.text,
     fontSize: 16,
     fontWeight: '700',
   },
-  bodyPartName: {
+  label: {
     color: colors.textMuted,
     fontSize: 12,
     marginTop: 2,
@@ -157,6 +150,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     borderTopLeftRadius: 4,
     borderTopRightRadius: 4,
+    opacity: 0.7,
   },
   barDate: {
     color: colors.textSubtle,
@@ -179,11 +173,6 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontSize: 14,
     fontWeight: '700',
-  },
-  legendAvgValue: {
-    color: colors.textMuted,
-    fontSize: 13,
-    fontWeight: '600',
   },
   singleStat: {
     alignItems: 'center',
