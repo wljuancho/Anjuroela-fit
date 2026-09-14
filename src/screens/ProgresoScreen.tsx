@@ -17,6 +17,7 @@ import {
   CardResumenMeta,
   GraficaEvolucionPesoCard,
   ModalNuevoPeso,
+  ModalEditarEstadoFisico,
   ModalEstablecerNuevaMeta,
   HistorialPesoLista,
   HistorialFuerzaCard,
@@ -33,7 +34,7 @@ import type { NuevoMetaData } from '../services/progressService';
 import type { WeightLog, NewWeightLog, GoalDeadlineEvaluation } from '../types/progress';
 
 export default function ProgresoScreen() {
-  const { user, clearProfile } = useAuth();
+  const { user, profile, clearProfile, saveHealthProfile } = useAuth();
   const {
     summary,
     weightLogs,
@@ -62,6 +63,7 @@ export default function ProgresoScreen() {
   const [goalEvaluation, setGoalEvaluation] = useState<GoalDeadlineEvaluation | null>(null);
   const [goalModalVisible, setGoalModalVisible] = useState(false);
   const [metaModalVisible, setMetaModalVisible] = useState(false);
+  const [physicalVisible, setPhysicalVisible] = useState(false);
   const assertedGoal = useRef<number | null>(null);
 
   useEffect(() => {
@@ -99,6 +101,30 @@ export default function ProgresoScreen() {
       }
     },
     [user?.id, refresh],
+  );
+
+  const handleSavePhysical = useCallback(
+    async (data: { heightCm: string; weightKg: string }) => {
+      if (!user?.id) return;
+      const h = parseFloat(data.heightCm.replace(',', '.')) || 0;
+      const w = parseFloat(data.weightKg.replace(',', '.')) || 0;
+      const heightCm = h > 0 ? h : (profile?.heightCm ?? summary?.heightCm ?? 0);
+      const weightKg = w > 0 ? w : (profile?.currentWeight ?? summary?.currentWeight ?? 0);
+      if (heightCm <= 0 || weightKg <= 0) {
+        throw new Error('Faltan datos físicos para guardar.');
+      }
+      await saveHealthProfile({
+        currentWeight: weightKg,
+        targetWeight: profile?.targetWeight ?? summary?.targetWeight ?? weightKg,
+        goalWeeks: profile?.goalWeeks ?? 4,
+        goalDate: profile?.goalDate ?? summary?.goalDate ?? '',
+        age: profile?.age,
+        heightCm,
+      });
+      setPhysicalVisible(false);
+      await refresh();
+    },
+    [user?.id, profile, summary, saveHealthProfile, refresh],
   );
 
   const handleDeleteWeight = (id: number) => {
@@ -150,7 +176,11 @@ export default function ProgresoScreen() {
     <SafeAreaView style={styles.safe}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
         {summary ? (
-          <CardResumenMeta summary={summary} onSetNewGoal={handleSetNewGoal} />
+          <CardResumenMeta
+            summary={summary}
+            onSetNewGoal={handleSetNewGoal}
+            onEditPhysical={() => setPhysicalVisible(true)}
+          />
         ) : null}
 
         <View style={styles.sectionHeader}>
@@ -251,6 +281,14 @@ export default function ProgresoScreen() {
         editingLog={editingLog}
         onClose={() => setModalVisible(false)}
         onSave={saveWeight}
+      />
+
+      <ModalEditarEstadoFisico
+        visible={physicalVisible}
+        initialHeightCm={summary?.heightCm ?? profile?.heightCm ?? null}
+        initialWeightKg={summary?.currentWeight ?? profile?.currentWeight ?? null}
+        onClose={() => setPhysicalVisible(false)}
+        onSave={handleSavePhysical}
       />
 
       <ModalEstablecerNuevaMeta

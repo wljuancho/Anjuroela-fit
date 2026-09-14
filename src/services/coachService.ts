@@ -1,6 +1,6 @@
 import { AI_CONFIG } from '../constants/config';
-import { getVisionApiKey } from './configService';
-import { formatDate, formatNumber } from './utils';
+import { getVisionApiKey, detectAiProvider } from './configService';
+import { formatDate, formatNumber, calculateBMI, classifyBMI } from './utils';
 import { getProfile } from './authService';
 import {
   getAllBodyParts,
@@ -17,6 +17,7 @@ import {
   getWeightHistory,
   getGoalSummary,
   getStrengthExerciseRecords,
+  getLatestWeightLog,
 } from './progressService';
 import {
   getNutritionProfile,
@@ -81,7 +82,25 @@ const GOAL_LABELS: Record<string, string> = {
   perder: 'perder grasa',
   ganar: 'ganar masa',
   mantener: 'mantener',
+  libre: 'contar calorías libremente (sin déficit forzado)',
 };
+
+function describeNutritionStrategy(goalType: string, dailyGoal: number | null): string {
+  switch (goalType) {
+    case 'perder':
+      return dailyGoal != null
+        ? `Déficit calórico activo de ${Math.round(dailyGoal)} kcal/día (restringiéndote de tu mantenimiento)`
+        : 'Déficit calórico activo';
+    case 'mantener':
+      return 'Mantenimiento sin déficit (TDEE exacto para conservar el peso)';
+    case 'ganar':
+      return 'Superávit calórico (sumando calorías para ganar masa)';
+    case 'libre':
+      return 'Libre / sin objetivo de déficit forzado (solo conteo de calorías)';
+    default:
+      return goalType;
+  }
+}
 
 function normalizeDay(value: string): string | null {
   const key = (value ?? '')
@@ -103,13 +122,39 @@ function addDays(date: Date, days: number): Date {
   return next;
 }
 
+function getSpanishWeekday(date: Date): string {
+  return ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'][date.getDay()];
+}
+
+const DAY_TO_INDEX: Record<string, number> = {
+  domingo: 0, lunes: 1, martes: 2, miercoles: 3, jueves: 4, viernes: 5, sabado: 6,
+};
+
+function nextDateForDay(from: Date, dayName: string): string {
+  const target = DAY_TO_INDEX[dayName];
+  if (target == null) return formatDate(from);
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(from, i);
+    if (d.getDay() === target) return formatDate(d);
+  }
+  return formatDate(from);
+}
+
 const SYSTEM_PROMPT =
   'Eres "Anjuroela", entrenador personal inteligente de la app de fitness "Anjuroela Fit". ' +
   'Tu misión es guiar, motivar y personalizar la experiencia del usuario.\n\n' +
   'REGLAS:\n' +
   '1. Responde SIEMPRE en español, de forma clara, empática y motivadora. Usa listas simples cuando ayudes.\n' +
-  '2. Basa tus recomendaciones en los DATOS REALES del contexto del usuario. Si no tienes un dato, no lo inventes.\n' +
-  '3. Cuando el usuario pida modificar, crear o reorganizar su rutina o sus ejercicios, además de tu explicación ' +
+  '2. SÓLO responde sobre FITNESS, SALUD GENERAL, RUTINAS DE EJERCICIO, NUTRICIÓN, CALORÍAS e IMC. ' +
+  'Si el usuario pregunta por matemáticas puras, política, temas sociales, éticos u otros temas ajenos al fitness, ' +
+  'responde cortésmente declinando la solicitud: "Solo puedo ayudarte con temas de fitness, nutrición, rutinas " + ' +
+  'y salud en anjuroela-fit."\n' +
+  '3. NO eres un médico: no diagnostiques ni trates enfermedades, dolores ni síntomas graves. Ante un problema médico ' +
+  'serio recomienda consultar a un profesional de la salud y ofrece solo consejos generales de bienestar.\n' +
+  '4. Basa tus recomendaciones en los DATOS REALES del contexto del usuario. Si no tienes un dato, no lo inventes.\n' +
+  '5. Adapta la rutina al lugar de entrenamiento que el usuario exprese: ENTRENAMIENTO EN CASA (prioriza ejercicios ' +
+  'de peso corporal y mancuernas) o GIMNASIO (máquinas, barras y poleas). Si no lo indica, pregúntalo antes de crear la rutina.\n' +
+  '6. Cuando el usuario pida modificar, crear o reorganizar su rutina o sus ejercicios, además de tu explicación ' +
   'añade un bloque JSON con las ACCIONES concretas que propones para la base de datos, con este formato exacto:\n\n' +
   `${ACTION_OPEN}\n` +
   '{"actions":[{"action":"crear_musculo","name":"Nombre","icon":"fitness"},' +
@@ -122,20 +167,44 @@ const SYSTEM_PROMPT =
   '   - Reutiliza los nombres de músculos y ejercicios que ya existen en el contexto; crea nuevos solo cuando el usuario lo pida. ' +
   'Cuando crees un ejercicio incluye siempre su "body_part_name".\n' +
   '   - El bloque JSON debe ser válido y completo. Fuera del bloque escribe tu explicación en texto plano.\n' +
-  '4. Cuando el usuario pida un plan o menú de comidas semanal:\n' +
-  '   - Si NO indica para cuántas personas es ni sus preferencias (gustos, alergias, objetivo), pregúntale primero en texto y NO añadas bloque JSON.\n' +
-  '   - Cuando tengas el número de personas y sus preferencias, genera un menú para TODA la semana (lunes a domingo) con al menos ' +
-  'desayuno, almuerzo y cena cada día, y añade:\n\n' +
+  '7. Cuando el usuario pida un plan o menú de comidas semanal o quincenal:\n' +
+  '   - Si NO indica para cuántas personas es, para cuántos días, ni sus preferencias (gustos, alergias, objetivo), ' +
+  'pregúntale primero en texto y NO añadas bloque JSON.\n' +
+  '   - Cuando tengas el número de personas, preferencias y número de días solicitados, genera el menú completo para ' +
+  'TODOS los días pedidos iniciando desde el día siguiente a la fecha de hoy. Cada día incluye al menos desayuno, ' +
+  'almuerzo y cena (agrega snacks si lo crees conveniente).\n' +
+  '   - En la respuesta textual incluye: una breve descripción del plan, la lista CONSOLIDADA de ingredientes para la ' +
+  'lista de mercado (agrupados y sumados según el número de personas y días), y la fecha de expiración del plan.\n' +
+  '   - Añade además el siguiente bloque JSON con las fechas exactas:\n\n' +
   `${MEAL_OPEN}\n` +
-  '{"servings":2,"plan":[{"day":"lunes","meal_type":"desayuno","title":"...","description":"...","ingredients":"..."},...]}\n' +
+  '{"servings":2,"duration_days":8,"start_date":"2026-09-15","expires_at":"2026-09-22",' +
+  '"plan":[{"day":"lunes","date":"2026-09-15","meal_type":"desayuno","title":"...","description":"...",' +
+  '"recipe":"Paso 1: ...\\nPaso 2: ...\\nPaso 3: ...","prep_minutes":15,' +
+  '"ingredients":[{"name":"Ingrediente","amount":"200 g"}]},...]}\n' +
   `${MEAL_CLOSE}\n\n` +
+  '   - "day" es el día de la semana en minúsculas (lunes, martes, miercoles, jueves, viernes, sabado, domingo).\n' +
+  '   - "date" es la fecha exacta del platillo en formato YYYY-MM-DD, empezando el día siguiente a HOY y continuando ' +
+  'consecutivamente. Si el usuario pide 8 días, genera fechas consecutivas para 8 días.\n' +
   '   - "meal_type" es uno de: desayuno, almuerzo, cena, snack.\n' +
-  '   - El menú debe respetar el objetivo, las preferencias y las cantidades adecuadas al número de personas.\n' +
-  '5. Fuera de las etiquetas <<<ACCIONES>>>...<<<FIN_ACCIONES>>> o <<<COMIDAS>>>...<<<FIN_COMIDAS>>> NUNCA incluyas JSON.' +
-  '6. Si alguna acción no puede aplicarse, indícalo en el texto.';
+  '   - "ingredients" es un array de objetos con "name" y "amount". Indica el amount para UNA persona; el sistema ' +
+  'escalará automáticamente según "servings".\n' +
+  '   - "recipe" debe contener el paso a paso detallado y completo de la preparación.\n' +
+  '   - "prep_minutes" es el tiempo estimado de preparación en minutos.\n' +
+  '   - "start_date" es el día siguiente a la fecha actual y "expires_at" es el último día del plan.\n' +
+  '   - El menú debe respetar el objetivo, las preferencias, restricciones y las cantidades adecuadas al número de personas.\n' +
+  '8. Fuera de las etiquetas <<<ACCIONES>>>...<<<FIN_ACCIONES>>> o <<<COMIDAS>>>...<<<FIN_COMIDAS>>> NUNCA incluyas JSON.' +
+  '9. Si alguna acción no puede aplicarse, indícalo en el texto.\n' +
+  '10. Respeta SIEMPRE la estrategia calórica actual del usuario indicada en el contexto (línea "Estrategia calórica"):\n' +
+  '   - Si es "Mantenimiento sin déficit" o "Libre", NO sugieras recortes agresivos, ayunos prolongados ni "déficits" ' +
+  'a menos que el usuario lo pida explícitamente; recomienda comida equilibrada y sostenible.\n' +
+  '   - Si es "Déficit calórico activo", diseña recetas, porciones y ajustes acordes a esa restricción sin caer en extremos riesgosos.\n' +
+  '   - Si es "Superávit calórico", enfócate en aumentar consumo de forma saludable para ganar masa.\n' +
+  '   - Nunca sugieras dietas peligrosas, ayunos prolongados ni restricciones insostenibles.';
 
 async function buildContext(userId: number): Promise<string> {
   const sections: string[] = ['DATOS ACTUALES DEL USUARIO (usados para recomendar):'];
+  const now = new Date();
+  sections.push(`- Fecha de hoy: ${formatDate(now)} (${getSpanishWeekday(now)}).`);
 
   try {
     const profile = await getProfile(userId);
@@ -147,6 +216,23 @@ async function buildContext(userId: number): Promise<string> {
       sections.push(`- Peso actual: ${weight}. Peso objetivo: ${target}.`);
       if (profile.goal_weeks != null) sections.push(`- Meta planteada para ${profile.goal_weeks} semanas.`);
       if (profile.goal_status) sections.push(`- Estado de la meta: ${profile.goal_status}.`);
+    }
+  } catch {}
+
+  try {
+    const profile = await getProfile(userId);
+    const latest = await getLatestWeightLog();
+    if (profile?.height != null && profile.height > 0) {
+      const bmiWeight = latest?.weight_kg ?? profile.current_weight ?? null;
+      if (bmiWeight != null && bmiWeight > 0) {
+        const bmi = calculateBMI(bmiWeight, profile.height);
+        const category = classifyBMI(bmi) ?? 'no clasificable';
+        sections.push(
+          `- Altura: ${formatNumber(profile.height, 0)} cm. IMC: ${formatNumber(bmi, 1)} (${category}).`,
+        );
+      } else {
+        sections.push(`- Altura: ${formatNumber(profile.height, 0)} cm.`);
+      }
     }
   } catch {}
 
@@ -196,7 +282,7 @@ async function buildContext(userId: number): Promise<string> {
       const lines = bodyParts.map((bp) => {
         const names = exercises
           .filter((e) => e.body_part_name === bp.name)
-          .map((e) => e.name)
+          .map((e) => (e.equipment ? `${e.name} (${e.equipment})` : e.name))
           .join(', ');
         return `${bp.name}: ${names || 'sin ejercicios'}`;
       });
@@ -220,13 +306,17 @@ async function buildContext(userId: number): Promise<string> {
     const today = await getNutritionDayData(userId, formatDate(new Date()));
     const goalTxt = today.goal != null ? `${today.goal} kcal` : 'sin meta configurada';
     const current = today.caloriesConsumed != null ? `${Math.round(today.caloriesConsumed)} kcal` : '0 kcal';
-    let calLine = `- Calorías de hoy: ${current} de ${goalTxt} consumidas.`;
+    sections.push(`- Calorías de hoy: ${current} de ${goalTxt} consumidas.`);
     if (nutritionProfile) {
       const act = ACTIVITY_LABELS[nutritionProfile.activityLevel] ?? nutritionProfile.activityLevel;
       const goal = GOAL_LABELS[nutritionProfile.goalType] ?? nutritionProfile.goalType;
-      calLine += ` (actividad ${act}, objetivo ${goal}).`;
+      sections.push(
+        `- Estrategia calórica: ${describeNutritionStrategy(
+          nutritionProfile.goalType,
+          today.goal != null ? today.goal : null,
+        )} (actividad ${act}, objetivo ${goal}).`,
+      );
     }
-    sections.push(calLine);
   } catch {}
 
   return sections.join('\n');
@@ -301,30 +391,72 @@ function parseRoutineProposal(jsonString: string): CoachProposal | null {
 function parseMealProposal(jsonString: string): CoachProposal | null {
   try {
     const data = JSON.parse(jsonString);
+    const rawPlan = Array.isArray(data.plan) ? data.plan : [];
+    if (rawPlan.length === 0) return null;
+
+    const servings = Number(data.servings) > 0 ? Math.round(Number(data.servings)) : 1;
+    const tomorrow = addDays(new Date(), 1);
+    const validDate = (v: unknown) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+    const startDateStr = validDate(data.start_date) ? data.start_date as string : formatDate(tomorrow);
+    const startDate = new Date(`${startDateStr}T00:00:00`);
+    const usedDates: string[] = [];
+
     const plan: WeeklyPlanRow[] = [];
-    if (Array.isArray(data.plan)) {
-      for (const item of data.plan) {
-        if (typeof item !== 'object' || item === null) continue;
-        const day = normalizeDay(item.day);
-        const mealType = normalizeMealType(item.meal_type);
-        const title = typeof item.title === 'string' ? item.title.trim() : '';
-        if (!day || !mealType || !title) continue;
-        plan.push({
-          day,
-          meal_type: mealType,
-          title,
-          description: typeof item.description === 'string' ? item.description : '',
-          ingredients: typeof item.ingredients === 'string' ? item.ingredients : '',
-        });
+    for (const item of rawPlan) {
+      if (typeof item !== 'object' || item === null) continue;
+      const mealType = normalizeMealType(item.meal_type);
+      const title = typeof item.title === 'string' ? item.title.trim() : '';
+      if (!mealType || !title) continue;
+
+      const day = normalizeDay(item.day);
+      let dateStr: string | null = validDate(item.date) ? item.date as string : null;
+      if (!dateStr && day) dateStr = nextDateForDay(startDate, day);
+      if (!dateStr) dateStr = formatDate(addDays(startDate, usedDates.length));
+      usedDates.push(dateStr);
+
+      let ingredients: { name: string; amount: string }[] = [];
+      if (Array.isArray(item.ingredients)) {
+        ingredients = item.ingredients
+          .map((i: any) => ({
+            name: typeof i?.name === 'string' ? i.name.trim() : String(i?.name ?? '').trim(),
+            amount: typeof i?.amount === 'string' ? i.amount.trim() : String(i?.amount ?? '').trim(),
+          }))
+          .filter((i: { name: string; amount: string }) => i.name);
+      } else if (typeof item.ingredients === 'string' && item.ingredients.trim()) {
+        ingredients = item.ingredients
+          .split(/[,;\n]+/)
+          .map((s: string) => s.trim())
+          .filter(Boolean)
+          .map((s: string) => ({ name: s, amount: '' }));
       }
+
+      plan.push({
+        day: day ?? '',
+        date: dateStr,
+        meal_type: mealType,
+        title,
+        description: typeof item.description === 'string' ? item.description.trim() : '',
+        recipe: typeof item.recipe === 'string' ? item.recipe.trim() : '',
+        ingredients,
+      });
     }
+
     if (plan.length === 0) return null;
-    const servings = Number(data.servings) > 0 ? Number(data.servings) : 1;
+
+    const distinctDates = [...new Set(plan.map((r) => r.date))].sort();
+    const expiresAt = validDate(data.expires_at)
+      ? data.expires_at as string
+      : distinctDates[distinctDates.length - 1] ?? startDateStr;
+    const daysCount = distinctDates.length || plan.length;
+    const summary = `Plan de comidas para ${servings} ${servings === 1 ? 'persona' : 'personas'} durante ${daysCount} ${daysCount === 1 ? 'día' : 'días'} (expira el ${expiresAt}). ${plan.length} ${plan.length === 1 ? 'platillo' : 'platillos'}.`;
+
     return {
       kind: 'comidas',
       plan,
       servings,
-      summary: `Menú semanal para ${servings} ${servings === 1 ? 'persona' : 'personas'} con ${plan.length} recetas.`,
+      startDate: startDateStr,
+      expiresAt,
+      summary,
     };
   } catch {
     return null;
@@ -359,6 +491,25 @@ function buildContents(userText: string, history: ChatMessage[]) {
   return parts;
 }
 
+function buildMessages(
+  systemInstruction: string,
+  userText: string,
+  history: ChatMessage[],
+): { role: 'system' | 'user' | 'assistant'; content: string }[] {
+  const messages: { role: 'system' | 'user' | 'assistant'; content: string }[] = [];
+  messages.push({ role: 'system', content: systemInstruction });
+  const recent = history.slice(-10);
+  for (const message of recent) {
+    if (!message.text?.trim()) continue;
+    messages.push({
+      role: message.role === 'user' ? 'user' : 'assistant',
+      content: message.text,
+    });
+  }
+  messages.push({ role: 'user', content: userText });
+  return messages;
+}
+
 export async function sendCoachMessage(
   userId: number,
   userText: string,
@@ -371,9 +522,36 @@ export async function sendCoachMessage(
 
   const context = await buildContext(userId);
   const systemInstruction = `${SYSTEM_PROMPT}\n\n${context}`;
-  const contents = buildContents(userText, history);
+  const provider = detectAiProvider(apiKey);
 
   try {
+    if (provider === 'openai') {
+      const response = await fetch(AI_CONFIG.OPENAI_CHAT_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: AI_CONFIG.OPENAI_CHAT_MODEL,
+          messages: buildMessages(systemInstruction, userText, history),
+          temperature: 0.7,
+        }),
+      });
+
+      if (!response.ok) {
+        return { message: 'El servicio de IA no está disponible ahora (error de conexión). Intenta de nuevo.', proposal: null };
+      }
+
+      const data = await response.json();
+      const text: string | undefined = data?.choices?.[0]?.message?.content;
+      if (!text) {
+        return { message: 'El asistente no devolvió una respuesta. Intenta reformular tu mensaje.', proposal: null };
+      }
+      return parseCoachReply(text);
+    }
+
+    const contents = buildContents(userText, history);
     const response = await fetch(`${AI_CONFIG.GEMINI_API_URL}?key=${apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -513,15 +691,25 @@ export async function executeRoutineProposal(actions: RoutineAction[]): Promise<
 export async function executeWeeklyMealProposal(
   plan: WeeklyPlanRow[],
   servings: number,
+  expiresAt?: string,
 ): Promise<string> {
+  const validDate = (v: unknown) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+  const fallbackExpires = validDate(expiresAt)
+    ? expiresAt as string
+    : (plan.map((p) => p.date).filter((d): d is string => !!d).sort().pop() ?? '');
+  const finalExpires = fallbackExpires || formatDate(addDays(new Date(), 7));
+
   const rows = plan.map((p) => ({
-    day_of_week: p.day,
+    day_of_week: p.day || '',
+    date: p.date ?? '',
     meal_type: p.meal_type,
     title: p.title,
     description: p.description,
-    ingredients: p.ingredients,
-    servings,
+    recipe: p.recipe,
+    ingredients_list: Array.isArray(p.ingredients) ? p.ingredients : [],
+    servings_count: servings,
+    expires_at: finalExpires,
   }));
   const inserted = await replaceWeeklyMealPlan(rows);
-  return `Plan guardado: ${inserted} recetas semanales para ${servings} ${servings === 1 ? 'persona' : 'personas'}. Ya está disponible en la pestaña Comida.`;
+  return `Plan guardado: ${inserted} recetas para ${servings} ${servings === 1 ? 'persona' : 'personas'}. Ya está disponible en la pestaña Comida.`;
 }

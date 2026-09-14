@@ -29,6 +29,8 @@ export interface UserProfile {
   goalWeeks?: number;
   goalDate?: string;
   goalStatus?: string;
+  heightCm?: number;
+  age?: number;
 }
 
 export interface HealthProfileData {
@@ -36,6 +38,8 @@ export interface HealthProfileData {
   targetWeight: number;
   goalWeeks: number;
   goalDate: string;
+  age?: number;
+  heightCm?: number;
 }
 
 interface AuthContextValue {
@@ -48,6 +52,7 @@ interface AuthContextValue {
   signIn: (email: string, password: string) => Promise<boolean>;
   signInWithGoogle: (name: string, email: string, googleId: string) => Promise<void>;
   saveHealthProfile: (data: HealthProfileData) => Promise<void>;
+  reloadProfile: () => Promise<void>;
   clearProfile: () => Promise<void>;
   signOut: () => Promise<void>;
 }
@@ -101,6 +106,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         goalWeeks: profileRow.goal_weeks ?? undefined,
         goalDate: profileRow.goal_date ?? undefined,
         goalStatus: profileRow.goal_status ?? undefined,
+        heightCm: profileRow.height ?? undefined,
+        age: profileRow.age ?? undefined,
       };
     }
     return null;
@@ -163,14 +170,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!user) {
           throw new Error('No hay sesión activa.');
         }
-        await saveProfileForUser(user.id, data);
+        await saveProfileForUser(user.id, {
+          age: data.age ?? profile?.age,
+          height: data.heightCm ?? profile?.heightCm,
+          currentWeight: data.currentWeight,
+          targetWeight: data.targetWeight,
+          goalWeeks: data.goalWeeks,
+          goalDate: data.goalDate,
+        });
         const nextProfile: UserProfile = {
           currentWeight: data.currentWeight,
           targetWeight: data.targetWeight,
           goalWeeks: data.goalWeeks,
           goalDate: data.goalDate,
           goalStatus: 'active',
+          heightCm: data.heightCm ?? profile?.heightCm,
+          age: data.age ?? profile?.age,
         };
+        setProfile(nextProfile);
+        await persistSession(user, nextProfile);
+      },
+
+      async reloadProfile() {
+        if (!user) return;
+        const nextProfile = await refreshProfile(user.id);
         setProfile(nextProfile);
         await persistSession(user, nextProfile);
       },

@@ -1,14 +1,16 @@
 import { colors } from '../../theme/colors';
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import type { NutritionDayData } from '../../types/nutrition';
 import { formatNumber } from '../../services/utils';
 
 interface CardCaloriasDiariasProps {
   data: NutritionDayData;
+  onEditStrategy?: () => void;
 }
 
-export default function CardCaloriasDiarias({ data }: CardCaloriasDiariasProps) {
+export default function CardCaloriasDiarias({ data, onEditStrategy }: CardCaloriasDiariasProps) {
   const { caloriesConsumed, goal, remaining, percentage } = data;
   const hasGoal = goal !== null && goal > 0;
   const overGoal = hasGoal && remaining !== null && remaining < 0;
@@ -16,7 +18,15 @@ export default function CardCaloriasDiarias({ data }: CardCaloriasDiariasProps) 
 
   return (
     <View style={styles.card}>
-      <Text style={styles.cardTitle}>Calorías de hoy</Text>
+      <View style={styles.titleRow}>
+        <Text style={styles.cardTitle}>Calorías de hoy</Text>
+        {onEditStrategy ? (
+          <TouchableOpacity style={styles.editButton} onPress={onEditStrategy} hitSlop={8}>
+            <Ionicons name="pencil-outline" size={16} color={colors.textMuted} />
+            <Text style={styles.editLabel}>Meta</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
 
       <View style={styles.ringRow}>
         <View style={[styles.ring, overGoal ? styles.ringOver : null]}>
@@ -69,11 +79,30 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginBottom: 16,
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
   cardTitle: {
     color: colors.text,
     fontSize: 17,
     fontWeight: '700',
-    marginBottom: 14,
+  },
+  editButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.cardAlt,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  editLabel: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '600',
   },
   ringRow: {
     flexDirection: 'row',

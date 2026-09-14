@@ -20,7 +20,14 @@ import { formatNumber } from '../../services/utils';
 interface ModalOnboardingNutricionalProps {
   visible: boolean;
   weightKg: number;
-  heightCm: number;
+  heightCm?: number;
+  prefill?: {
+    age?: number;
+    heightCm?: number;
+    activityLevel?: ActivityLevel;
+    goalType?: NutritionGoalType;
+    dailyCaloriesGoal?: number;
+  };
   onClose: () => void;
   onSave: (profile: NutritionProfileInput) => Promise<void>;
 }
@@ -32,49 +39,70 @@ const ACTIVITY_OPTIONS: { value: ActivityLevel; label: string; hint: string; ico
 ];
 
 const GOAL_OPTIONS: { value: NutritionGoalType; label: string; hint: string }[] = [
-  { value: 'perder', label: 'Perder grasa', hint: 'Déficit calórico' },
-  { value: 'ganar', label: 'Ganar masa', hint: 'Superávit calórico' },
-  { value: 'mantener', label: 'Mantener', hint: 'Conservar tu peso' },
+  { value: 'perder', label: 'Déficit calórico', hint: 'Perder grasa · resta kcal' },
+  { value: 'mantener', label: 'Mantenimiento', hint: 'Conservar peso · TDEE exacto' },
+  { value: 'ganar', label: 'Superávit calórico', hint: 'Aumentar masa · suma kcal' },
+  { value: 'libre', label: 'Libre / Sin objetivo', hint: 'Contar calorías sin déficit forzado' },
 ];
 
 export default function ModalOnboardingNutricional({
   visible,
   weightKg,
   heightCm,
+  prefill,
   onClose,
   onSave,
 }: ModalOnboardingNutricionalProps) {
   const [age, setAge] = useState('');
+  const [height, setHeight] = useState('');
   const [activity, setActivity] = useState<ActivityLevel | null>(null);
   const [goalType, setGoalType] = useState<NutritionGoalType | null>(null);
+  const [manualGoal, setManualGoal] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   React.useEffect(() => {
     if (visible) {
-      setAge('');
-      setActivity(null);
-      setGoalType(null);
+      setAge(prefill?.age != null && prefill.age > 0 ? String(prefill.age) : '');
+      setHeight(
+        prefill?.heightCm && prefill.heightCm > 0
+          ? String(Math.round(prefill.heightCm))
+          : heightCm && heightCm > 0
+            ? String(Math.round(heightCm))
+            : '',
+      );
+      setActivity(prefill?.activityLevel ?? null);
+      setGoalType(prefill?.goalType ?? null);
+      setManualGoal(prefill?.goalType === 'libre' && prefill?.dailyCaloriesGoal != null ? String(prefill.dailyCaloriesGoal) : '');
       setError('');
     }
-  }, [visible]);
+  }, [visible, heightCm, prefill]);
 
   const ageNum = parseInt(age, 10);
-  const canPreview = ageNum > 0 && activity !== null && goalType !== null;
+  const heightNum = parseFloat(height.replace(',', '.')) || 0;
+  const manualGoalNum =
+    goalType === 'libre' && manualGoal.trim() !== '' ? parseFloat(manualGoal.replace(',', '.')) || 0 : 0;
+  const canPreview = ageNum > 0 && heightNum >= 100 && heightNum <= 250 && activity !== null && goalType !== null;
   const previewGoal = useMemo(() => {
     if (!canPreview) return null;
-    return calculateTDEE({
+    const base = calculateTDEE({
       age: ageNum,
       weightKg,
-      heightCm,
+      heightCm: heightNum,
       activityLevel: activity!,
       goalType: goalType!,
     });
-  }, [canPreview, ageNum, weightKg, heightCm, activity, goalType]);
+    if (goalType === 'libre' && manualGoalNum > 0) return manualGoalNum;
+    return base;
+  }, [canPreview, ageNum, weightKg, heightNum, activity, goalType, manualGoalNum]);
 
   const handleSave = async () => {
     if (!ageNum || ageNum < 10 || ageNum > 120) {
       setError('Ingresa una edad válida (entre 10 y 120 años)');
+      return;
+    }
+    if (!heightNum || heightNum < 100 || heightNum > 250) {
+      setError('Ingresa tu altura en centímetros (entre 100 y 250 cm)');
       return;
     }
     if (!activity) {
@@ -82,22 +110,29 @@ export default function ModalOnboardingNutricional({
       return;
     }
     if (!goalType) {
-      setError('Selecciona tu objetivo');
+      setError('Selecciona tu estrategia calórica');
+      return;
+    }
+    if (goalType === 'libre' && manualGoal.trim() !== '' && (!manualGoalNum || manualGoalNum < 500 || manualGoalNum > 8000)) {
+      setError('Ingresa una meta diaria manual válida (entre 500 y 8000 kcal)');
       return;
     }
     setError('');
     setSaving(true);
     try {
-      await onSave({
-        dailyCaloriesGoal: calculateTDEE({
-          age: ageNum,
-          weightKg,
-          heightCm,
-          activityLevel: activity,
-          goalType,
-        }),
+      const baseTdee = calculateTDEE({
+        age: ageNum,
+        weightKg,
+        heightCm: heightNum,
         activityLevel: activity,
         goalType,
+      });
+      await onSave({
+        dailyCaloriesGoal: goalType === 'libre' && manualGoalNum > 0 ? manualGoalNum : baseTdee,
+        activityLevel: activity,
+        goalType,
+        age: ageNum,
+        heightCm: heightNum,
       });
       onClose();
     } catch {
@@ -123,7 +158,8 @@ export default function ModalOnboardingNutricional({
           <View style={styles.handle} />
           <Text style={styles.title}>Contador de Calorías Inteligente</Text>
           <Text style={styles.subtitle}>
-            Responde brevemente y calcularemos tu meta diaria de calorías (TDEE).
+            Responde brevemente e ingresaremos tu altura para calcular tu meta diaria de calorías
+            (TDEE).
           </Text>
 
           <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
@@ -133,6 +169,17 @@ export default function ModalOnboardingNutricional({
               value={age}
               onChangeText={(t) => {
                 setAge(t);
+                setError('');
+              }}
+              keyboardType="number-pad"
+            />
+
+            <AppTextInput
+              label="Altura (cm)"
+              placeholder="Ej: 175"
+              value={height}
+              onChangeText={(t) => {
+                setHeight(t);
                 setError('');
               }}
               keyboardType="number-pad"
@@ -184,6 +231,24 @@ export default function ModalOnboardingNutricional({
                 );
               })}
             </View>
+
+            {goalType === 'libre' ? (
+              <View style={styles.manualGoalWrap}>
+                <AppTextInput
+                  label="Meta diaria manual (opcional)"
+                  placeholder="Ej: 2000"
+                  value={manualGoal}
+                  onChangeText={(t) => {
+                    setManualGoal(t);
+                    setError('');
+                  }}
+                  keyboardType="number-pad"
+                />
+                <Text style={styles.manualHint}>
+                  Déjala vacía para usar tu mantenimiento calculado (TDEE sin déficit).
+                </Text>
+              </View>
+            ) : null}
 
             {previewGoal !== null ? (
               <View style={styles.previewCard}>
@@ -301,6 +366,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
     marginBottom: 16,
+  },
+  manualGoalWrap: {
+    marginBottom: 16,
+  },
+  manualHint: {
+    color: colors.textSubtle,
+    fontSize: 12,
+    marginTop: -8,
+    marginBottom: 8,
   },
   previewInfo: {
     flex: 1,

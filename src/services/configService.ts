@@ -3,6 +3,13 @@ import { AI_CONFIG } from '../constants/config';
 
 const API_KEY_VISION_KEY = 'API_KEY_VISION';
 
+export type AiProvider = 'gemini' | 'openai';
+
+export function detectAiProvider(apiKey: string): AiProvider {
+  const trimmed = apiKey.trim();
+  return trimmed.startsWith('sk-') ? 'openai' : 'gemini';
+}
+
 export async function getVisionApiKey(): Promise<string | null> {
   try {
     return await SecureStore.getItemAsync(API_KEY_VISION_KEY);
@@ -34,8 +41,26 @@ export async function testVisionApiKey(apiKey: string): Promise<boolean> {
     return false;
   }
 
-  const url = `${AI_CONFIG.GEMINI_API_URL}?key=${trimmed}`;
+  const provider = detectAiProvider(trimmed);
+
   try {
+    if (provider === 'openai') {
+      const response = await fetch(AI_CONFIG.OPENAI_CHAT_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${trimmed}`,
+        },
+        body: JSON.stringify({
+          model: AI_CONFIG.OPENAI_CHAT_MODEL,
+          messages: [{ role: 'user', content: 'Responde OK' }],
+          max_tokens: 5,
+        }),
+      });
+      return response.ok;
+    }
+
+    const url = `${AI_CONFIG.GEMINI_API_URL}?key=${trimmed}`;
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

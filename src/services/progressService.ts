@@ -177,6 +177,8 @@ export async function getGoalSummary(userId: number): Promise<GoalSummary> {
 
     const currentWeight = latestLog?.weight_kg ?? initialWeight;
 
+    const heightCm = profile?.height ?? null;
+
     let direction: GoalSummary['direction'] = null;
     if (initialWeight !== null && currentWeight !== null && targetWeight !== null) {
       if (Math.abs(targetWeight - initialWeight) < 0.01) {
@@ -209,6 +211,7 @@ export async function getGoalSummary(userId: number): Promise<GoalSummary> {
       targetWeight,
       goalDate,
       goalWeeks,
+      heightCm,
       differenceRemaining,
       progressPercent,
       direction,

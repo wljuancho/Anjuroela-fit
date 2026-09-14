@@ -1,6 +1,6 @@
 export type ActivityLevel = 'sedentario' | 'moderado' | 'activo';
 
-export type NutritionGoalType = 'perder' | 'ganar' | 'mantener';
+export type NutritionGoalType = 'perder' | 'ganar' | 'mantener' | 'libre';
 
 export type PlanMealType = 'desayuno' | 'almuerzo' | 'cena' | 'snack';
 
@@ -16,6 +16,8 @@ export interface NutritionProfileInput {
   dailyCaloriesGoal: number;
   activityLevel: ActivityLevel;
   goalType: NutritionGoalType;
+  age?: number;
+  heightCm?: number;
 }
 
 export interface DailyCalories {
@@ -59,12 +61,20 @@ export interface NutritionDayData {
   meals: MealLog[];
 }
 
+export interface MealIngredient {
+  name: string;
+  amount: string;
+}
+
 export interface WeeklyMealPlanItem {
   id: number;
   day_of_week: string;
+  date: string;
   meal_type: PlanMealType;
   title: string;
-  description: string;
-  ingredients: string;
-  servings: number;
+  description: string | null;
+  recipe: string | null;
+  ingredients_list: MealIngredient[];
+  servings_count: number;
+  expires_at: string;
 }

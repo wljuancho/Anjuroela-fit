@@ -23,10 +23,12 @@ export interface RoutineAction {
 
 export interface WeeklyPlanRow {
   day: string;
+  date?: string;
   meal_type: string;
   title: string;
   description?: string;
-  ingredients?: string;
+  recipe?: string;
+  ingredients?: { name: string; amount: string }[] | string;
 }
 
 export interface CoachProposal {
@@ -34,6 +36,8 @@ export interface CoachProposal {
   actions?: RoutineAction[];
   plan?: WeeklyPlanRow[];
   servings?: number;
+  startDate?: string;
+  expiresAt?: string;
   summary: string;
 }
 

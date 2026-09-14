@@ -1,6 +1,7 @@
 export { default as CardResumenMeta } from './CardResumenMeta';
 export { default as GraficaEvolucionPesoCard } from './GraficaEvolucionPesoCard';
 export { default as ModalNuevoPeso } from './ModalNuevoPeso';
+export { default as ModalEditarEstadoFisico } from './ModalEditarEstadoFisico';
 export { default as ModalEstablecerNuevaMeta } from './ModalEstablecerNuevaMeta';
 export { default as HistorialPesoLista } from './HistorialPesoLista';
 export { default as HistorialFuerzaCard } from './HistorialFuerzaCard';

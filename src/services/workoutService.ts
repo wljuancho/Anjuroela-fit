@@ -246,7 +246,7 @@ export async function getExercisesForBodyPart(bodyPartId: number): Promise<{ id:
   const db = getDatabase();
   try {
     return await db.getAllAsync(
-      'SELECT id, name, equipment FROM exercises_v2 WHERE body_part_id = ? ORDER BY name',
+      'SELECT id, name, equipment FROM exercises_v2 WHERE body_part_id = ? AND is_active = 1 ORDER BY name',
       [bodyPartId],
     );
   } catch {
@@ -321,7 +321,7 @@ export async function getRandomExercises(
   const db = getDatabase();
   try {
     return await db.getAllAsync(
-      'SELECT id, name, equipment FROM exercises_v2 WHERE body_part_id = ? ORDER BY RANDOM() LIMIT ?',
+      'SELECT id, name, equipment FROM exercises_v2 WHERE body_part_id = ? AND is_active = 1 ORDER BY RANDOM() LIMIT ?',
       [bodyPartId, limit],
     );
   } catch {

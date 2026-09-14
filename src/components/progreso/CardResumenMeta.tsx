@@ -1,14 +1,15 @@
 import { colors } from '../../theme/colors';
 import React, { useMemo } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AppButton from '../AppButton';
 import type { GoalSummary } from '../../types/progress';
-import { formatNumber, formatDate } from '../../services/utils';
+import { formatNumber, formatDate, calculateBMI, classifyBMI } from '../../services/utils';
 
 interface CardResumenMetaProps {
   summary: GoalSummary;
   onSetNewGoal?: () => void;
+  onEditPhysical?: () => void;
 }
 
 function formatDateLabel(date: string | null): string {
@@ -24,30 +25,57 @@ function MetricBox({
   icon,
   accent,
   highlight = false,
+  onPress,
 }: {
   label: string;
   value: string;
   icon: keyof typeof Ionicons.glyphMap;
   accent?: string;
   highlight?: boolean;
+  onPress?: () => void;
 }) {
   const iconColor = highlight ? colors.primary : accent ?? colors.textMuted;
-  return (
-    <View style={[styles.metricBox, highlight ? styles.metricBoxHighlight : null]}>
+  const content = (
+    <>
       <View style={styles.metricHeader}>
         <View style={[styles.metricIconWrap, highlight ? styles.metricIconWrapHighlight : null]}>
           <Ionicons name={icon} size={15} color={iconColor} />
         </View>
-        <Text style={styles.metricLabel}>{label}</Text>
+        <Text style={[styles.metricLabel, onPress ? styles.metricLabelEditable : null]}>
+          {label}
+        </Text>
+        {onPress ? (
+          <Ionicons name="pencil-outline" size={12} color={colors.textMuted} />
+        ) : null}
       </View>
       <Text style={[styles.metricValue, highlight ? styles.metricValueHighlight : null]}>
         {value}
       </Text>
+    </>
+  );
+  if (onPress) {
+    return (
+      <TouchableOpacity
+        style={[styles.metricBox, highlight ? styles.metricBoxHighlight : null]}
+        onPress={onPress}
+        activeOpacity={0.7}
+      >
+        {content}
+      </TouchableOpacity>
+    );
+  }
+  return (
+    <View style={[styles.metricBox, highlight ? styles.metricBoxHighlight : null]}>
+      {content}
     </View>
   );
 }
 
-export default function CardResumenMeta({ summary, onSetNewGoal }: CardResumenMetaProps) {
+export default function CardResumenMeta({
+  summary,
+  onSetNewGoal,
+  onEditPhysical,
+}: CardResumenMetaProps) {
   const {
     initialWeight,
     currentWeight,
@@ -56,7 +84,17 @@ export default function CardResumenMeta({ summary, onSetNewGoal }: CardResumenMe
     differenceRemaining,
     progressPercent,
     direction,
+    heightCm,
   } = summary;
+
+  const bmi = useMemo(() => {
+    if (!heightCm || heightCm <= 0 || currentWeight === null || currentWeight <= 0) return null;
+    const value = calculateBMI(currentWeight, heightCm);
+    if (value <= 0) return null;
+    return value;
+  }, [heightCm, currentWeight]);
+
+  const bmiCategory = bmi !== null ? classifyBMI(bmi) : null;
 
   const goalReached = useMemo(() => {
     if (currentWeight === null || targetWeight === null) return false;
@@ -132,6 +170,13 @@ export default function CardResumenMeta({ summary, onSetNewGoal }: CardResumenMe
           value={diffAbs !== null ? `${formatNumber(diffAbs, 1)} kg` : '—'}
           icon={faltanteIcon}
           accent={colors.warning}
+        />
+        <MetricBox
+          label={bmiCategory ? `IMC (${bmiCategory})` : 'IMC'}
+          value={bmi !== null ? formatNumber(bmi, 1) : '—'}
+          icon="body-outline"
+          accent={bmiCategory === 'Normal' ? colors.success : bmiCategory === 'Bajo peso' ? colors.warning : colors.primary}
+          onPress={onEditPhysical}
         />
       </View>
 
@@ -265,6 +310,10 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 11,
     flexShrink: 1,
+  },
+  metricLabelEditable: {
+    color: colors.primary,
+    fontWeight: '600',
   },
   metricValue: {
     color: colors.text,

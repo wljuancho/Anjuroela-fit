@@ -52,6 +52,7 @@ export async function initDatabase(): Promise<void> {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
       icon TEXT,
+      is_active INTEGER DEFAULT 1,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -61,6 +62,7 @@ export async function initDatabase(): Promise<void> {
       body_part_id INTEGER NOT NULL,
       description TEXT,
       equipment TEXT,
+      is_active INTEGER DEFAULT 1,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (body_part_id) REFERENCES body_parts (id) ON DELETE CASCADE
     );
@@ -208,17 +210,23 @@ export async function initDatabase(): Promise<void> {
     CREATE TABLE IF NOT EXISTS weekly_meal_plan (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       day_of_week TEXT NOT NULL,
+      date TEXT,
       meal_type TEXT NOT NULL,
       title TEXT NOT NULL,
       description TEXT,
-      ingredients TEXT,
-      servings INTEGER NOT NULL DEFAULT 1
+      recipe TEXT,
+      ingredients_list TEXT,
+      servings_count INTEGER NOT NULL DEFAULT 1,
+      expires_at TEXT
     );
   `);
 
   await migrateWorkoutSets(database);
   await migrateDayMuscles(database);
   await migrateUniqueSessionIndex(database);
+  await migrateBodyPartsIsActive(database);
+  await migrateExercisesIsActive(database);
+  await migrateWeeklyMealPlanSchema(database);
 
   await database.execAsync(`
     CREATE INDEX IF NOT EXISTS idx_user_profiles_user ON user_profiles (user_id);
@@ -234,12 +242,12 @@ export async function initDatabase(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_weight_logs_date ON weight_logs (date);
     CREATE INDEX IF NOT EXISTS idx_meal_logs_date ON meal_logs (date);
     CREATE INDEX IF NOT EXISTS idx_weekly_meal_plan_day ON weekly_meal_plan (day_of_week);
+    CREATE INDEX IF NOT EXISTS idx_weekly_meal_plan_date ON weekly_meal_plan (date);
   `);
 
   await migrateUserProfileGoalStatus(database);
   await migrateUserProfilesUnique(database);
   await cleanLegacyTestRecords(database);
-  await seedWeeklyMealPlan(database);
 }
 
 async function migrateUniqueSessionIndex(db: SQLite.SQLiteDatabase): Promise<void> {
@@ -301,6 +309,56 @@ async function migrateWorkoutSets(db: SQLite.SQLiteDatabase): Promise<void> {
   }
 }
 
+async function migrateBodyPartsIsActive(db: SQLite.SQLiteDatabase): Promise<void> {
+  const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(body_parts)');
+  const names = columns.map((c) => c.name);
+  if (!names.includes('is_active')) {
+    await db.execAsync('ALTER TABLE body_parts ADD COLUMN is_active INTEGER DEFAULT 1');
+  }
+}
+
+async function migrateExercisesIsActive(db: SQLite.SQLiteDatabase): Promise<void> {
+  const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(exercises_v2)');
+  const names = columns.map((c) => c.name);
+  if (!names.includes('is_active')) {
+    await db.execAsync('ALTER TABLE exercises_v2 ADD COLUMN is_active INTEGER DEFAULT 1');
+  }
+}
+
+async function migrateWeeklyMealPlanSchema(database: SQLite.SQLiteDatabase): Promise<void> {
+  const columns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(weekly_meal_plan)');
+  const names = columns.map((c) => c.name);
+  const hasNewSchema = names.includes('date') && names.includes('recipe') && names.includes('ingredients_list');
+  if (hasNewSchema) return;
+
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayStr = `${yesterday.getFullYear()}-${pad(yesterday.getMonth() + 1)}-${pad(yesterday.getDate())}`;
+
+  await database.execAsync(`
+    ALTER TABLE weekly_meal_plan RENAME TO weekly_meal_plan_legacy;
+    CREATE TABLE weekly_meal_plan (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      day_of_week TEXT NOT NULL,
+      date TEXT,
+      meal_type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT,
+      recipe TEXT,
+      ingredients_list TEXT,
+      servings_count INTEGER NOT NULL DEFAULT 1,
+      expires_at TEXT
+    );
+    INSERT INTO weekly_meal_plan (day_of_week, date, meal_type, title, description, servings_count, expires_at)
+      SELECT day_of_week, '${todayStr}', meal_type, title, description, servings, '${yesterdayStr}'
+        FROM weekly_meal_plan_legacy;
+    DROP TABLE weekly_meal_plan_legacy;
+  `);
+}
+
 async function migrateUserProfileGoalStatus(db: SQLite.SQLiteDatabase): Promise<void> {
   const columns = await db.getAllAsync<{ name: string }>(
     "PRAGMA table_info(user_profiles)",
@@ -318,262 +376,6 @@ async function migrateUserProfilesUnique(db: SQLite.SQLiteDatabase): Promise<voi
     DROP INDEX IF EXISTS idx_user_profiles_user;
     CREATE UNIQUE INDEX IF NOT EXISTS idx_user_profiles_user ON user_profiles (user_id);
   `);
-}
-
-const WEEKLY_MEAL_PLAN_SEED: Array<{
-  day_of_week: string;
-  meal_type: string;
-  title: string;
-  description: string;
-  ingredients: string;
-  servings: number;
-}> = [
-  {
-    day_of_week: 'lunes',
-    meal_type: 'desayuno',
-    title: 'Avena con fruta',
-    description: 'Avena cocida con plátano, arándanos y una pizca de canela.',
-    ingredients: 'Avena, plátano, arándanos, canela, leche o bebida vegetal',
-    servings: 1,
-  },
-  {
-    day_of_week: 'lunes',
-    meal_type: 'almuerzo',
-    title: 'Pechuga a la plancha con arroz',
-    description: 'Pechuga de pollo a la plancha con arroz integral y verduras al vapor.',
-    ingredients: 'Pechuga de pollo, arroz integral, brócoli, zanahoria, aceite de oliva',
-    servings: 1,
-  },
-  {
-    day_of_week: 'lunes',
-    meal_type: 'cena',
-    title: 'Ensalada de atún',
-    description: 'Ensalada variada con atún, tomate, aguacate y huevo duro.',
-    ingredients: 'Atún, lechuga, tomate, aguacate, huevo, aceite de oliva',
-    servings: 1,
-  },
-  {
-    day_of_week: 'lunes',
-    meal_type: 'snack',
-    title: 'Yogur griego y almendras',
-    description: 'Yogur griego natural con un puñado de almendras.',
-    ingredients: 'Yogur griego, almendras',
-    servings: 1,
-  },
-  {
-    day_of_week: 'martes',
-    meal_type: 'desayuno',
-    title: 'Huevos revueltos y pan integral',
-    description: 'Huevos revueltos con espinacas y una rebanada de pan integral.',
-    ingredients: 'Huevos, espinacas, pan integral, aceite de oliva',
-    servings: 1,
-  },
-  {
-    day_of_week: 'martes',
-    meal_type: 'almuerzo',
-    title: 'Salmón al horno con quinoa',
-    description: 'Salmón al horno acompañado de quinoa y espárragos.',
-    ingredients: 'Salmón, quinoa, espárragos, limón, aceite de oliva',
-    servings: 1,
-  },
-  {
-    day_of_week: 'martes',
-    meal_type: 'cena',
-    title: 'Sopa de pollo y verduras',
-    description: 'Sopa ligera con pollo, calabacín, zanahoria y apio.',
-    ingredients: 'Pollo, calabacín, zanahoria, apio, cebolla',
-    servings: 2,
-  },
-  {
-    day_of_week: 'martes',
-    meal_type: 'snack',
-    title: 'Manzana con mantequilla de maní',
-    description: 'Manzana en rodajas con una cucharada de mantequilla de maní.',
-    ingredients: 'Manzana, mantequilla de maní',
-    servings: 1,
-  },
-  {
-    day_of_week: 'miercoles',
-    meal_type: 'desayuno',
-    title: 'Batido de proteína y avena',
-    description: 'Batido con proteína, avena, plátano y leche.',
-    ingredients: 'Proteína en polvo, avena, plátano, leche',
-    servings: 1,
-  },
-  {
-    day_of_week: 'miercoles',
-    meal_type: 'almuerzo',
-    title: 'Carne magra con papa al horno',
-    description: 'Carne magra asada con papa al horno y ensalada de lechuga.',
-    ingredients: 'Carne magra, papa, lechuga, tomate, aceite de oliva',
-    servings: 1,
-  },
-  {
-    day_of_week: 'miercoles',
-    meal_type: 'cena',
-    title: 'Omelette de claras',
-    description: 'Omelette de claras con champiñones y queso bajo en grasa.',
-    ingredients: 'Claras de huevo, champiñones, queso bajo en grasa',
-    servings: 1,
-  },
-  {
-    day_of_week: 'miercoles',
-    meal_type: 'snack',
-    title: 'Requesón y frutas rojas',
-    description: 'Requesón con fresas y arándanos.',
-    ingredients: 'Requesón, fresas, arándanos',
-    servings: 1,
-  },
-  {
-    day_of_week: 'jueves',
-    meal_type: 'desayuno',
-    title: 'Panqueques de avena',
-    description: 'Panqueques de avena y plátano con miel ligera.',
-    ingredients: 'Avena, plátano, huevo, miel',
-    servings: 2,
-  },
-  {
-    day_of_week: 'jueves',
-    meal_type: 'almuerzo',
-    title: 'Pollo al curry con arroz',
-    description: 'Pollo al curry con leche de coco y arroz blanco.',
-    ingredients: 'Pollo, curry, leche de coco, arroz, cebolla',
-    servings: 2,
-  },
-  {
-    day_of_week: 'jueves',
-    meal_type: 'cena',
-    title: 'Ensalada César de pollo',
-    description: 'Ensalada César con pollo a la parrilla y aderezo ligero.',
-    ingredients: 'Pollo, lechuga, pan integral, queso parmesano, aderezo ligero',
-    servings: 1,
-  },
-  {
-    day_of_week: 'jueves',
-    meal_type: 'snack',
-    title: 'Zanahoria y hummus',
-    description: 'Bastones de zanahoria con hummus.',
-    ingredients: 'Zanahoria, hummus',
-    servings: 1,
-  },
-  {
-    day_of_week: 'viernes',
-    meal_type: 'desayuno',
-    title: 'Yogur con granola',
-    description: 'Yogur natural con granola y frutas frescas.',
-    ingredients: 'Yogur natural, granola, frutas frescas',
-    servings: 1,
-  },
-  {
-    day_of_week: 'viernes',
-    meal_type: 'almuerzo',
-    title: 'Pasta integral con vegetales',
-    description: 'Pasta integral con tomate, espinaca y queso rallado.',
-    ingredients: 'Pasta integral, tomate, espinaca, queso rallado, aceite de oliva',
-    servings: 2,
-  },
-  {
-    day_of_week: 'viernes',
-    meal_type: 'cena',
-    title: 'Tilapia a la plancha',
-    description: 'Tilapia a la plancha con arroz de coliflor y limón.',
-    ingredients: 'Tilapia, coliflor, limón, perejil, aceite de oliva',
-    servings: 1,
-  },
-  {
-    day_of_week: 'viernes',
-    meal_type: 'snack',
-    title: 'Mix de frutos secos',
-    description: 'Puñado de nueces, almendras y avellanas.',
-    ingredients: 'Nueces, almendras, avellanas',
-    servings: 1,
-  },
-  {
-    day_of_week: 'sabado',
-    meal_type: 'desayuno',
-    title: 'Tostadas con aguacate',
-    description: 'Pan integral tostado con aguacate y huevo pochado.',
-    ingredients: 'Pan integral, aguacate, huevo, limón',
-    servings: 1,
-  },
-  {
-    day_of_week: 'sabado',
-    meal_type: 'almuerzo',
-    title: 'Bowl de pollo y quinoa',
-    description: 'Bowl con pollo, quinoa, garbanzos y vegetales asados.',
-    ingredients: 'Pollo, quinoa, garbanzos, pimiento, calabacín',
-    servings: 1,
-  },
-  {
-    day_of_week: 'sabado',
-    meal_type: 'cena',
-    title: 'Pizza de calabacín',
-    description: 'Base de calabacín con tomate, mozzarella y albahaca.',
-    ingredients: 'Calabacín, tomate, mozzarella, albahaca',
-    servings: 2,
-  },
-  {
-    day_of_week: 'sabado',
-    meal_type: 'snack',
-    title: 'Batido verde',
-    description: 'Batido de espinaca, manzana y jengibre.',
-    ingredients: 'Espinaca, manzana, jengibre, agua o leche',
-    servings: 1,
-  },
-  {
-    day_of_week: 'domingo',
-    meal_type: 'desayuno',
-    title: 'Huevos al gusto con fruta',
-    description: 'Huevos revueltos o cocidos con una pieza de fruta.',
-    ingredients: 'Huevos, fruta de temporada',
-    servings: 1,
-  },
-  {
-    day_of_week: 'domingo',
-    meal_type: 'almuerzo',
-    title: 'Pollo al horno con vegetales',
-    description: 'Pollo entero asado con papa, zanahoria y cebolla.',
-    ingredients: 'Pollo, papa, zanahoria, cebolla, romero',
-    servings: 4,
-  },
-  {
-    day_of_week: 'domingo',
-    meal_type: 'cena',
-    title: 'Caldo de verduras',
-    description: 'Caldo tibio con poro, apio, zanahoria y fideos integrales.',
-    ingredients: 'Poro, apio, zanahoria, fideos integrales',
-    servings: 3,
-  },
-  {
-    day_of_week: 'domingo',
-    meal_type: 'snack',
-    title: 'Barrita de avena',
-    description: 'Barrita casera de avena y miel.',
-    ingredients: 'Avena, miel, nueces, pasas',
-    servings: 2,
-  },
-];
-
-async function seedWeeklyMealPlan(db: SQLite.SQLiteDatabase): Promise<void> {
-  const rows = await db.getAllAsync<{ cnt: number }>(
-    'SELECT COUNT(*) as cnt FROM weekly_meal_plan',
-  );
-  if ((rows[0]?.cnt ?? 0) > 0) return;
-  for (const meal of WEEKLY_MEAL_PLAN_SEED) {
-    await db.runAsync(
-      `INSERT INTO weekly_meal_plan
-        (day_of_week, meal_type, title, description, ingredients, servings)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [
-        meal.day_of_week,
-        meal.meal_type,
-        meal.title,
-        meal.description,
-        meal.ingredients,
-        meal.servings,
-      ],
-    );
-  }
 }
 
 export async function closeDatabase(): Promise<void> {

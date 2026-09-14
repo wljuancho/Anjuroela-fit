@@ -20,6 +20,7 @@ export interface GoalSummary {
   targetWeight: number | null;
   goalDate: string | null;
   goalWeeks: number | null;
+  heightCm: number | null;
   differenceRemaining: number | null;
   progressPercent: number | null;
   direction: GoalDirection;

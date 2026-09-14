@@ -98,16 +98,17 @@ export default function SettingsScreen() {
             <Ionicons name="sparkles-outline" size={22} color={colors.primary} />
             <Text style={styles.sectionTitle}>Inteligencia Artificial</Text>
           </View>
-          <Text style={styles.sectionSubtitle}>
-            Configura tu API Key de Google Gemini para activar el reconocimiento
-            inteligente de alimentos por foto. La clave se guarda cifrada en el
-            dispositivo.
+<Text style={styles.sectionSubtitle}>
+            Configura tu API Key de Google Gemini o de OpenAI para activar el
+            reconocimiento inteligente de alimentos por foto y al Entrenador. La
+            app detecta el proveedor automáticamente (Gemini: 'AIza...',
+            OpenAI: 'sk-...') y la clave se guarda cifrada en el dispositivo.
           </Text>
 
           <View>
             <AppTextInput
-              label="API Key de IA (Gemini)"
-              placeholder="AIza..."
+              label="API Key de IA (Gemini u OpenAI)"
+              placeholder="AIza... o sk-..."
               value={apiKey}
               onChangeText={setApiKey}
               autoCapitalize="none"
@@ -205,12 +206,12 @@ export default function SettingsScreen() {
             <Ionicons name="information-circle-outline" size={22} color={colors.textMuted} />
             <Text style={styles.sectionTitle}>Proveedores compatibles</Text>
           </View>
-          <Text style={styles.infoText}>
+<Text style={styles.infoText}>
             • Google Gemini (por defecto) — modelo{' '}
             <Text style={styles.mono}>gemini-2.0-flash</Text>
           </Text>
           <Text style={styles.infoText}>
-            • OpenAI GPT-4o-mini — compatible, configura tu clave en el mismo campo.
+            • OpenAI GPT-4o-mini — compatible, usa una clave 'sk-…' en el mismo campo.
           </Text>
         </View>
 

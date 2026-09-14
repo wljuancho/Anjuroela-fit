@@ -193,6 +193,8 @@ export interface UserSession {
     targetWeight?: number;
     goalWeeks?: number;
     goalDate?: string;
+    heightCm?: number;
+    age?: number;
   } | null;
 }
 
@@ -269,6 +271,8 @@ export async function getUserSession(userId: number): Promise<UserSession> {
           targetWeight: profile.target_weight ?? undefined,
           goalWeeks: profile.goal_weeks ?? undefined,
           goalDate: profile.goal_date ?? undefined,
+          heightCm: profile.height ?? undefined,
+          age: profile.age ?? undefined,
         }
       : null,
   };

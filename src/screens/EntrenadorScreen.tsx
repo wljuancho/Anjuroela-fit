@@ -97,7 +97,11 @@ export default function EntrenadorScreen() {
       const resultText =
         proposal.kind === 'rutina'
           ? await executeRoutineProposal(proposal.actions ?? [])
-          : await executeWeeklyMealProposal(proposal.plan ?? [], proposal.servings ?? 1);
+          : await executeWeeklyMealProposal(
+              proposal.plan ?? [],
+              proposal.servings ?? 1,
+              proposal.expiresAt,
+            );
       pushMessage({ id: uuid(), role: 'coach', text: resultText });
     } catch (e) {
       const detail = e instanceof Error ? e.message : 'error inesperado';

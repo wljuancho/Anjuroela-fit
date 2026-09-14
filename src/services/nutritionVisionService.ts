@@ -1,6 +1,6 @@
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { AI_CONFIG } from '../constants/config';
-import { getVisionApiKey } from './configService';
+import { getVisionApiKey, detectAiProvider } from './configService';
 import type { NutritionEstimate } from '../types/nutrition';
 
 export interface NutritionVisionInput {
@@ -19,6 +19,21 @@ const GEMINI_PROMPT =
   '"carbs_g": number, "fat_g": number, "description": string }. ' +
   'Solo devuelve el JSON sin texto adicional.';
 
+function resolveImageMimeType(uri: string): string {
+  const extMatch = /\.([a-zA-Z0-9]+)$/.exec(uri || '');
+  const ext = (extMatch ? extMatch[1] : '').toLowerCase();
+  const map: Record<string, string> = {
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    png: 'image/png',
+    heic: 'image/heic',
+    heif: 'image/heif',
+    webp: 'image/webp',
+    gif: 'image/gif',
+  };
+  return map[ext] ?? 'image/jpeg';
+}
+
 export class GeminiVisionProvider implements NutritionVisionProvider {
   async estimate(input: NutritionVisionInput): Promise<NutritionEstimate | null> {
     const apiKey = await getVisionApiKey();
@@ -33,20 +48,22 @@ export class GeminiVisionProvider implements NutritionVisionProvider {
 
       const url = `${AI_CONFIG.GEMINI_API_URL}?key=${apiKey}`;
 
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                { text: GEMINI_PROMPT },
-                { inline_data: { mime_type: 'image/jpeg', data: base64 } },
-              ],
-            },
-          ],
-        }),
-      });
+const mime = resolveImageMimeType(input.imageUri);
+
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [
+                  { text: GEMINI_PROMPT },
+                  { inline_data: { mime_type: mime, data: base64 } },
+                ],
+              },
+            ],
+          }),
+        });
 
       if (!response.ok) {
         return null;
@@ -55,6 +72,75 @@ export class GeminiVisionProvider implements NutritionVisionProvider {
       const data = await response.json();
       const text: string | undefined =
         data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+      if (!text) {
+        return null;
+      }
+
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        return null;
+      }
+
+      const parsed = JSON.parse(jsonMatch[0]);
+
+      return {
+        mealName: parsed.mealName ?? undefined,
+        description: parsed.description ?? undefined,
+        calories: Number(parsed.calories) || 0,
+        proteinG: Number(parsed.protein_g) || 0,
+        carbsG: Number(parsed.carbs_g) || 0,
+        fatG: Number(parsed.fat_g) || 0,
+      };
+    } catch {
+      return null;
+    }
+  }
+}
+
+export class OpenAIVisionProvider implements NutritionVisionProvider {
+  async estimate(input: NutritionVisionInput): Promise<NutritionEstimate | null> {
+    const apiKey = await getVisionApiKey();
+    if (!apiKey || !input.imageUri) {
+      return null;
+    }
+
+    try {
+      const base64 = await FileSystem.readAsStringAsync(input.imageUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      const mime = resolveImageMimeType(input.imageUri);
+
+      const response = await fetch(AI_CONFIG.OPENAI_CHAT_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: AI_CONFIG.OPENAI_VISION_MODEL,
+          messages: [
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: GEMINI_PROMPT },
+                {
+                  type: 'image_url',
+                  image_url: { url: `data:${mime};base64,${base64}` },
+                },
+              ],
+            },
+          ],
+          max_tokens: 300,
+        }),
+      });
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const data = await response.json();
+      const text: string | undefined = data?.choices?.[0]?.message?.content;
 
       if (!text) {
         return null;
@@ -160,7 +246,13 @@ export function setNutritionVisionProvider(next: NutritionVisionProvider): void 
 export async function estimateNutrition(
   input: NutritionVisionInput,
 ): Promise<NutritionEstimate | null> {
-  const primary = primaryProvider ?? new GeminiVisionProvider();
+  let primary = primaryProvider;
+  if (!primary) {
+    const apiKey = await getVisionApiKey();
+    primary = detectAiProvider(apiKey ?? '') === 'openai'
+      ? new OpenAIVisionProvider()
+      : new GeminiVisionProvider();
+  }
 
   try {
     const result = await primary.estimate(input);

@@ -30,3 +30,21 @@ export function calculateBMI(weightKg: number, heightCm: number): number {
   const heightM = heightCm / 100;
   return weightKg / (heightM * heightM);
 }
+
+export type BMICategory = 'Bajo peso' | 'Normal' | 'Sobrepeso' | 'Obesidad';
+
+export function classifyBMI(bmi: number): BMICategory | null {
+  if (!isFinite(bmi) || bmi <= 0) return null;
+  if (bmi < 18.5) return 'Bajo peso';
+  if (bmi < 25) return 'Normal';
+  if (bmi < 30) return 'Sobrepeso';
+  return 'Obesidad';
+}
+
+export function formatPlanDate(dateStr: string): string {
+  if (!dateStr) return '';
+  const parts = dateStr.split('-').map(Number);
+  const dt = new Date(parts[0], (parts[1] || 1) - 1, parts[2] || 1);
+  const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+  return `${dayNames[dt.getDay()]} ${String(dt.getDate()).padStart(2, '0')}/${String(dt.getMonth() + 1).padStart(2, '0')}`;
+}

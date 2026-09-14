@@ -16,19 +16,27 @@ import AppButton from '../components/AppButton';
 import {
   CardCaloriasDiarias,
   CardComidaItem,
+  CardListaMercado,
   ModalEscanearComida,
   ModalOnboardingNutricional,
+  ModalRecetaComida,
   PlanComidasSemanalCard,
 } from '../components/comida';
 import { estimateNutrition } from '../services/nutritionVisionService';
-import { getWeeklyMealPlan } from '../services/nutritionService';
+import {
+  aggregateMarketList,
+  clearWeeklyMealPlan,
+  deleteWeeklyMealPlanItem,
+  getNutritionProfile,
+  getWeeklyMealPlan,
+} from '../services/nutritionService';
 import { useAuth } from '../context';
 import { useNutritionData } from '../hooks/useNutritionData';
 import { formatDate } from '../services/utils';
-import type { NewMealLog, WeeklyMealPlanItem } from '../types/nutrition';
+import type { NewMealLog, NutritionProfile, NutritionProfileInput, WeeklyMealPlanItem } from '../types/nutrition';
 
 export default function ComidaScreen() {
-  const { user, profile } = useAuth();
+  const { user, profile, reloadProfile } = useAuth();
   const [date, setDate] = useState(() => formatDate(new Date()));
   const { data, loading, error, reload, saveMeal, removeMeal, saveProfile } = useNutritionData(
     user?.id ?? 0,
@@ -37,6 +45,16 @@ export default function ComidaScreen() {
   const [scanVisible, setScanVisible] = useState(false);
   const [nutriVisible, setNutriVisible] = useState(false);
   const [plan, setPlan] = useState<WeeklyMealPlanItem[]>([]);
+  const [selectedMeal, setSelectedMeal] = useState<WeeklyMealPlanItem | null>(null);
+  const [nutritionProfile, setNutritionProfile] = useState<NutritionProfile | null>(null);
+
+  useEffect(() => {
+    if (user?.id) {
+      getNutritionProfile(user.id)
+        .then(setNutritionProfile)
+        .catch(() => {});
+    }
+  }, [user?.id]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -75,12 +93,46 @@ export default function ComidaScreen() {
     await saveMeal(meal);
   };
 
-  const handleSaveNutritionProfile = async (tdeeInput: {
-    dailyCaloriesGoal: number;
-    activityLevel: 'sedentario' | 'moderado' | 'activo';
-    goalType: 'perder' | 'ganar' | 'mantener';
-  }) => {
+  const handleSaveNutritionProfile = async (tdeeInput: NutritionProfileInput) => {
     await saveProfile(tdeeInput);
+    await reloadProfile();
+    if (user?.id) {
+      try {
+        setNutritionProfile(await getNutritionProfile(user.id));
+      } catch {}
+    }
+  };
+
+  const handleDeletePlanMeal = (id: number) => {
+    Alert.alert('Eliminar platillo', '¿Seguro que deseas eliminar este platillo del plan?', [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Eliminar',
+        style: 'destructive',
+        onPress: async () => {
+          await deleteWeeklyMealPlanItem(id);
+          refreshPlan();
+        },
+      },
+    ]);
+  };
+
+  const handleClearPlan = () => {
+    Alert.alert(
+      'Limpiar Plan Completo',
+      '¿Eliminar todas las comidas programadas del plan actual?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Limpiar',
+          style: 'destructive',
+          onPress: async () => {
+            await clearWeeklyMealPlan();
+            refreshPlan();
+          },
+        },
+      ],
+    );
   };
 
   if (loading) {
@@ -95,6 +147,15 @@ export default function ComidaScreen() {
 
   const needNutriProfile = !data || data.goal === null;
   const weightKg = profile?.currentWeight ?? 70;
+  const marketItems = aggregateMarketList(plan);
+  const planStart =
+    plan.length > 0
+      ? plan.reduce((min, r) => (r.date && r.date < min ? r.date : min), plan[0].date)
+      : '';
+  const planExpires =
+    plan.length > 0
+      ? plan.reduce((max, r) => (r.expires_at && r.expires_at > max ? r.expires_at : max), plan[0].expires_at)
+      : '';
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -114,7 +175,7 @@ export default function ComidaScreen() {
             <View style={styles.onboardInfo}>
               <Text style={styles.onboardTitle}>Configura tu contador de calorías</Text>
               <Text style={styles.onboardText}>
-                Responde 3 preguntas y calcularemos tu meta diaria de calorías (TDEE).
+                Responde unas preguntas y calcularemos tu meta diaria de calorías (TDEE).
               </Text>
               <AppButton
                 title="Realizar test"
@@ -125,7 +186,9 @@ export default function ComidaScreen() {
           </View>
         ) : null}
 
-        {data ? <CardCaloriasDiarias data={data} /> : null}
+        {data ? (
+          <CardCaloriasDiarias data={data} onEditStrategy={() => setNutriVisible(true)} />
+        ) : null}
 
         <TouchableOpacity
           style={styles.scanCard}
@@ -162,7 +225,16 @@ export default function ComidaScreen() {
           </View>
         )}
 
-        <PlanComidasSemanalCard plan={plan} />
+        <PlanComidasSemanalCard
+          plan={plan}
+          onSelectMeal={setSelectedMeal}
+          onDeleteMeal={handleDeletePlanMeal}
+          onClearPlan={handleClearPlan}
+        />
+
+        {plan.length > 0 && marketItems.length > 0 ? (
+          <CardListaMercado items={marketItems} startDate={planStart} expiresAt={planExpires} />
+        ) : null}
 
         <View style={styles.bottomSpacer} />
       </ScrollView>
@@ -175,10 +247,23 @@ export default function ComidaScreen() {
         onEstimate={estimateNutrition}
       />
 
+      <ModalRecetaComida
+        meal={selectedMeal}
+        visible={!!selectedMeal}
+        onClose={() => setSelectedMeal(null)}
+      />
+
       <ModalOnboardingNutricional
         visible={nutriVisible}
         weightKg={weightKg}
-        heightCm={170}
+        heightCm={profile?.heightCm ?? 0}
+        prefill={{
+          age: profile?.age,
+          heightCm: profile?.heightCm,
+          activityLevel: nutritionProfile?.activityLevel,
+          goalType: nutritionProfile?.goalType,
+          dailyCaloriesGoal: nutritionProfile?.dailyCaloriesGoal,
+        }}
         onClose={() => setNutriVisible(false)}
         onSave={async (tdeeInput) => {
           await handleSaveNutritionProfile(tdeeInput);

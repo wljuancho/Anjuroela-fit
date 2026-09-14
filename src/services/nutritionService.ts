@@ -1,6 +1,8 @@
+import * as FileSystem from 'expo-file-system/legacy';
 import { getDatabase } from './database';
 import type {
   ActivityLevel,
+  MealIngredient,
   MealLog,
   NewMealLog,
   NutritionDayData,
@@ -9,6 +11,7 @@ import type {
   NutritionProfileInput,
   WeeklyMealPlanItem,
 } from '../types/nutrition';
+import { formatDate, formatNumber } from './utils';
 
 const ACTIVITY_FACTORS: Record<ActivityLevel, number> = {
   sedentario: 1.2,
@@ -20,6 +23,7 @@ const GOAL_ADJUSTMENTS: Record<NutritionGoalType, number> = {
   perder: -500,
   ganar: 300,
   mantener: 0,
+  libre: 0,
 };
 
 export interface TDEECalculationInput {
@@ -77,6 +81,21 @@ export async function saveNutritionProfile(
        updated_at = excluded.updated_at`,
     [userId, data.dailyCaloriesGoal, data.activityLevel, data.goalType, new Date().toISOString()],
   );
+
+  const updates: string[] = [];
+  const values: (number | string)[] = [];
+  if (data.heightCm != null && data.heightCm > 0) {
+    updates.push('height = ?');
+    values.push(data.heightCm);
+  }
+  if (data.age != null && data.age > 0) {
+    updates.push('age = ?');
+    values.push(data.age);
+  }
+  if (updates.length > 0) {
+    values.push(userId);
+    await db.runAsync(`UPDATE user_profiles SET ${updates.join(', ')} WHERE user_id = ?`, values);
+  }
 }
 
 export async function getDailyCaloriesConsumed(date: string): Promise<number> {
@@ -134,30 +153,46 @@ export async function getMealLogsByDate(date: string): Promise<MealLog[]> {
 
 export async function deleteMealLog(id: number): Promise<void> {
   const db = getDatabase();
-  const rows = await db.getAllAsync<{ date: string; calories: number }>(
-    'SELECT date, calories FROM meal_logs WHERE id = ? LIMIT 1',
+  const rows = await db.getAllAsync<{ date: string; calories: number; photo_uri: string | null }>(
+    'SELECT date, calories, photo_uri FROM meal_logs WHERE id = ? LIMIT 1',
     [id],
   );
   if (rows[0]) {
     await subtractCaloriesFromDay(rows[0].date, rows[0].calories);
   }
   await db.runAsync('DELETE FROM meal_logs WHERE id = ?', [id]);
+  const photoUri = rows[0]?.photo_uri;
+  if (photoUri) {
+    try {
+      await FileSystem.deleteAsync(photoUri, { idempotent: true });
+    } catch {
+      // Ignorar errores de eliminación de archivo (no bloquea el borrado del registro)
+    }
+  }
 }
 
 export async function getWeeklyMealPlan(): Promise<WeeklyMealPlanItem[]> {
   const db = getDatabase();
-  return db.getAllAsync<WeeklyMealPlanItem>(
+  const today = formatDate(new Date());
+
+  await db.runAsync('DELETE FROM weekly_meal_plan WHERE expires_at IS NOT NULL AND expires_at < ?', [today]);
+  await db.runAsync('DELETE FROM weekly_meal_plan WHERE date IS NOT NULL AND date < ?', [today]);
+
+  const rows = await db.getAllAsync<{
+    id: number;
+    day_of_week: string;
+    date: string | null;
+    meal_type: string;
+    title: string;
+    description: string | null;
+    recipe: string | null;
+    ingredients_list: string | null;
+    servings_count: number;
+    expires_at: string | null;
+  }>(
     `SELECT * FROM weekly_meal_plan
      ORDER BY
-       CASE day_of_week
-         WHEN 'lunes' THEN 0
-         WHEN 'martes' THEN 1
-         WHEN 'miercoles' THEN 2
-         WHEN 'jueves' THEN 3
-         WHEN 'viernes' THEN 4
-         WHEN 'sabado' THEN 5
-         ELSE 6
-       END,
+       date ASC,
        CASE meal_type
          WHEN 'desayuno' THEN 0
          WHEN 'almuerzo' THEN 1
@@ -165,15 +200,45 @@ export async function getWeeklyMealPlan(): Promise<WeeklyMealPlanItem[]> {
          ELSE 3
        END`,
   );
+
+  return rows.map((r) => {
+    let ingredients: MealIngredient[] = [];
+    if (r.ingredients_list) {
+      try {
+        const parsed = JSON.parse(r.ingredients_list);
+        if (Array.isArray(parsed)) {
+          ingredients = parsed.map((i: any) => ({
+            name: typeof i?.name === 'string' ? i.name : String(i?.name ?? ''),
+            amount: typeof i?.amount === 'string' ? i.amount : String(i?.amount ?? ''),
+          }));
+        }
+      } catch { /* ignore malformed JSON */ }
+    }
+    return {
+      id: r.id,
+      day_of_week: r.day_of_week,
+      date: r.date ?? '',
+      meal_type: r.meal_type as WeeklyMealPlanItem['meal_type'],
+      title: r.title,
+      description: r.description,
+      recipe: r.recipe,
+      ingredients_list: ingredients,
+      servings_count: r.servings_count ?? 1,
+      expires_at: r.expires_at ?? '',
+    };
+  });
 }
 
 export interface WeeklyMealPlanInput {
   day_of_week: string;
+  date: string;
   meal_type: string;
   title: string;
   description?: string;
-  ingredients?: string;
-  servings?: number;
+  recipe?: string;
+  ingredients_list?: MealIngredient[];
+  servings_count: number;
+  expires_at: string;
 }
 
 const VALID_MEAL_TYPES = ['desayuno', 'almuerzo', 'cena', 'snack'];
@@ -187,20 +252,88 @@ export async function replaceWeeklyMealPlan(rows: WeeklyMealPlanInput[]): Promis
     if (!row.title?.trim()) continue;
     await db.runAsync(
       `INSERT INTO weekly_meal_plan
-        (day_of_week, meal_type, title, description, ingredients, servings)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+        (day_of_week, date, meal_type, title, description, recipe, ingredients_list, servings_count, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         row.day_of_week,
+        row.date || null,
         row.meal_type,
         row.title.trim(),
         row.description?.trim() || null,
-        row.ingredients?.trim() || null,
-        row.servings ?? 1,
+        row.recipe?.trim() || null,
+        row.ingredients_list && row.ingredients_list.length > 0 ? JSON.stringify(row.ingredients_list) : null,
+        row.servings_count || 1,
+        row.expires_at || null,
       ],
     );
     inserted += 1;
   }
   return inserted;
+}
+
+export async function deleteWeeklyMealPlanItem(id: number): Promise<void> {
+  const db = getDatabase();
+  await db.runAsync('DELETE FROM weekly_meal_plan WHERE id = ?', [id]);
+}
+
+export async function clearWeeklyMealPlan(): Promise<void> {
+  const db = getDatabase();
+  await db.runAsync('DELETE FROM weekly_meal_plan');
+}
+
+function parseIngredientAmount(raw: string): { value: number | null; unit: string } {
+  const trimmed = raw.trim();
+  if (!trimmed) return { value: null, unit: '' };
+  const match = trimmed.match(/^(\d+(?:[.,/]\d+)?)\s*(.*)/);
+  if (!match) return { value: null, unit: trimmed };
+  let numStr = match[1].replace(',', '.');
+  if (numStr.includes('/')) {
+    const [num, den] = numStr.split('/').map(Number);
+    numStr = den ? String(num / den) : numStr;
+  }
+  const value = parseFloat(numStr);
+  return { value: isNaN(value) ? null : value, unit: match[2].trim() };
+}
+
+export interface MarketIngredient {
+  name: string;
+  quantity: string;
+}
+
+export function aggregateMarketList(items: WeeklyMealPlanItem[]): MarketIngredient[] {
+  interface AggEntry {
+    value: number | null;
+    unit: string;
+    displayName: string;
+  }
+  const map = new Map<string, AggEntry>();
+
+  for (const item of items) {
+    const multiplier = item.servings_count || 1;
+    for (const ing of item.ingredients_list) {
+      const { value, unit } = parseIngredientAmount(ing.amount);
+      const key = `${ing.name.toLowerCase().trim()}|${unit.toLowerCase()}`;
+      const existing = map.get(key);
+      if (existing) {
+        if (existing.value != null && value != null) {
+          existing.value += value * multiplier;
+        }
+      } else {
+        map.set(key, {
+          displayName: ing.name.trim(),
+          value: value != null ? value * multiplier : null,
+          unit,
+        });
+      }
+    }
+  }
+
+  return [...map.values()].map((e) => ({
+    name: e.displayName,
+    quantity: e.value != null
+      ? `${formatNumber(e.value, e.value % 1 === 0 ? 0 : 2)} ${e.unit}`.trim()
+      : e.unit,
+  }));
 }
 
 export async function getNutritionDayData(
