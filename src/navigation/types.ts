@@ -11,6 +11,7 @@ export type MainTabParamList = {
   Ejercicios: undefined;
   Progreso: undefined;
   Comida: undefined;
+  Entrenador: undefined;
   Ajustes: undefined;
 };
 

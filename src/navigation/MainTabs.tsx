@@ -6,6 +6,7 @@ import RutinaStack from './RutinaStack';
 import EjerciciosScreen from '../screens/EjerciciosScreen';
 import ProgresoScreen from '../screens/ProgresoScreen';
 import ComidaScreen from '../screens/ComidaScreen';
+import EntrenadorScreen from '../screens/EntrenadorScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import type { MainTabParamList } from './types';
 
@@ -16,6 +17,7 @@ const icons: Record<keyof MainTabParamList, keyof typeof Ionicons.glyphMap> = {
   Ejercicios: 'barbell',
   Progreso: 'trending-up',
   Comida: 'restaurant',
+  Entrenador: 'chatbubbles',
   Ajustes: 'settings',
 };
 
@@ -43,6 +45,7 @@ export default function MainTabs() {
       <Tab.Screen name="Ejercicios" component={EjerciciosScreen} />
       <Tab.Screen name="Progreso" component={ProgresoScreen} />
       <Tab.Screen name="Comida" component={ComidaScreen} />
+      <Tab.Screen name="Entrenador" component={EntrenadorScreen} />
       <Tab.Screen name="Ajustes" component={SettingsScreen} />
     </Tab.Navigator>
   );

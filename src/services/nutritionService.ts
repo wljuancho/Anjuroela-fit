@@ -167,6 +167,42 @@ export async function getWeeklyMealPlan(): Promise<WeeklyMealPlanItem[]> {
   );
 }
 
+export interface WeeklyMealPlanInput {
+  day_of_week: string;
+  meal_type: string;
+  title: string;
+  description?: string;
+  ingredients?: string;
+  servings?: number;
+}
+
+const VALID_MEAL_TYPES = ['desayuno', 'almuerzo', 'cena', 'snack'];
+
+export async function replaceWeeklyMealPlan(rows: WeeklyMealPlanInput[]): Promise<number> {
+  const db = getDatabase();
+  await db.runAsync('DELETE FROM weekly_meal_plan');
+  let inserted = 0;
+  for (const row of rows) {
+    if (!VALID_MEAL_TYPES.includes(row.meal_type)) continue;
+    if (!row.title?.trim()) continue;
+    await db.runAsync(
+      `INSERT INTO weekly_meal_plan
+        (day_of_week, meal_type, title, description, ingredients, servings)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        row.day_of_week,
+        row.meal_type,
+        row.title.trim(),
+        row.description?.trim() || null,
+        row.ingredients?.trim() || null,
+        row.servings ?? 1,
+      ],
+    );
+    inserted += 1;
+  }
+  return inserted;
+}
+
 export async function getNutritionDayData(
   userId: number,
   date: string,

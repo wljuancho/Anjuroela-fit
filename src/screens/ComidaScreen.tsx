@@ -1,5 +1,5 @@
 import { colors } from '../theme/colors';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import AppButton from '../components/AppButton';
 import {
@@ -45,11 +46,17 @@ export default function ComidaScreen() {
     return () => clearInterval(interval);
   }, []);
 
-  useEffect(() => {
+  const refreshPlan = useCallback(() => {
     getWeeklyMealPlan()
       .then(setPlan)
       .catch(() => {});
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshPlan();
+    }, [refreshPlan]),
+  );
 
   useEffect(() => {
     if (error) {
