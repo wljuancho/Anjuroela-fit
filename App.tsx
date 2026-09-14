@@ -6,7 +6,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
 import Navigation from './src/navigation';
-import { AuthProvider, OnboardingProvider } from './src/context';
+import { AuthProvider, OnboardingProvider, TutorialProvider } from './src/context';
 import { initDatabase } from './src/services/database';
 
 SplashScreen.preventAutoHideAsync();
@@ -55,10 +55,12 @@ export default function App() {
     <SafeAreaProvider>
       <AuthProvider>
         <OnboardingProvider>
-          <NavigationContainer>
-            <Navigation />
-          </NavigationContainer>
-          <StatusBar style="light" />
+          <TutorialProvider>
+            <NavigationContainer>
+              <Navigation />
+            </NavigationContainer>
+            <StatusBar style="light" />
+          </TutorialProvider>
         </OnboardingProvider>
       </AuthProvider>
     </SafeAreaProvider>

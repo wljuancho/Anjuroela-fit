@@ -23,7 +23,8 @@
         "backgroundColor": "#1a1a2e"
       },
       "package": "com.anjuroela.fit",
-      "versionCode": 1
+      "versionCode": 1,
+      "softwareKeyboardLayoutMode": "resize"
     },
     "web": {
       "favicon": "./assets/favicon.png",

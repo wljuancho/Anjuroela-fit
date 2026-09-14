@@ -50,6 +50,8 @@ export interface NutritionEstimate {
   fatG: number;
   mealName?: string;
   description?: string;
+  confidence?: 'alta' | 'media' | 'baja';
+  notes?: string;
 }
 
 export interface NutritionDayData {

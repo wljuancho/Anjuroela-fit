@@ -219,6 +219,11 @@ export async function initDatabase(): Promise<void> {
       servings_count INTEGER NOT NULL DEFAULT 1,
       expires_at TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS app_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    );
   `);
 
   await migrateWorkoutSets(database);
@@ -248,6 +253,7 @@ export async function initDatabase(): Promise<void> {
   await migrateUserProfileGoalStatus(database);
   await migrateUserProfilesUnique(database);
   await cleanLegacyTestRecords(database);
+  await resetExerciseCatalogOnce(database);
 }
 
 async function migrateUniqueSessionIndex(db: SQLite.SQLiteDatabase): Promise<void> {
@@ -279,6 +285,32 @@ async function cleanLegacyTestRecords(db: SQLite.SQLiteDatabase): Promise<void> 
     DELETE FROM workouts;
     DELETE FROM exercises;
   `);
+}
+
+// Borra una sola vez cualquier ejercicio, músculo y configuración de rutina que
+// exista (datos de pruebas). Se marca el estado para no volver a borrar lo que
+// el usuario cree después. Con la siembra por defecto desactivada, una
+// instalación nueva arranca sin catálogo.
+async function resetExerciseCatalogOnce(db: SQLite.SQLiteDatabase): Promise<void> {
+  const rows = await db.getAllAsync<{ value: string }>(
+    "SELECT value FROM app_meta WHERE key = 'catalog_cleaned' LIMIT 1",
+  );
+  if (rows[0]?.value === '1') return;
+
+  await db.execAsync(`
+    DELETE FROM workout_sets;
+    DELETE FROM workout_sessions;
+    DELETE FROM day_exercises;
+    DELETE FROM day_muscles;
+    DELETE FROM exercises_v2;
+    DELETE FROM body_parts;
+    DELETE FROM exercises;
+    DELETE FROM workout_exercises;
+    DELETE FROM workouts;
+  `);
+  await db.runAsync(
+    "INSERT OR REPLACE INTO app_meta (key, value) VALUES ('catalog_cleaned', '1')",
+  );
 }
 
 async function migrateDayMuscles(db: SQLite.SQLiteDatabase): Promise<void> {

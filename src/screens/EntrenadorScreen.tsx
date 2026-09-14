@@ -12,6 +12,7 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useHeaderHeight } from '@react-navigation/elements';
 import { Ionicons } from '@expo/vector-icons';
 import { MessageBubble } from '../components/entrenador';
 import {
@@ -20,6 +21,11 @@ import {
   executeWeeklyMealProposal,
 } from '../services/coachService';
 import { getVisionApiKey } from '../services/configService';
+import {
+  getStoredChat,
+  storeChat,
+  appendChatMessage,
+} from '../services/chatStorage';
 import { useAuth } from '../context';
 import { uuid } from '../services/utils';
 import type { ChatMessage } from '../types/coach';
@@ -34,18 +40,41 @@ const WELCOME_MESSAGE =
 
 export default function EntrenadorScreen() {
   const { user } = useAuth();
+  const headerHeight = useHeaderHeight();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [hasApiKey, setHasApiKey] = useState<boolean | null>(null);
+  const [chatLoaded, setChatLoaded] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
+  const userId = user?.id;
 
   useEffect(() => {
-    setMessages((prev) => {
-      if (prev.length > 0) return prev;
-      return [{ id: uuid(), role: 'coach', text: WELCOME_MESSAGE }];
-    });
-  }, []);
+    if (userId == null) return;
+    let active = true;
+    (async () => {
+      const stored = await getStoredChat(userId);
+      if (!active) return;
+      if (stored && stored.length > 0) {
+        setMessages(stored);
+      } else {
+        setMessages([{ id: uuid(), role: 'coach', text: WELCOME_MESSAGE }]);
+      }
+      setChatLoaded(true);
+    })();
+    return () => {
+      active = false;
+    };
+  }, [userId]);
+
+  // Persistencia del historial (cada vez que cambian los mensajes se guarda)
+  useEffect(() => {
+    if (userId == null || !chatLoaded || messages.length === 0) return;
+    const timer = setTimeout(() => {
+      storeChat(userId, messages);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [messages, userId, chatLoaded]);
 
   useEffect(() => {
     getVisionApiKey().then((key) => setHasApiKey(!!key)).catch(() => setHasApiKey(false));
@@ -70,17 +99,34 @@ export default function EntrenadorScreen() {
     if (!text || sending || !user) return;
     setInput('');
     setSending(true);
-    pushMessage({ id: uuid(), role: 'user', text });
+    const userMsg: ChatMessage = { id: uuid(), role: 'user', text };
+    pushMessage(userMsg);
+    // Se guarda el mensaje del usuario de inmediato: aunque cierres la pantalla
+    // o la app, el mensaje enviado queda en el historial.
+    await appendChatMessage(user.id, userMsg);
 
-    const outcome = await sendCoachMessage(user.id, text, messages);
-    pushMessage({
-      id: uuid(),
-      role: 'coach',
-      text: outcome.message,
-      proposal: outcome.proposal,
-      proposalStatus: outcome.proposal ? 'pending' : undefined,
-    });
-    setSending(false);
+    try {
+      const outcome = await sendCoachMessage(user.id, text, messages);
+      const coachMsg: ChatMessage = {
+        id: uuid(),
+        role: 'coach',
+        text: outcome.message,
+        proposal: outcome.proposal,
+        proposalStatus: outcome.proposal ? 'pending' : undefined,
+      };
+      pushMessage(coachMsg);
+      await appendChatMessage(user.id, coachMsg);
+    } catch {
+      const errorMsg: ChatMessage = {
+        id: uuid(),
+        role: 'coach',
+        text: 'Ocurrió un error inesperado. Inténtalo de nuevo.',
+      };
+      pushMessage(errorMsg);
+      await appendChatMessage(user.id, errorMsg);
+    } finally {
+      setSending(false);
+    }
   };
 
   const handleAccept = async (message: ChatMessage) => {
@@ -130,7 +176,8 @@ export default function EntrenadorScreen() {
     <SafeAreaView style={styles.safe} edges={['top']}>
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? headerHeight : 0}
       >
         {hasApiKey === false ? (
           <View style={styles.keyBanner}>

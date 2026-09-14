@@ -6,6 +6,7 @@ export const StorageKeys = {
   // Legacy session key kept for one-time migration to SecureStore (see sessionStorage.ts)
   User: `${PREFIX}:user`,
   OnboardingComplete: `${PREFIX}:onboarding_complete`,
+  TutorialComplete: `${PREFIX}:tutorial_complete`,
   Theme: `${PREFIX}:theme`,
 } as const;
 

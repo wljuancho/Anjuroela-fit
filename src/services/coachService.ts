@@ -477,9 +477,17 @@ function parseCoachReply(raw: string): CoachOutcome {
   return { message: raw.trim(), proposal: null };
 }
 
+function cleanHistoryForApi(history: ChatMessage[]): ChatMessage[] {
+  const clean = history.filter((m) => m.text?.trim());
+  while (clean.length > 0 && clean[0].role !== 'user') {
+    clean.shift();
+  }
+  return clean;
+}
+
 function buildContents(userText: string, history: ChatMessage[]) {
   const parts: { role: 'user' | 'model'; parts: { text: string }[] }[] = [];
-  const recent = history.slice(-10);
+  const recent = cleanHistoryForApi(history.slice(-10));
   for (const message of recent) {
     if (!message.text?.trim()) continue;
     parts.push({
@@ -498,7 +506,7 @@ function buildMessages(
 ): { role: 'system' | 'user' | 'assistant'; content: string }[] {
   const messages: { role: 'system' | 'user' | 'assistant'; content: string }[] = [];
   messages.push({ role: 'system', content: systemInstruction });
-  const recent = history.slice(-10);
+  const recent = cleanHistoryForApi(history.slice(-10));
   for (const message of recent) {
     if (!message.text?.trim()) continue;
     messages.push({
@@ -508,6 +516,61 @@ function buildMessages(
   }
   messages.push({ role: 'user', content: userText });
   return messages;
+}
+
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs = 60000,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function providerErrorDetail(response: Response): Promise<string> {
+  try {
+    const data = await response.json();
+    const message: unknown = data?.error?.message;
+    if (typeof message === 'string' && message.trim()) {
+      return message.trim();
+    }
+  } catch {
+    // El cuerpo no es JSON; se ignora
+  }
+  return '';
+}
+
+function friendlyProviderError(status: number, detail: string): { message: string } {
+  if (status === 401 || status === 403) {
+    return {
+      message: 'Tu API Key de IA no es válida o fue rechazada (403). Verifica la clave en Ajustes.',
+    };
+  }
+  if (status === 404) {
+    return { message: 'El modelo de IA solicitado no está disponible (404). Revisa la configuración.' };
+  }
+  if (status === 400) {
+    return {
+      message: detail
+        ? `La petición a la IA fue rechazada (400): ${detail}`
+        : 'La petición a la IA fue rechazada (400). Intenta reformular tu mensaje.',
+    };
+  }
+  if (status === 429) {
+    return {
+      message: 'Se alcanzó el límite de peticiones de la IA (429). Espera un momento e inténtalo de nuevo.',
+    };
+  }
+  return {
+    message: detail
+      ? `El servicio de IA no está disponible ahora (HTTP ${status}): ${detail}. Intenta de nuevo.`
+      : `El servicio de IA no está disponible ahora (HTTP ${status}). Intenta de nuevo.`,
+  };
 }
 
 export async function sendCoachMessage(
@@ -526,7 +589,7 @@ export async function sendCoachMessage(
 
   try {
     if (provider === 'openai') {
-      const response = await fetch(AI_CONFIG.OPENAI_CHAT_URL, {
+      const response = await fetchWithTimeout(AI_CONFIG.OPENAI_CHAT_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -540,7 +603,8 @@ export async function sendCoachMessage(
       });
 
       if (!response.ok) {
-        return { message: 'El servicio de IA no está disponible ahora (error de conexión). Intenta de nuevo.', proposal: null };
+        const detail = await providerErrorDetail(response);
+        return { message: friendlyProviderError(response.status, detail).message, proposal: null };
       }
 
       const data = await response.json();
@@ -552,7 +616,7 @@ export async function sendCoachMessage(
     }
 
     const contents = buildContents(userText, history);
-    const response = await fetch(`${AI_CONFIG.GEMINI_API_URL}?key=${apiKey}`, {
+    const response = await fetchWithTimeout(`${AI_CONFIG.GEMINI_API_URL}?key=${apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -563,7 +627,8 @@ export async function sendCoachMessage(
     });
 
     if (!response.ok) {
-      return { message: 'El servicio de IA no está disponible ahora (error de conexión). Intenta de nuevo.', proposal: null };
+      const detail = await providerErrorDetail(response);
+      return { message: friendlyProviderError(response.status, detail).message, proposal: null };
     }
 
     const data = await response.json();
@@ -572,8 +637,14 @@ export async function sendCoachMessage(
       return { message: 'El asistente no devolvió una respuesta. Intenta reformular tu mensaje.', proposal: null };
     }
     return parseCoachReply(text);
-  } catch {
-    return { message: 'No pude responder. Revisa tu conexión e inténtalo de nuevo.', proposal: null };
+  } catch (e) {
+    const isTimeout = e instanceof Error && e.name === 'AbortError';
+    return {
+      message: isTimeout
+        ? 'El servicio de IA tardó demasiado en responder. Intenta de nuevo.'
+        : 'No pude responder. Revisa tu conexión e inténtalo de nuevo.',
+      proposal: null,
+    };
   }
 }
 

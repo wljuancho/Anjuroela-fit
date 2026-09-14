@@ -1,9 +1,11 @@
+import type { NavigatorScreenParams } from '@react-navigation/native';
 import type { DayOfWeek, MuscleExercise, WorkoutPlan } from '../types/workout';
 
 export type RootStackParamList = {
   Login: undefined;
   Onboarding: undefined;
-  MainTabs: undefined;
+  Tutorial: undefined;
+  MainTabs: NavigatorScreenParams<MainTabParamList> | undefined;
 };
 
 export type MainTabParamList = {

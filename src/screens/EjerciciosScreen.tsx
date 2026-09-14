@@ -19,7 +19,6 @@ import {
   ModalOpcionesMusculo,
 } from '../components/ejercicios';
 import {
-  initExerciseData,
   getAllBodyParts,
   getExercisesByBodyPart,
   getBodyPartExerciseCount,
@@ -54,7 +53,6 @@ export default function EjerciciosScreen() {
 
   const { data: bodyParts, loading, reload: reloadBodyParts } = useLoadOnMount<BodyPart[]>(
     useCallback(async () => {
-      await initExerciseData();
       const parts = await getAllBodyParts();
       if (!selectedRef.current && parts.length > 0) {
         setSelectedBodyPart(parts[0]);
