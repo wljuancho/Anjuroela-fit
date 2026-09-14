@@ -36,6 +36,11 @@
       "expo-secure-store",
       "@react-native-community/datetimepicker"
     ],
-    "scheme": "anjuroela-fit"
+    "scheme": "anjuroela-fit",
+    "extra": {
+      "eas": {
+        "projectId": "9e5836b5-5a45-4619-a2fe-222ba8f8cdaf"
+      }
+    }
   }
 }

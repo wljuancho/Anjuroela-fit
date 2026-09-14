@@ -30,6 +30,7 @@ export default function SettingsScreen() {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [status, setStatus] = useState<Status>('idle');
+  const [testDetail, setTestDetail] = useState<string | null>(null);
   const { signOut } = useAuth();
 
   const handleSignOut = () => {
@@ -53,12 +54,14 @@ export default function SettingsScreen() {
     })();
   }, []);
 
-  const handleSave = async () => {
+const handleSave = async () => {
     setSaving(true);
     setStatus('idle');
     try {
-      await saveVisionApiKey(apiKey);
-      setHasStoredKey(!!apiKey.trim());
+      const trimmed = apiKey.trim();
+      setApiKey(trimmed);
+      await saveVisionApiKey(trimmed);
+      setHasStoredKey(!!trimmed);
       setStatus('saved');
     } catch {
       setStatus('error');
@@ -74,16 +77,21 @@ export default function SettingsScreen() {
     setStatus('idle');
   };
 
-  const handleTest = async () => {
-    if (!apiKey.trim()) {
+const handleTest = async () => {
+    const trimmed = apiKey.trim();
+    setApiKey(trimmed);
+    if (!trimmed) {
+      setTestDetail('Ingresa una API Key para poder probarla.');
       setStatus('tested-fail');
       return;
     }
     setTesting(true);
     setStatus('idle');
-    const ok = await testVisionApiKey(apiKey);
+    setTestDetail(null);
+    const result = await testVisionApiKey(trimmed);
     setTesting(false);
-    setStatus(ok ? 'tested-ok' : 'tested-fail');
+    setStatus(result.ok ? 'tested-ok' : 'tested-fail');
+    setTestDetail(result.ok ? null : result.detail);
   };
 
   return (
@@ -163,11 +171,11 @@ export default function SettingsScreen() {
             </View>
           ) : null}
 
-          {status === 'tested-fail' ? (
+{status === 'tested-fail' ? (
             <View style={[styles.statusBox, styles.statusFail]}>
               <Ionicons name="alert-circle" size={18} color={colors.primary} />
               <Text style={[styles.statusText, styles.statusTextFail]}>
-                No se pudo validar la clave o la conexión falló.
+                {testDetail ?? 'No se pudo validar la clave o la conexión falló.'}
               </Text>
             </View>
           ) : null}
@@ -208,7 +216,7 @@ export default function SettingsScreen() {
           </View>
 <Text style={styles.infoText}>
             • Google Gemini (por defecto) — modelo{' '}
-            <Text style={styles.mono}>gemini-2.0-flash</Text>
+            <Text style={styles.mono}>gemini-3.6-flash</Text>
           </Text>
           <Text style={styles.infoText}>
             • OpenAI GPT-4o-mini — compatible, usa una clave 'sk-…' en el mismo campo.
