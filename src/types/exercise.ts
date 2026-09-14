@@ -23,7 +23,20 @@ export interface NewBodyPart {
   icon?: string;
 }
 
+export interface UpdateBodyPart {
+  id: number;
+  name: string;
+}
+
 export interface NewExercise {
+  name: string;
+  body_part_id: number;
+  description?: string;
+  equipment?: string;
+}
+
+export interface UpdateExercise {
+  id: number;
   name: string;
   body_part_id: number;
   description?: string;

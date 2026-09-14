@@ -1,15 +1,18 @@
 import { colors } from '../../theme/colors';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Modal,
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
+  Pressable,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
 } from 'react-native';
+import DateTimePicker, { DateTimePickerChangeEvent } from '@react-native-community/datetimepicker';
+import { Ionicons } from '@expo/vector-icons';
 import AppTextInput from '../AppTextInput';
 import AppButton from '../AppButton';
 import type { NewWeightLog } from '../../types/progress';
@@ -23,6 +26,19 @@ interface ModalNuevoPesoProps {
   onSave: (data: NewWeightLog, id?: number) => Promise<void>;
 }
 
+function toISODate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function formatDisplayDate(dateStr: string): string {
+  const parts = dateStr.split('-');
+  if (parts.length !== 3) return dateStr;
+  return `${parts[2]}/${parts[1]}/${parts[0]}`;
+}
+
 export default function ModalNuevoPeso({
   visible,
   initialDate,
@@ -33,17 +49,30 @@ export default function ModalNuevoPeso({
   const [date, setDate] = useState(initialDate ?? formatDate(new Date()));
   const [weight, setWeight] = useState('');
   const [notes, setNotes] = useState('');
+  const [showDatePicker, setShowDatePicker] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (visible) {
       setDate(editingLog?.date ?? initialDate ?? formatDate(new Date()));
       setWeight(editingLog ? String(editingLog.weight_kg) : '');
       setNotes(editingLog?.notes ?? '');
       setError('');
+      setShowDatePicker(false);
     }
   }, [visible, editingLog, initialDate]);
+
+  function onDateChange(event: DateTimePickerChangeEvent, selected?: Date) {
+    if (Platform.OS === 'android') {
+      setShowDatePicker(false);
+    }
+    if (!selected) {
+      return;
+    }
+    setDate(toISODate(selected));
+    setError('');
+  }
 
   const handleClose = () => {
     onClose();
@@ -51,7 +80,7 @@ export default function ModalNuevoPeso({
 
   const handleSave = async () => {
     if (!date.trim()) {
-      setError('La fecha es obligatoria (YYYY-MM-DD)');
+      setError('La fecha es obligatoria');
       return;
     }
     const parsed = parseFloat(weight.replace(',', '.'));
@@ -89,14 +118,28 @@ export default function ModalNuevoPeso({
           <View style={styles.handle} />
           <Text style={styles.title}>{editingLog ? 'Editar Peso' : 'Registrar Peso'}</Text>
 
-          <ScrollView showsVerticalScrollIndicator={false}>
-            <AppTextInput
-              label="Fecha (YYYY-MM-DD)"
-              placeholder="2026-09-09"
-              value={date}
-              onChangeText={setDate}
-              autoCapitalize="none"
-            />
+          <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+            <Text style={styles.fieldLabel}>Fecha del registro</Text>
+            <Pressable
+              style={({ pressed }) => [styles.dateField, pressed ? styles.dateFieldPressed : null]}
+              onPress={() => setShowDatePicker(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Seleccionar fecha del registro"
+            >
+              <Ionicons name="calendar-outline" size={20} color={colors.textMuted} />
+              <Text style={styles.dateFieldText}>{formatDisplayDate(date)}</Text>
+              <Ionicons name="chevron-down" size={18} color={colors.textMuted} />
+            </Pressable>
+
+            {showDatePicker ? (
+              <DateTimePicker
+                value={new Date(`${date}T00:00:00`)}
+                mode="date"
+                display={Platform.OS === 'ios' ? 'inline' : 'default'}
+                onValueChange={onDateChange}
+                onDismiss={() => setShowDatePicker(false)}
+              />
+            ) : null}
 
             <AppTextInput
               label="Peso (kg)"
@@ -149,7 +192,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 20,
     paddingHorizontal: 24,
     paddingBottom: 32,
-    maxHeight: '85%',
+    maxHeight: '88%',
   },
   handle: {
     width: 40,
@@ -165,6 +208,32 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '700',
     marginBottom: 20,
+  },
+  fieldLabel: {
+    color: colors.textMuted,
+    fontSize: 14,
+    marginBottom: 6,
+    fontWeight: '500',
+  },
+  dateField: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.cardAlt,
+    borderRadius: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 10,
+    marginBottom: 16,
+  },
+  dateFieldPressed: {
+    opacity: 0.7,
+  },
+  dateFieldText: {
+    flex: 1,
+    color: colors.text,
+    fontSize: 16,
   },
   errorText: {
     color: colors.primary,

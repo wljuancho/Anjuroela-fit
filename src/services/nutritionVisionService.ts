@@ -1,7 +1,7 @@
 import * as FileSystem from 'expo-file-system';
 import { AI_CONFIG } from '../constants/config';
 import { getVisionApiKey } from './configService';
-import type { NutritionEstimate } from '../types/meal';
+import type { NutritionEstimate } from '../types/nutrition';
 
 export interface NutritionVisionInput {
   imageUri?: string | null;

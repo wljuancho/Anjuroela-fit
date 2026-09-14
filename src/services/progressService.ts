@@ -1,4 +1,5 @@
 import { getDatabase } from './database';
+import { formatDate } from './utils';
 import { getProfile, updateGoalStatus } from './authService';
 import type {
   WeightLog,
@@ -49,7 +50,7 @@ export async function getWeightHistory(): Promise<WeightLog[]> {
   const db = getDatabase();
   try {
     return await db.getAllAsync<WeightLog>(
-      'SELECT * FROM weight_logs ORDER BY date DESC, id DESC',
+      'SELECT * FROM weight_logs ORDER BY date ASC, id ASC',
     );
   } catch {
     throw new Error('No se pudo cargar el historial de peso.');
@@ -102,7 +103,7 @@ export async function evaluateGoalDeadline(userId: number): Promise<GoalDeadline
       return null;
     }
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = formatDate(new Date());
     if (goalDate > today) {
       return null;
     }
@@ -140,6 +141,27 @@ export async function evaluateGoalDeadline(userId: number): Promise<GoalDeadline
     };
   } catch {
     return null;
+  }
+}
+
+export interface NuevoMetaData {
+  initialWeight: number;
+  targetWeight: number;
+  goalWeeks: number;
+  goalDate: string;
+}
+
+export async function updateGoalMeta(userId: number, data: NuevoMetaData): Promise<void> {
+  const db = getDatabase();
+  try {
+    await db.runAsync(
+      `UPDATE user_profiles
+       SET current_weight = ?, target_weight = ?, goal_weeks = ?, goal_date = ?, goal_status = 'active'
+       WHERE user_id = ?`,
+      [data.initialWeight, data.targetWeight, data.goalWeeks, data.goalDate || null, userId],
+    );
+  } catch {
+    throw new Error('No se pudo actualizar la meta.');
   }
 }
 

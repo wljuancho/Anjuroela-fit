@@ -1,15 +1,19 @@
 import { colors } from '../../theme/colors';
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import type { ExerciseWithBodyPart } from '../../types/exercise';
 
 interface CardEjercicioProps {
   exercise: ExerciseWithBodyPart;
+  onPress?: () => void;
+  onEdit?: () => void;
+  onDelete?: () => void;
 }
 
-export default function CardEjercicio({ exercise }: CardEjercicioProps) {
+export default function CardEjercicio({ exercise, onPress, onEdit, onDelete }: CardEjercicioProps) {
   return (
-    <View style={styles.card}>
+    <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.8}>
       <View style={styles.header}>
         <Text style={styles.name}>{exercise.name}</Text>
         {exercise.equipment ? (
@@ -21,7 +25,27 @@ export default function CardEjercicio({ exercise }: CardEjercicioProps) {
       {exercise.description ? (
         <Text style={styles.description}>{exercise.description}</Text>
       ) : null}
-    </View>
+      <View style={styles.actions}>
+        {onEdit ? (
+          <TouchableOpacity
+            style={styles.actionBtn}
+            onPress={onEdit}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name="pencil-outline" size={18} color={colors.textMuted} />
+          </TouchableOpacity>
+        ) : null}
+        {onDelete ? (
+          <TouchableOpacity
+            style={styles.actionBtn}
+            onPress={onDelete}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name="trash-outline" size={18} color={colors.primary} />
+          </TouchableOpacity>
+        ) : null}
+      </View>
+    </TouchableOpacity>
   );
 }
 
@@ -61,5 +85,22 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 14,
     lineHeight: 20,
+  },
+  actions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 8,
+    marginTop: 12,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: colors.cardAlt,
+  },
+  actionBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.background,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });

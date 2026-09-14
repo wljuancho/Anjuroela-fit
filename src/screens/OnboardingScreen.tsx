@@ -161,7 +161,7 @@ export default function OnboardingScreen() {
       const weeksToDate = weeksNum;
       const estimatedDate = new Date();
       estimatedDate.setDate(estimatedDate.getDate() + weeksToDate * 7);
-      const dateStr = estimatedDate.toISOString().split('T')[0];
+      const dateStr = toISODate(estimatedDate);
 
       const finalDate = goalDate.trim() || dateStr;
 

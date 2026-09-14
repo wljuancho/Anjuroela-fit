@@ -8,25 +8,46 @@ import {
   StyleSheet,
   RefreshControl,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { CardEjercicio, ModalNuevoEjercicio, ModalNuevaCategoria } from '../components/ejercicios';
+import {
+  CardEjercicio,
+  ModalNuevoEjercicio,
+  ModalNuevaCategoria,
+  ModalOpcionesMusculo,
+} from '../components/ejercicios';
 import {
   initExerciseData,
   getAllBodyParts,
   getExercisesByBodyPart,
+  getBodyPartExerciseCount,
   addExercise,
+  updateExercise,
+  deleteExercise,
   addBodyPart,
+  updateBodyPart,
+  deleteBodyPart,
 } from '../services/exerciseService';
 import { useLoadOnMount } from '../hooks/useLoadOnMount';
-import type { BodyPart, ExerciseWithBodyPart, NewExercise, NewBodyPart } from '../types/exercise';
+import type {
+  BodyPart,
+  ExerciseWithBodyPart,
+  NewExercise,
+  NewBodyPart,
+  UpdateExercise,
+  UpdateBodyPart,
+} from '../types/exercise';
 
 export default function EjerciciosScreen() {
   const [selectedBodyPart, setSelectedBodyPart] = useState<BodyPart | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [showExerciseModal, setShowExerciseModal] = useState(false);
+  const [editingExercise, setEditingExercise] = useState<ExerciseWithBodyPart | null>(null);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [editingBodyPart, setEditingBodyPart] = useState<BodyPart | null>(null);
+  const [optionsBodyPart, setOptionsBodyPart] = useState<BodyPart | null>(null);
 
   const selectedRef = useRef<BodyPart | null>(null);
   selectedRef.current = selectedBodyPart;
@@ -64,17 +85,166 @@ export default function EjerciciosScreen() {
     }
   }, [reloadBodyParts, reloadExercises]);
 
-  const handleSaveExercise = async (data: NewExercise) => {
-    await addExercise(data);
-    if (selectedBodyPart) {
-      await reloadExercises();
+  const handleSaveExercise = useCallback(async (data: NewExercise) => {
+    try {
+      const created = await addExercise(data);
+      if (created.body_part_id === selectedRef.current?.id) {
+        await reloadExercises();
+      } else {
+        const parts = await reloadBodyParts();
+        const target = (parts ?? []).find((p) => p.id === created.body_part_id);
+        if (target) {
+          setSelectedBodyPart(target);
+        }
+      }
+    } catch {
+      throw new Error('No se pudo guardar el ejercicio.');
     }
-  };
+  }, [reloadBodyParts, reloadExercises]);
 
-  const handleSaveCategory = async (data: NewBodyPart) => {
-    await addBodyPart(data);
-    await reloadBodyParts();
-  };
+  const handleUpdateExercise = useCallback(async (data: UpdateExercise) => {
+    try {
+      await updateExercise(data);
+      if (data.body_part_id !== selectedRef.current?.id) {
+        const parts = await reloadBodyParts();
+        const target = (parts ?? []).find((p) => p.id === data.body_part_id);
+        if (target) {
+          setSelectedBodyPart(target);
+          return;
+        }
+      }
+      await reloadExercises();
+    } catch {
+      throw new Error('No se pudo actualizar el ejercicio.');
+    }
+  }, [reloadBodyParts, reloadExercises]);
+
+  const handleDeleteExercise = useCallback(
+    (exercise: ExerciseWithBodyPart) => {
+      Alert.alert(
+        'Eliminar ejercicio',
+        `¿Deseas eliminar "${exercise.name}" del catálogo?`,
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          {
+            text: 'Eliminar',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                await deleteExercise(exercise.id);
+                await reloadExercises();
+              } catch (e) {
+                Alert.alert('Error', e instanceof Error ? e.message : 'No se pudo eliminar el ejercicio.');
+              }
+            },
+          },
+        ],
+      );
+    },
+    [reloadExercises],
+  );
+
+  const handleSaveCategory = useCallback(
+    async (data: NewBodyPart) => {
+      try {
+        const created = await addBodyPart(data);
+        await reloadBodyParts();
+        setSelectedBodyPart(created);
+      } catch {
+        throw new Error('No se pudo crear la categoría.');
+      }
+    },
+    [reloadBodyParts],
+  );
+
+  const handleUpdateCategory = useCallback(
+    async (data: UpdateBodyPart) => {
+      try {
+        await updateBodyPart(data);
+        await reloadBodyParts();
+      } catch {
+        throw new Error('No se pudo actualizar la categoría.');
+      }
+    },
+    [reloadBodyParts],
+  );
+
+  const handleDeleteBodyPart = useCallback(
+    (bodyPart: BodyPart) => {
+      setOptionsBodyPart(null);
+      getBodyPartExerciseCount(bodyPart.id)
+        .then((count) => {
+          const exercisesLabel =
+            count === 1 ? '1 ejercicio asociado' : `${count} ejercicios asociados`;
+          Alert.alert(
+            '¿Eliminar categoría?',
+            `Se eliminará la categoría "${bodyPart.name}" y ${exercisesLabel}. Esta acción no se puede deshacer.`,
+            [
+              { text: 'Cancelar', style: 'cancel' },
+              {
+                text: 'Eliminar',
+                style: 'destructive',
+                onPress: async () => {
+                  try {
+                    await deleteBodyPart(bodyPart.id);
+                    const parts = await reloadBodyParts();
+                    const remaining = parts ?? [];
+                    if (selectedRef.current?.id === bodyPart.id) {
+                      setSelectedBodyPart(remaining[0] ?? null);
+                    }
+                  } catch (e) {
+                    Alert.alert('Error', e instanceof Error ? e.message : 'No se pudo eliminar la categoría.');
+                  }
+                },
+              },
+            ],
+          );
+        })
+        .catch(() => {
+          Alert.alert('Error', 'No se pudo cargar la información de la categoría.');
+        });
+    },
+    [reloadBodyParts],
+  );
+
+  const openNewExercise = useCallback(() => {
+    setEditingExercise(null);
+    setShowExerciseModal(true);
+  }, []);
+
+  const openEditExercise = useCallback((exercise: ExerciseWithBodyPart) => {
+    setEditingExercise(exercise);
+    setShowExerciseModal(true);
+  }, []);
+
+  const closeExerciseModal = useCallback(() => {
+    setShowExerciseModal(false);
+    setEditingExercise(null);
+  }, []);
+
+  const openNewCategory = useCallback(() => {
+    setEditingBodyPart(null);
+    setShowCategoryModal(true);
+  }, []);
+
+  const openEditCategory = useCallback((bodyPart: BodyPart) => {
+    setOptionsBodyPart(null);
+    setEditingBodyPart(bodyPart);
+    setShowCategoryModal(true);
+  }, []);
+
+  const closeCategoryModal = useCallback(() => {
+    setShowCategoryModal(false);
+    setEditingBodyPart(null);
+  }, []);
+
+  const openMuscleOptions = useCallback((bodyPart: BodyPart) => {
+    setOptionsBodyPart(bodyPart);
+  }, []);
+
+  const closeMuscleOptions = useCallback(() => {
+    setOptionsBodyPart(null);
+  }, []);
 
   if (loading) {
     return (
@@ -95,21 +265,46 @@ export default function EjerciciosScreen() {
           contentContainerStyle={styles.tabsContainer}
         >
           {(bodyParts ?? []).map((bp) => (
-            <TouchableOpacity
+            <View
               key={bp.id}
-              style={[styles.tab, selectedBodyPart?.id === bp.id ? styles.tabActive : null]}
-              onPress={() => setSelectedBodyPart(bp)}
+              style={[
+                styles.muscleCard,
+                selectedBodyPart?.id === bp.id ? styles.muscleCardActive : null,
+              ]}
             >
-              <Text style={[styles.tabText, selectedBodyPart?.id === bp.id ? styles.tabTextActive : null]}>
-                {bp.name}
-              </Text>
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.muscleOptionsBtn}
+                onPress={() => openMuscleOptions(bp)}
+                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+              >
+                <Ionicons
+                  name="ellipsis-vertical"
+                  size={16}
+                  color={selectedBodyPart?.id === bp.id ? colors.text : colors.textSubtle}
+                />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.muscleCardBody}
+                onPress={() => setSelectedBodyPart(bp)}
+                onLongPress={() => openMuscleOptions(bp)}
+                delayLongPress={500}
+              >
+                <Text
+                  style={[
+                    styles.muscleName,
+                    selectedBodyPart?.id === bp.id ? styles.muscleNameActive : null,
+                  ]}
+                >
+                  {bp.name}
+                </Text>
+              </TouchableOpacity>
+            </View>
           ))}
-          <TouchableOpacity
-            style={[styles.tab, styles.tabAdd]}
-            onPress={() => setShowCategoryModal(true)}
-          >
-            <Ionicons name="add" size={18} color={colors.primary} />
+          <TouchableOpacity style={styles.addCard} onPress={openNewCategory}>
+            <View style={styles.addPlus}>
+              <Ionicons name="add" size={18} color={colors.text} />
+            </View>
+            <Text style={styles.addText}>Nuevo Músculo</Text>
           </TouchableOpacity>
         </ScrollView>
 
@@ -131,11 +326,19 @@ export default function EjerciciosScreen() {
               <Text style={styles.emptySubtext}>Toca + para añadir uno</Text>
             </View>
           ) : (
-            (exercises ?? []).map((ex) => <CardEjercicio key={ex.id} exercise={ex} />)
+            (exercises ?? []).map((ex) => (
+              <CardEjercicio
+                key={ex.id}
+                exercise={ex}
+                onPress={() => openEditExercise(ex)}
+                onEdit={() => openEditExercise(ex)}
+                onDelete={() => handleDeleteExercise(ex)}
+              />
+            ))
           )}
         </ScrollView>
 
-        <TouchableOpacity style={styles.fab} onPress={() => setShowExerciseModal(true)}>
+        <TouchableOpacity style={styles.fab} onPress={openNewExercise}>
           <Ionicons name="add" size={28} color={colors.text} />
         </TouchableOpacity>
       </View>
@@ -143,14 +346,27 @@ export default function EjerciciosScreen() {
       <ModalNuevoEjercicio
         visible={showExerciseModal}
         bodyParts={bodyParts ?? []}
-        onClose={() => setShowExerciseModal(false)}
+        editingExercise={editingExercise}
+        initialBodyPartId={selectedBodyPart?.id ?? null}
+        onClose={closeExerciseModal}
         onSave={handleSaveExercise}
+        onUpdate={handleUpdateExercise}
       />
 
       <ModalNuevaCategoria
         visible={showCategoryModal}
-        onClose={() => setShowCategoryModal(false)}
+        editingBodyPart={editingBodyPart}
+        onClose={closeCategoryModal}
         onSave={handleSaveCategory}
+        onUpdate={handleUpdateCategory}
+      />
+
+      <ModalOpcionesMusculo
+        visible={optionsBodyPart !== null}
+        bodyPart={optionsBodyPart}
+        onClose={closeMuscleOptions}
+        onEditName={openEditCategory}
+        onDelete={handleDeleteBodyPart}
       />
     </SafeAreaView>
   );
@@ -173,32 +389,79 @@ const styles = StyleSheet.create({
   tabsContainer: {
     paddingHorizontal: 16,
     paddingVertical: 12,
-    gap: 8,
+    gap: 10,
   },
-  tab: {
+  muscleCard: {
+    position: 'relative',
+    minWidth: 84,
+    minHeight: 56,
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.cardAlt,
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-  },
-  tabActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  tabAdd: {
-    paddingHorizontal: 12,
+    borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  tabText: {
+  muscleCardActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  muscleCardBody: {
+    flex: 1,
+    alignSelf: 'stretch',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 8,
+  },
+  muscleOptionsBtn: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: 'rgba(0,0,0,0.28)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1,
+  },
+  muscleName: {
     color: colors.textMuted,
     fontSize: 14,
-    fontWeight: '500',
+    fontWeight: '600',
+    textAlign: 'center',
   },
-  tabTextActive: {
+  muscleNameActive: {
     color: colors.text,
+  },
+  addCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    minWidth: 136,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySofter,
+  },
+  addPlus: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addText: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: '700',
   },
   exercisesList: {
     flex: 1,

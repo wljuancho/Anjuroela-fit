@@ -11,28 +11,45 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import AppButton from '../components/AppButton';
 import {
-  CardResumenCalorias,
+  CardCaloriasDiarias,
   CardComidaItem,
-  ModalAgregarComida,
-  RecomendacionesAlimentacionCard,
+  ModalEscanearComida,
+  ModalOnboardingNutricional,
+  PlanComidasSemanalCard,
 } from '../components/comida';
 import { estimateNutrition } from '../services/nutritionVisionService';
+import { getWeeklyMealPlan } from '../services/nutritionService';
 import { useAuth } from '../context';
-import { useNutritionLogs } from '../hooks/useNutritionLogs';
+import { useNutritionData } from '../hooks/useNutritionData';
 import { formatDate } from '../services/utils';
-import type { MealRecord, NewMeal } from '../types/meal';
+import type { NewMealLog, WeeklyMealPlanItem } from '../types/nutrition';
 
 export default function ComidaScreen() {
-  const { user } = useAuth();
-  const [date] = useState(() => formatDate(new Date()));
-  const { summary, loading, error, saveMeal, removeMeal } = useNutritionLogs(
+  const { user, profile } = useAuth();
+  const [date, setDate] = useState(() => formatDate(new Date()));
+  const { data, loading, error, reload, saveMeal, removeMeal, saveProfile } = useNutritionData(
     user?.id ?? 0,
     date,
   );
+  const [scanVisible, setScanVisible] = useState(false);
+  const [nutriVisible, setNutriVisible] = useState(false);
+  const [plan, setPlan] = useState<WeeklyMealPlanItem[]>([]);
 
-  const [modalVisible, setModalVisible] = useState(false);
-  const [editingMeal, setEditingMeal] = useState<MealRecord | null>(null);
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const today = formatDate(new Date());
+      setDate((prev) => (prev === today ? prev : today));
+    }, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    getWeeklyMealPlan()
+      .then(setPlan)
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (error) {
@@ -41,30 +58,22 @@ export default function ComidaScreen() {
   }, [error]);
 
   const handleDeleteMeal = (id: number) => {
-    Alert.alert(
-      'Eliminar comida',
-      '¿Seguro que deseas eliminar este registro?',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Eliminar',
-          style: 'destructive',
-          onPress: async () => {
-            await removeMeal(id);
-          },
-        },
-      ],
-    );
+    Alert.alert('Eliminar comida', '¿Seguro que deseas eliminar este registro?', [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Eliminar', style: 'destructive', onPress: async () => { await removeMeal(id); } },
+    ]);
   };
 
-  const openNewModal = () => {
-    setEditingMeal(null);
-    setModalVisible(true);
+  const handleConfirmMeal = async (meal: NewMealLog) => {
+    await saveMeal(meal);
   };
 
-  const openEditModal = (meal: MealRecord) => {
-    setEditingMeal(meal);
-    setModalVisible(true);
+  const handleSaveNutritionProfile = async (tdeeInput: {
+    dailyCaloriesGoal: number;
+    activityLevel: 'sedentario' | 'moderado' | 'activo';
+    goalType: 'perder' | 'ganar' | 'mantener';
+  }) => {
+    await saveProfile(tdeeInput);
   };
 
   if (loading) {
@@ -77,6 +86,9 @@ export default function ComidaScreen() {
     );
   }
 
+  const needNutriProfile = !data || data.goal === null;
+  const weightKg = profile?.currentWeight ?? 70;
+
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
@@ -85,54 +97,86 @@ export default function ComidaScreen() {
             <Text style={styles.headerTitle}>Comida</Text>
             <Text style={styles.headerSubtitle}>{date}</Text>
           </View>
-          <TouchableOpacity style={styles.addBtn} onPress={openNewModal}>
-            <Ionicons name="add" size={18} color={colors.primary} />
-            <Text style={styles.addBtnText}>Añadir</Text>
-          </TouchableOpacity>
         </View>
 
-        {summary ? <CardResumenCalorias summary={summary} /> : null}
+        {needNutriProfile ? (
+          <View style={styles.onboardCard}>
+            <View style={styles.onboardIconWrap}>
+              <Ionicons name="calculator-outline" size={22} color={colors.primary} />
+            </View>
+            <View style={styles.onboardInfo}>
+              <Text style={styles.onboardTitle}>Configura tu contador de calorías</Text>
+              <Text style={styles.onboardText}>
+                Responde 3 preguntas y calcularemos tu meta diaria de calorías (TDEE).
+              </Text>
+              <AppButton
+                title="Realizar test"
+                onPress={() => setNutriVisible(true)}
+                style={styles.onboardBtn}
+              />
+            </View>
+          </View>
+        ) : null}
+
+        {data ? <CardCaloriasDiarias data={data} /> : null}
+
+        <TouchableOpacity
+          style={styles.scanCard}
+          onPress={() => setScanVisible(true)}
+          activeOpacity={0.8}
+        >
+          <View style={styles.scanIconWrap}>
+            <Ionicons name="camera-outline" size={22} color={colors.text} />
+          </View>
+          <View style={styles.scanInfo}>
+            <Text style={styles.scanTitle}>Escanear Comida con Foto</Text>
+            <Text style={styles.scanSubtitle}>La IA estimará las calorías de tu plato</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+        </TouchableOpacity>
 
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Comidas del día</Text>
         </View>
 
-        {summary && summary.meals.length === 0 ? (
+        {data && data.meals.length === 0 ? (
           <View style={styles.empty}>
             <Ionicons name="restaurant-outline" size={40} color={colors.cardAlt} />
-            <Text style={styles.emptyText}>Sin comidas registradas</Text>
+            <Text style={styles.emptyText}>Sin comidas registradas hoy</Text>
             <Text style={styles.emptySubtext}>
-              Añade tu primera comida para llevar el control de calorías y macronutrientes
+              Escanea tu comida o registra tus calorías para llevar el control del día
             </Text>
           </View>
         ) : (
           <View style={styles.list}>
-            {summary?.meals.map((meal) => (
-              <CardComidaItem
-                key={meal.id}
-                meal={meal}
-                onEdit={openEditModal}
-                onDelete={handleDeleteMeal}
-              />
+            {data?.meals.map((meal) => (
+              <CardComidaItem key={meal.id} meal={meal} onDelete={handleDeleteMeal} />
             ))}
           </View>
         )}
 
-        {summary ? (
-          <RecomendacionesAlimentacionCard goal={summary.goal} />
-        ) : null}
+        <PlanComidasSemanalCard plan={plan} />
 
         <View style={styles.bottomSpacer} />
       </ScrollView>
 
-      <ModalAgregarComida
-        visible={modalVisible}
-        userId={user?.id ?? 0}
+      <ModalEscanearComida
+        visible={scanVisible}
         date={date}
-        editingMeal={editingMeal}
-        onClose={() => setModalVisible(false)}
-        onSave={saveMeal}
+        onClose={() => setScanVisible(false)}
+        onConfirm={handleConfirmMeal}
         onEstimate={estimateNutrition}
+      />
+
+      <ModalOnboardingNutricional
+        visible={nutriVisible}
+        weightKg={weightKg}
+        heightCm={170}
+        onClose={() => setNutriVisible(false)}
+        onSave={async (tdeeInput) => {
+          await handleSaveNutritionProfile(tdeeInput);
+          await reload();
+        }}
       />
     </SafeAreaView>
   );
@@ -153,9 +197,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
     paddingHorizontal: 16,
     marginBottom: 16,
   },
@@ -169,21 +210,79 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 2,
   },
-  addBtn: {
+  onboardCard: {
+    flexDirection: 'row',
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    borderRadius: 14,
+    padding: 16,
+    marginHorizontal: 16,
+    marginBottom: 16,
+    gap: 12,
+  },
+  onboardIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: colors.primarySofter,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  onboardInfo: {
+    flex: 1,
+  },
+  onboardTitle: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  onboardText: {
+    color: colors.textMuted,
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 4,
+    marginBottom: 10,
+  },
+  onboardBtn: {
+    alignSelf: 'flex-start',
+    minHeight: 40,
+    paddingVertical: 8,
+  },
+  scanCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    padding: 6,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.cardAlt,
+    borderRadius: 14,
+    padding: 16,
+    marginHorizontal: 16,
+    marginBottom: 16,
+    gap: 12,
   },
-  addBtnText: {
-    color: colors.primary,
-    fontSize: 14,
-    fontWeight: '600',
+  scanIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scanInfo: {
+    flex: 1,
+  },
+  scanTitle: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  scanSubtitle: {
+    color: colors.textMuted,
+    fontSize: 12,
+    marginTop: 2,
   },
   sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
     paddingHorizontal: 16,
     marginBottom: 12,
     marginTop: 8,

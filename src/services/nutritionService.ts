@@ -1,0 +1,191 @@
+import { getDatabase } from './database';
+import type {
+  ActivityLevel,
+  MealLog,
+  NewMealLog,
+  NutritionDayData,
+  NutritionGoalType,
+  NutritionProfile,
+  NutritionProfileInput,
+  WeeklyMealPlanItem,
+} from '../types/nutrition';
+
+const ACTIVITY_FACTORS: Record<ActivityLevel, number> = {
+  sedentario: 1.2,
+  moderado: 1.55,
+  activo: 1.725,
+};
+
+const GOAL_ADJUSTMENTS: Record<NutritionGoalType, number> = {
+  perder: -500,
+  ganar: 300,
+  mantener: 0,
+};
+
+export interface TDEECalculationInput {
+  age: number;
+  weightKg: number;
+  heightCm: number;
+  activityLevel: ActivityLevel;
+  goalType: NutritionGoalType;
+}
+
+export function calculateTDEE(input: TDEECalculationInput): number {
+  const bmr = 10 * input.weightKg + 6.25 * input.heightCm - 5 * input.age - 78;
+  const tdee = bmr * ACTIVITY_FACTORS[input.activityLevel];
+  const goal = tdee + GOAL_ADJUSTMENTS[input.goalType];
+  return Math.round(Math.min(3500, Math.max(1200, goal)));
+}
+
+export async function getNutritionProfile(userId: number): Promise<NutritionProfile | null> {
+  const db = getDatabase();
+  const rows = await db.getAllAsync<{
+    user_id: number;
+    daily_calories_goal: number;
+    activity_level: ActivityLevel;
+    goal_type: NutritionGoalType;
+    updated_at: string;
+  }>(
+    'SELECT * FROM nutrition_profile WHERE user_id = ? LIMIT 1',
+    [userId],
+  );
+  if (!rows[0]) {
+    return null;
+  }
+  return {
+    userId: rows[0].user_id,
+    dailyCaloriesGoal: rows[0].daily_calories_goal,
+    activityLevel: rows[0].activity_level,
+    goalType: rows[0].goal_type,
+    updatedAt: rows[0].updated_at,
+  };
+}
+
+export async function saveNutritionProfile(
+  userId: number,
+  data: NutritionProfileInput,
+): Promise<void> {
+  const db = getDatabase();
+  await db.runAsync(
+    `INSERT INTO nutrition_profile
+       (user_id, daily_calories_goal, activity_level, goal_type, updated_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(user_id) DO UPDATE SET
+       daily_calories_goal = excluded.daily_calories_goal,
+       activity_level = excluded.activity_level,
+       goal_type = excluded.goal_type,
+       updated_at = excluded.updated_at`,
+    [userId, data.dailyCaloriesGoal, data.activityLevel, data.goalType, new Date().toISOString()],
+  );
+}
+
+export async function getDailyCaloriesConsumed(date: string): Promise<number> {
+  const db = getDatabase();
+  const rows = await db.getAllAsync<{ calories_consumed: number }>(
+    'SELECT calories_consumed FROM daily_calories WHERE date = ? LIMIT 1',
+    [date],
+  );
+  return rows[0]?.calories_consumed ?? 0;
+}
+
+export async function addCaloriesToDay(date: string, calories: number): Promise<void> {
+  const db = getDatabase();
+  await db.runAsync(
+    `INSERT INTO daily_calories (date, calories_consumed, logged_at)
+     VALUES (?, ?, ?)
+     ON CONFLICT(date) DO UPDATE SET
+       calories_consumed = calories_consumed + excluded.calories_consumed,
+       logged_at = excluded.logged_at`,
+    [date, calories, new Date().toISOString()],
+  );
+}
+
+export async function subtractCaloriesFromDay(date: string, calories: number): Promise<void> {
+  const db = getDatabase();
+  await db.runAsync(
+    'UPDATE daily_calories SET calories_consumed = MAX(0, calories_consumed - ?) WHERE date = ?',
+    [calories, date],
+  );
+}
+
+export async function addMealLog(data: NewMealLog): Promise<MealLog> {
+  const db = getDatabase();
+  const result = await db.runAsync(
+    'INSERT INTO meal_logs (date, meal_name, calories, photo_uri) VALUES (?, ?, ?, ?)',
+    [data.date, data.meal_name.trim(), data.calories, data.photo_uri ?? null],
+  );
+  await addCaloriesToDay(data.date, data.calories);
+  return {
+    id: result.lastInsertRowId,
+    date: data.date,
+    meal_name: data.meal_name.trim(),
+    calories: data.calories,
+    photo_uri: data.photo_uri ?? null,
+  };
+}
+
+export async function getMealLogsByDate(date: string): Promise<MealLog[]> {
+  const db = getDatabase();
+  return db.getAllAsync<MealLog>(
+    'SELECT * FROM meal_logs WHERE date = ? ORDER BY created_at DESC, id DESC',
+    [date],
+  );
+}
+
+export async function deleteMealLog(id: number): Promise<void> {
+  const db = getDatabase();
+  const rows = await db.getAllAsync<{ date: string; calories: number }>(
+    'SELECT date, calories FROM meal_logs WHERE id = ? LIMIT 1',
+    [id],
+  );
+  if (rows[0]) {
+    await subtractCaloriesFromDay(rows[0].date, rows[0].calories);
+  }
+  await db.runAsync('DELETE FROM meal_logs WHERE id = ?', [id]);
+}
+
+export async function getWeeklyMealPlan(): Promise<WeeklyMealPlanItem[]> {
+  const db = getDatabase();
+  return db.getAllAsync<WeeklyMealPlanItem>(
+    `SELECT * FROM weekly_meal_plan
+     ORDER BY
+       CASE day_of_week
+         WHEN 'lunes' THEN 0
+         WHEN 'martes' THEN 1
+         WHEN 'miercoles' THEN 2
+         WHEN 'jueves' THEN 3
+         WHEN 'viernes' THEN 4
+         WHEN 'sabado' THEN 5
+         ELSE 6
+       END,
+       CASE meal_type
+         WHEN 'desayuno' THEN 0
+         WHEN 'almuerzo' THEN 1
+         WHEN 'cena' THEN 2
+         ELSE 3
+       END`,
+  );
+}
+
+export async function getNutritionDayData(
+  userId: number,
+  date: string,
+): Promise<NutritionDayData> {
+  const [profile, caloriesConsumed, meals] = await Promise.all([
+    getNutritionProfile(userId),
+    getDailyCaloriesConsumed(date),
+    getMealLogsByDate(date),
+  ]);
+  const goal = profile?.dailyCaloriesGoal ?? null;
+  const remaining = goal !== null ? goal - caloriesConsumed : null;
+  const percentage =
+    goal !== null && goal > 0 ? Math.min(100, (caloriesConsumed / goal) * 100) : 0;
+  return {
+    date,
+    caloriesConsumed,
+    goal,
+    remaining,
+    percentage,
+    meals,
+  };
+}

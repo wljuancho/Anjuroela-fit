@@ -1,5 +1,12 @@
 import { getDatabase } from './database';
-import type { BodyPart, ExerciseWithBodyPart, NewBodyPart, NewExercise } from '../types/exercise';
+import type {
+  BodyPart,
+  ExerciseWithBodyPart,
+  NewBodyPart,
+  NewExercise,
+  UpdateBodyPart,
+  UpdateExercise,
+} from '../types/exercise';
 
 interface SeedBodyPart {
   name: string;
@@ -111,11 +118,63 @@ export async function getAllBodyParts(): Promise<BodyPart[]> {
 
 export async function addBodyPart(data: NewBodyPart): Promise<BodyPart> {
   const db = getDatabase();
+  const existing = await db.getAllAsync<{ id: number }>(
+    'SELECT id FROM body_parts WHERE LOWER(name) = LOWER(?) LIMIT 1',
+    [data.name.trim()],
+  );
+  if (existing[0]) {
+    throw new Error('Ya existe una categoría con ese nombre.');
+  }
   const result = await db.runAsync(
     'INSERT INTO body_parts (name, icon) VALUES (?, ?)',
     [data.name.trim(), data.icon ?? null],
   );
   return { id: result.lastInsertRowId, name: data.name.trim(), icon: data.icon ?? null };
+}
+
+export async function deleteBodyPart(bodyPartId: number): Promise<void> {
+  const db = getDatabase();
+  try {
+    await db.withTransactionAsync(async () => {
+      await db.runAsync(
+        'DELETE FROM workout_sets WHERE exercise_id IN (SELECT id FROM exercises_v2 WHERE body_part_id = ?)',
+        [bodyPartId],
+      );
+      await db.runAsync('DELETE FROM day_exercises WHERE body_part_id = ?', [bodyPartId]);
+      await db.runAsync('DELETE FROM day_muscles WHERE body_part_id = ?', [bodyPartId]);
+      await db.runAsync(
+        'UPDATE weekly_schedule SET body_part_id = NULL WHERE body_part_id = ?',
+        [bodyPartId],
+      );
+      await db.runAsync('DELETE FROM exercises_v2 WHERE body_part_id = ?', [bodyPartId]);
+      await db.runAsync('DELETE FROM body_parts WHERE id = ?', [bodyPartId]);
+    });
+  } catch {
+    throw new Error('No se pudo eliminar la categoría.');
+  }
+}
+
+export async function updateBodyPart(data: UpdateBodyPart): Promise<BodyPart> {
+  const db = getDatabase();
+  const existing = await db.getAllAsync<{ id: number }>(
+    'SELECT id FROM body_parts WHERE LOWER(name) = LOWER(?) AND id <> ? LIMIT 1',
+    [data.name.trim(), data.id],
+  );
+  if (existing[0]) {
+    throw new Error('Ya existe una categoría con ese nombre.');
+  }
+  await db.runAsync('UPDATE body_parts SET name = ? WHERE id = ?', [data.name.trim(), data.id]);
+  const rows = await db.getAllAsync<BodyPart>('SELECT * FROM body_parts WHERE id = ?', [data.id]);
+  return rows[0];
+}
+
+export async function getBodyPartExerciseCount(bodyPartId: number): Promise<number> {
+  const db = getDatabase();
+  const rows = await db.getAllAsync<{ cnt: number }>(
+    'SELECT COUNT(*) as cnt FROM exercises_v2 WHERE body_part_id = ?',
+    [bodyPartId],
+  );
+  return rows[0]?.cnt ?? 0;
 }
 
 export async function getExercisesByBodyPart(bodyPartId: number): Promise<ExerciseWithBodyPart[]> {
@@ -161,4 +220,46 @@ export async function addExercise(data: NewExercise): Promise<ExerciseWithBodyPa
     [result.lastInsertRowId],
   );
   return rows[0];
+}
+
+export async function updateExercise(data: UpdateExercise): Promise<ExerciseWithBodyPart> {
+  const db = getDatabase();
+  const existing = await db.getAllAsync<{ id: number }>(
+    'SELECT id FROM exercises_v2 WHERE body_part_id = ? AND LOWER(name) = LOWER(?) AND id <> ? LIMIT 1',
+    [data.body_part_id, data.name.trim(), data.id],
+  );
+  if (existing[0]) {
+    throw new Error('Ya existe un ejercicio con ese nombre en esta parte del cuerpo.');
+  }
+  await db.runAsync(
+    'UPDATE exercises_v2 SET name = ?, body_part_id = ?, description = ?, equipment = ? WHERE id = ?',
+    [
+      data.name.trim(),
+      data.body_part_id,
+      data.description?.trim() ?? null,
+      data.equipment?.trim() ?? null,
+      data.id,
+    ],
+  );
+  const rows = await db.getAllAsync<ExerciseWithBodyPart>(
+    `SELECT e.*, bp.name as body_part_name
+     FROM exercises_v2 e
+     INNER JOIN body_parts bp ON bp.id = e.body_part_id
+     WHERE e.id = ?`,
+    [data.id],
+  );
+  return rows[0];
+}
+
+export async function deleteExercise(exerciseId: number): Promise<void> {
+  const db = getDatabase();
+  try {
+    await db.withTransactionAsync(async () => {
+      await db.runAsync('DELETE FROM workout_sets WHERE exercise_id = ?', [exerciseId]);
+      await db.runAsync('DELETE FROM day_exercises WHERE exercise_id = ?', [exerciseId]);
+      await db.runAsync('DELETE FROM exercises_v2 WHERE id = ?', [exerciseId]);
+    });
+  } catch {
+    throw new Error('No se pudo eliminar el ejercicio.');
+  }
 }

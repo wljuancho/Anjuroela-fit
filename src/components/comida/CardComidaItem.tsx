@@ -2,54 +2,39 @@ import { colors } from '../../theme/colors';
 import React from 'react';
 import { View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import type { MealRecord, MealType } from '../../types/meal';
+import type { MealLog } from '../../types/nutrition';
 import { formatNumber } from '../../services/utils';
 
 interface CardComidaItemProps {
-  meal: MealRecord;
-  onEdit: (meal: MealRecord) => void;
+  meal: MealLog;
   onDelete: (id: number) => void;
 }
 
-const MEAL_TYPE_LABELS: Record<MealType, string> = {
-  desayuno: 'Desayuno',
-  almuerzo: 'Almuerzo',
-  cena: 'Cena',
-  snack: 'Snack',
-};
+function extractTime(createdAt?: string): string {
+  if (!createdAt) return '';
+  const match = createdAt.match(/(\d{1,2}):(\d{2})/);
+  return match ? `${match[1]}:${match[2]}` : '';
+}
 
-const MEAL_TYPE_ICONS: Record<MealType, keyof typeof Ionicons.glyphMap> = {
-  desayuno: 'sunny-outline',
-  almuerzo: 'restaurant-outline',
-  cena: 'moon-outline',
-  snack: 'cafe-outline',
-};
-
-export default function CardComidaItem({ meal, onEdit, onDelete }: CardComidaItemProps) {
+export default function CardComidaItem({ meal, onDelete }: CardComidaItemProps) {
+  const time = extractTime(meal.created_at);
   return (
     <View style={styles.row}>
-      {meal.image_uri ? (
-        <Image source={{ uri: meal.image_uri }} style={styles.thumb} />
+      {meal.photo_uri ? (
+        <Image source={{ uri: meal.photo_uri }} style={styles.thumb} />
       ) : (
         <View style={[styles.thumb, styles.thumbPlaceholder]}>
-          <Ionicons name={MEAL_TYPE_ICONS[meal.meal_type]} size={22} color={colors.textMuted} />
+          <Ionicons name="restaurant-outline" size={22} color={colors.textMuted} />
         </View>
       )}
       <View style={styles.info}>
-        <View style={styles.infoTop}>
-          <Text style={styles.title}>{MEAL_TYPE_LABELS[meal.meal_type]}</Text>
-          <Text style={styles.calories}>{formatNumber(meal.calories)} kcal</Text>
+        <Text style={styles.title} numberOfLines={1}>{meal.meal_name}</Text>
+        <View style={styles.metaRow}>
+          <Ionicons name="time-outline" size={12} color={colors.textSubtle} />
+          <Text style={styles.time}>{time || '—'}</Text>
         </View>
-        {meal.description ? (
-          <Text style={styles.subtitle} numberOfLines={1}>{meal.description}</Text>
-        ) : null}
-        <Text style={styles.macros}>
-          P {formatNumber(meal.protein_g, 1)}g · C {formatNumber(meal.carbs_g)}g · G {formatNumber(meal.fat_g)}g
-        </Text>
       </View>
-      <TouchableOpacity style={styles.action} onPress={() => onEdit(meal)}>
-        <Ionicons name="create-outline" size={20} color={colors.textMuted} />
-      </TouchableOpacity>
+      <Text style={styles.calories}>{formatNumber(meal.calories)} kcal</Text>
       <TouchableOpacity style={styles.action} onPress={() => onDelete(meal.id)}>
         <Ionicons name="trash-outline" size={20} color={colors.primary} />
       </TouchableOpacity>
@@ -84,30 +69,25 @@ const styles = StyleSheet.create({
   info: {
     flex: 1,
   },
-  infoTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
   title: {
     color: colors.text,
     fontSize: 15,
     fontWeight: '600',
   },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 3,
+  },
+  time: {
+    color: colors.textSubtle,
+    fontSize: 12,
+  },
   calories: {
     color: colors.primary,
     fontSize: 14,
     fontWeight: '700',
-  },
-  subtitle: {
-    color: colors.textMuted,
-    fontSize: 12,
-    marginTop: 2,
-  },
-  macros: {
-    color: colors.textSubtle,
-    fontSize: 12,
-    marginTop: 2,
   },
   action: {
     padding: 4,

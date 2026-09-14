@@ -13,25 +13,36 @@ import {
 import AppTextInput from '../AppTextInput';
 import AppButton from '../AppButton';
 import { Ionicons } from '@expo/vector-icons';
-import type { BodyPart, NewExercise } from '../../types/exercise';
+import type {
+  BodyPart,
+  ExerciseWithBodyPart,
+  NewExercise,
+  UpdateExercise,
+} from '../../types/exercise';
 
 interface ModalNuevoEjercicioProps {
   visible: boolean;
   bodyParts: BodyPart[];
+  editingExercise?: ExerciseWithBodyPart | null;
+  initialBodyPartId?: number | null;
   existingExercises?: { id: number; name: string }[];
   initialName?: string;
   onClose: () => void;
   onSave: (data: NewExercise) => Promise<void>;
+  onUpdate?: (data: UpdateExercise) => Promise<void>;
   onSelectExisting?: (exerciseId: number) => void;
 }
 
 export default function ModalNuevoEjercicio({
   visible,
   bodyParts,
+  editingExercise,
+  initialBodyPartId,
   existingExercises,
   initialName,
   onClose,
   onSave,
+  onUpdate,
   onSelectExisting,
 }: ModalNuevoEjercicioProps) {
   const [name, setName] = useState('');
@@ -42,31 +53,40 @@ export default function ModalNuevoEjercicio({
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (visible && initialName) {
-      setName(initialName);
+    if (!visible) return;
+    if (editingExercise) {
+      setName(editingExercise.name);
+      setSelectedBodyPartId(editingExercise.body_part_id);
+      setDescription(editingExercise.description ?? '');
+      setEquipment(editingExercise.equipment ?? '');
+    } else {
+      setName(initialName ?? '');
+      setSelectedBodyPartId(initialBodyPartId ?? bodyParts[0]?.id ?? null);
+      setDescription('');
+      setEquipment('');
     }
-  }, [visible, initialName]);
+    setError('');
+  }, [visible, editingExercise, initialName]);
 
   const trimmedName = name.trim();
   const matchedExisting =
     trimmedName.length > 1 && existingExercises && existingExercises.length > 0
       ? existingExercises.filter((e) => e.name.toLowerCase().includes(trimmedName.toLowerCase()))
-      : [];
+: [];
 
   const resetForm = () => {
     setName('');
-    setSelectedBodyPartId(null);
+    setSelectedBodyPartId(editingExercise?.body_part_id ?? null);
     setDescription('');
     setEquipment('');
     setError('');
   };
 
   const handleClose = () => {
-    resetForm();
     onClose();
   };
 
-const handleSave = async () => {
+  const handleSave = async () => {
     if (!name.trim()) {
       setError('El nombre es obligatorio');
       return;
@@ -75,28 +95,35 @@ const handleSave = async () => {
       setError('Selecciona una parte del cuerpo');
       return;
     }
-    const exactMatch = existingExercises?.find(
-      (e) => e.name.toLowerCase() === name.trim().toLowerCase(),
-    );
-    if (exactMatch && onSelectExisting) {
-      resetForm();
-      onClose();
-      onSelectExisting(exactMatch.id);
-      return;
+    if (!editingExercise) {
+      const exactMatch = existingExercises?.find(
+        (e) => e.name.toLowerCase() === name.trim().toLowerCase(),
+      );
+      if (exactMatch && onSelectExisting) {
+        resetForm();
+        onClose();
+        onSelectExisting(exactMatch.id);
+        return;
+      }
     }
     setError('');
     setSaving(true);
     try {
-      await onSave({
+      const base = {
         name: name.trim(),
         body_part_id: selectedBodyPartId,
         description: description.trim() || undefined,
         equipment: equipment.trim() || undefined,
-      });
+      };
+      if (editingExercise && onUpdate) {
+        await onUpdate({ id: editingExercise.id, ...base });
+      } else {
+        await onSave(base);
+      }
       resetForm();
       onClose();
-    } catch {
-      setError('Error al guardar el ejercicio');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error al guardar el ejercicio');
     } finally {
       setSaving(false);
     }
@@ -111,7 +138,7 @@ const handleSave = async () => {
         <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={handleClose} />
         <View style={styles.sheet}>
           <View style={styles.handle} />
-          <Text style={styles.title}>Nuevo Ejercicio</Text>
+<Text style={styles.title}>{editingExercise ? 'Editar Ejercicio' : 'Nuevo Ejercicio'}</Text>
 
           <ScrollView showsVerticalScrollIndicator={false}>
             <AppTextInput
@@ -144,7 +171,7 @@ const handleSave = async () => {
               ))}
             </View>
 
-            {existingExercises && existingExercises.length > 0 && matchedExisting.length > 0 ? (
+            {!editingExercise && existingExercises && existingExercises.length > 0 && matchedExisting.length > 0 ? (
               <View style={styles.catalogSection}>
                 <Text style={styles.catalogLabel}>Ejercicios en el catálogo</Text>
                 {matchedExisting.map((ex) => (
@@ -167,7 +194,8 @@ const handleSave = async () => {
               </View>
             ) : null}
 
-            {trimmedName.length > 2 &&
+            {!editingExercise &&
+            trimmedName.length > 2 &&
             existingExercises &&
             existingExercises.some(
               (e) => e.name.toLowerCase() === trimmedName.toLowerCase(),
@@ -196,8 +224,8 @@ const handleSave = async () => {
 
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
-            <AppButton
-              title="Guardar Ejercicio"
+<AppButton
+              title={editingExercise ? 'Guardar Cambios' : 'Guardar Ejercicio'}
               onPress={handleSave}
               loading={saving}
               style={styles.saveButton}

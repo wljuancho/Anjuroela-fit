@@ -28,9 +28,9 @@ export default function HistorialPesoLista({ logs, onDelete, onEdit }: Historial
     );
   }
 
-  return (
+return (
     <View style={styles.container}>
-      {logs.map((log) => (
+      {[...logs].reverse().map((log) => (
         <View key={log.id} style={styles.row}>
           <View style={styles.info}>
             <Text style={styles.date}>{formatDateLabel(log.date)}</Text>

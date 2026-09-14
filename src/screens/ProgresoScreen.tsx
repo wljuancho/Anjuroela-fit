@@ -15,7 +15,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import {
   CardResumenMeta,
+  GraficaEvolucionPesoCard,
   ModalNuevoPeso,
+  ModalEstablecerNuevaMeta,
   HistorialPesoLista,
   HistorialFuerzaCard,
   HistorialPromedioMuscularSesionCard,
@@ -23,7 +25,11 @@ import {
 import AppButton from '../components/AppButton';
 import { useAuth } from '../context';
 import { useProgressData } from '../hooks/useProgressData';
-import { evaluateGoalDeadline } from '../services/progressService';
+import {
+  evaluateGoalDeadline,
+  updateGoalMeta,
+} from '../services/progressService';
+import type { NuevoMetaData } from '../services/progressService';
 import type { WeightLog, NewWeightLog, GoalDeadlineEvaluation } from '../types/progress';
 
 export default function ProgresoScreen() {
@@ -55,6 +61,7 @@ export default function ProgresoScreen() {
   const [editingLog, setEditingLog] = useState<WeightLog | null>(null);
   const [goalEvaluation, setGoalEvaluation] = useState<GoalDeadlineEvaluation | null>(null);
   const [goalModalVisible, setGoalModalVisible] = useState(false);
+  const [metaModalVisible, setMetaModalVisible] = useState(false);
   const assertedGoal = useRef<number | null>(null);
 
   useEffect(() => {
@@ -75,6 +82,24 @@ export default function ProgresoScreen() {
       }
     });
   }, [user?.id]);
+
+  const handleSetNewGoal = useCallback(() => {
+    setMetaModalVisible(true);
+  }, []);
+
+  const handleSaveNuevaMeta = useCallback(
+    async (data: NuevoMetaData) => {
+      if (!user?.id) return;
+      try {
+        await updateGoalMeta(user.id, data);
+        setMetaModalVisible(false);
+        await refresh();
+      } catch (e) {
+        throw new Error(e instanceof Error ? e.message : 'No se pudo guardar la nueva meta.');
+      }
+    },
+    [user?.id, refresh],
+  );
 
   const handleDeleteWeight = (id: number) => {
     Alert.alert(
@@ -124,7 +149,9 @@ export default function ProgresoScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
-        {summary ? <CardResumenMeta summary={summary} /> : null}
+        {summary ? (
+          <CardResumenMeta summary={summary} onSetNewGoal={handleSetNewGoal} />
+        ) : null}
 
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Historial de Peso</Text>
@@ -133,6 +160,11 @@ export default function ProgresoScreen() {
             <Text style={styles.addBtnText}>Añadir</Text>
           </TouchableOpacity>
         </View>
+
+        <GraficaEvolucionPesoCard
+          logs={weightLogs}
+          targetWeight={summary?.targetWeight ?? null}
+        />
 
         <HistorialPesoLista
           logs={weightLogs}
@@ -219,6 +251,14 @@ export default function ProgresoScreen() {
         editingLog={editingLog}
         onClose={() => setModalVisible(false)}
         onSave={saveWeight}
+      />
+
+      <ModalEstablecerNuevaMeta
+        visible={metaModalVisible}
+        currentWeight={summary?.currentWeight ?? null}
+        targetWeight={summary?.targetWeight ?? null}
+        onClose={() => setMetaModalVisible(false)}
+        onSave={handleSaveNuevaMeta}
       />
 
       {goalEvaluation ? (

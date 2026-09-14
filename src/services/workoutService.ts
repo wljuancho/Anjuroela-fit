@@ -110,17 +110,20 @@ export async function updateScheduleDay(dayOfWeek: DayOfWeek, bodyPartId: number
 
 export async function getOrCreateSession(dayOfWeek: DayOfWeek): Promise<WorkoutSession> {
   const db = getDatabase();
+  const today = formatDate(new Date());
   try {
-    const today = formatDate(new Date());
-    await db.runAsync(
-      'INSERT OR IGNORE INTO workout_sessions (day_of_week, date, completed) VALUES (?, ?, 0)',
-      [dayOfWeek, today],
-    );
-    const rows = await db.getAllAsync<WorkoutSession>(
-      'SELECT * FROM workout_sessions WHERE day_of_week = ? AND date = ? LIMIT 1',
-      [dayOfWeek, today],
-    );
-    const session = rows[0];
+    let session: WorkoutSession | null = null;
+    await db.withTransactionAsync(async () => {
+      await db.runAsync(
+        'INSERT OR IGNORE INTO workout_sessions (day_of_week, date, completed) VALUES (?, ?, 0)',
+        [dayOfWeek, today],
+      );
+      const rows = await db.getAllAsync<WorkoutSession>(
+        'SELECT * FROM workout_sessions WHERE day_of_week = ? AND date = ? LIMIT 1',
+        [dayOfWeek, today],
+      );
+      session = rows[0] ?? null;
+    });
     if (!session) {
       throw new Error('No se pudo iniciar la sesión de entrenamiento.');
     }
@@ -490,8 +493,9 @@ export async function getLastWeightForExercise(exerciseId: number): Promise<numb
     const rows = await db.getAllAsync<{ weight_kg: number | null }>(
       `SELECT ws.weight_kg
        FROM workout_sets ws
+       INNER JOIN workout_sessions sess ON sess.id = ws.session_id
        WHERE ws.exercise_id = ? AND ws.weight_kg IS NOT NULL AND ws.weight_kg > 0
-       ORDER BY ws.session_id DESC, ws.set_number ASC
+       ORDER BY sess.date DESC, ws.set_number ASC
        LIMIT 1`,
       [exerciseId],
     );

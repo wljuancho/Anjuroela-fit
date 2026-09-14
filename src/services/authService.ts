@@ -1,5 +1,6 @@
 import * as Crypto from 'expo-crypto';
 import { getDatabase } from './database';
+import { formatDate } from './utils';
 
 export type AuthProvider = 'local' | 'google';
 
@@ -239,6 +240,15 @@ export async function saveProfile(userId: number, data: {
       data.goalWeeks,
       data.goalDate || null,
     ],
+  );
+
+  await db.runAsync(
+    `INSERT INTO weight_logs (date, weight_kg, notes)
+     SELECT ?, ?, 'Peso inicial'
+     WHERE NOT EXISTS (
+       SELECT 1 FROM weight_logs WHERE date = ?
+     )`,
+    [formatDate(new Date()), data.currentWeight, formatDate(new Date())],
   );
 }
 

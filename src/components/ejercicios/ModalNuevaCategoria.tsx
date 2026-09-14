@@ -1,5 +1,5 @@
 import { colors } from '../../theme/colors';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Modal,
   View,
@@ -11,22 +11,32 @@ import {
 } from 'react-native';
 import AppTextInput from '../AppTextInput';
 import AppButton from '../AppButton';
-import type { NewBodyPart } from '../../types/exercise';
+import type { BodyPart, NewBodyPart, UpdateBodyPart } from '../../types/exercise';
 
 interface ModalNuevaCategoriaProps {
   visible: boolean;
+  editingBodyPart?: BodyPart | null;
   onClose: () => void;
   onSave: (data: NewBodyPart) => Promise<void>;
+  onUpdate?: (data: UpdateBodyPart) => Promise<void>;
 }
 
 export default function ModalNuevaCategoria({
   visible,
+  editingBodyPart,
   onClose,
   onSave,
+  onUpdate,
 }: ModalNuevaCategoriaProps) {
   const [name, setName] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!visible) return;
+    setName(editingBodyPart?.name ?? '');
+    setError('');
+  }, [visible, editingBodyPart]);
 
   const resetForm = () => {
     setName('');
@@ -34,7 +44,6 @@ export default function ModalNuevaCategoria({
   };
 
   const handleClose = () => {
-    resetForm();
     onClose();
   };
 
@@ -46,11 +55,16 @@ export default function ModalNuevaCategoria({
     setError('');
     setSaving(true);
     try {
-      await onSave({ name: name.trim() });
+      const trimmed = name.trim();
+      if (editingBodyPart && onUpdate) {
+        await onUpdate({ id: editingBodyPart.id, name: trimmed });
+      } else {
+        await onSave({ name: trimmed });
+      }
       resetForm();
       onClose();
-    } catch {
-      setError('Error al guardar la categoría');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error al guardar la categoría');
     } finally {
       setSaving(false);
     }
@@ -65,7 +79,9 @@ export default function ModalNuevaCategoria({
         <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={handleClose} />
         <View style={styles.sheet}>
           <View style={styles.handle} />
-          <Text style={styles.title}>Nueva Categoría</Text>
+          <Text style={styles.title}>
+            {editingBodyPart ? 'Editar Categoría' : 'Nueva Categoría'}
+          </Text>
 
           <AppTextInput
             label="Nombre de la parte del cuerpo"
@@ -77,7 +93,7 @@ export default function ModalNuevaCategoria({
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
           <AppButton
-            title="Guardar Categoría"
+            title={editingBodyPart ? 'Guardar Cambios' : 'Guardar Categoría'}
             onPress={handleSave}
             loading={saving}
             style={styles.saveButton}
