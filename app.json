@@ -14,14 +14,16 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anjuroela.fit"
+      "bundleIdentifier": "com.anjuroela.fit",
+      "buildNumber": "1"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#1a1a2e"
       },
-      "package": "com.anjuroela.fit"
+      "package": "com.anjuroela.fit",
+      "versionCode": 1
     },
     "web": {
       "favicon": "./assets/favicon.png",

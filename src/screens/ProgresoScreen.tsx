@@ -104,10 +104,12 @@ export default function ProgresoScreen() {
   );
 
   const handleSavePhysical = useCallback(
-    async (data: { heightCm: string; weightKg: string }) => {
+    async (data: { age: string; heightCm: string; weightKg: string }) => {
       if (!user?.id) return;
+      const a = parseInt(data.age, 10) || 0;
       const h = parseFloat(data.heightCm.replace(',', '.')) || 0;
       const w = parseFloat(data.weightKg.replace(',', '.')) || 0;
+      const age = a > 0 ? a : (profile?.age ?? undefined);
       const heightCm = h > 0 ? h : (profile?.heightCm ?? summary?.heightCm ?? 0);
       const weightKg = w > 0 ? w : (profile?.currentWeight ?? summary?.currentWeight ?? 0);
       if (heightCm <= 0 || weightKg <= 0) {
@@ -118,7 +120,7 @@ export default function ProgresoScreen() {
         targetWeight: profile?.targetWeight ?? summary?.targetWeight ?? weightKg,
         goalWeeks: profile?.goalWeeks ?? 4,
         goalDate: profile?.goalDate ?? summary?.goalDate ?? '',
-        age: profile?.age,
+        age,
         heightCm,
       });
       setPhysicalVisible(false);
@@ -285,6 +287,7 @@ export default function ProgresoScreen() {
 
       <ModalEditarEstadoFisico
         visible={physicalVisible}
+        initialAge={profile?.age ?? null}
         initialHeightCm={summary?.heightCm ?? profile?.heightCm ?? null}
         initialWeightKg={summary?.currentWeight ?? profile?.currentWeight ?? null}
         onClose={() => setPhysicalVisible(false)}

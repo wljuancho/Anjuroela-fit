@@ -173,7 +173,7 @@ export default function CardResumenMeta({
         />
         <MetricBox
           label={bmiCategory ? `IMC (${bmiCategory})` : 'IMC'}
-          value={bmi !== null ? formatNumber(bmi, 1) : '—'}
+          value={bmi !== null ? `${formatNumber(bmi, 1)} kg/m²` : '—'}
           icon="body-outline"
           accent={bmiCategory === 'Normal' ? colors.success : bmiCategory === 'Bajo peso' ? colors.warning : colors.primary}
           onPress={onEditPhysical}

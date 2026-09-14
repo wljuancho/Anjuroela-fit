@@ -16,19 +16,22 @@ import { calculateBMI, classifyBMI, formatNumber } from '../../services/utils';
 
 interface ModalEditarEstadoFisicoProps {
   visible: boolean;
+  initialAge?: number | null;
   initialHeightCm?: number | null;
   initialWeightKg?: number | null;
   onClose: () => void;
-  onSave: (data: { heightCm: string; weightKg: string }) => Promise<void>;
+  onSave: (data: { age: string; heightCm: string; weightKg: string }) => Promise<void>;
 }
 
 export default function ModalEditarEstadoFisico({
   visible,
+  initialAge,
   initialHeightCm,
   initialWeightKg,
   onClose,
   onSave,
 }: ModalEditarEstadoFisicoProps) {
+  const [age, setAge] = useState('');
   const [height, setHeight] = useState('');
   const [weight, setWeight] = useState('');
   const [error, setError] = useState('');
@@ -36,6 +39,7 @@ export default function ModalEditarEstadoFisico({
 
   React.useEffect(() => {
     if (visible) {
+      setAge(initialAge && initialAge > 0 ? String(initialAge) : '');
       setHeight(
         initialHeightCm && initialHeightCm > 0 ? String(Math.round(initialHeightCm)) : '',
       );
@@ -43,8 +47,9 @@ export default function ModalEditarEstadoFisico({
       setError('');
       setSaving(false);
     }
-  }, [visible, initialHeightCm, initialWeightKg]);
+  }, [visible, initialAge, initialHeightCm, initialWeightKg]);
 
+  const ageNum = parseInt(age, 10) || 0;
   const heightNum = parseFloat(height.replace(',', '.')) || 0;
   const weightNum = parseFloat(weight.replace(',', '.')) || 0;
   const preview = useMemo(() => {
@@ -57,6 +62,10 @@ export default function ModalEditarEstadoFisico({
   }, [heightNum, weightNum]);
 
   const handleSave = async () => {
+    if (age.trim() !== '' && (!ageNum || ageNum < 10 || ageNum > 120)) {
+      setError('Ingresa una edad válida (entre 10 y 120 años)');
+      return;
+    }
     if (height.trim() !== '' && (!heightNum || heightNum < 100 || heightNum > 250)) {
       setError('Ingresa una altura válida (entre 100 y 250 cm)');
       return;
@@ -65,17 +74,17 @@ export default function ModalEditarEstadoFisico({
       setError('Ingresa un peso válido (entre 40 y 300 kg)');
       return;
     }
-    if (height.trim() === '' && weight.trim() === '') {
-      setError('Edita al menos tu altura o tu peso');
+    if (age.trim() === '' && height.trim() === '' && weight.trim() === '') {
+      setError('Edita al menos uno de tus datos (edad, altura o peso)');
       return;
     }
     setError('');
     setSaving(true);
     try {
-      await onSave({ heightCm: height.trim(), weightKg: weight.trim() });
+      await onSave({ age: age.trim(), heightCm: height.trim(), weightKg: weight.trim() });
       onClose();
     } catch {
-      setError('No se pudo guardar tus datos físicos');
+      setError('No se pudieron guardar tus datos físicos');
     } finally {
       setSaving(false);
     }
@@ -97,8 +106,19 @@ export default function ModalEditarEstadoFisico({
           <View style={styles.handle} />
           <Text style={styles.title}>Datos físicos</Text>
           <Text style={styles.subtitle}>
-            Ajusta tu altura y peso actual para recalcular tu IMC al instante.
+            Ajusta tu edad, altura y peso actual para recalcular tu IMC al instante.
           </Text>
+
+          <AppTextInput
+            label="Edad"
+            placeholder="Ej: 30"
+            value={age}
+            onChangeText={(t) => {
+              setAge(t);
+              setError('');
+            }}
+            keyboardType="number-pad"
+          />
 
           <View style={styles.row}>
             <View style={styles.field}>

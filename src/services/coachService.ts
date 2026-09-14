@@ -556,8 +556,9 @@ export async function sendCoachMessage(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        systemInstruction: { parts: [{ text: systemInstruction }] },
+        system_instruction: { parts: [{ text: systemInstruction }] },
         contents,
+        generationConfig: { temperature: 0.7 },
       }),
     });
 
