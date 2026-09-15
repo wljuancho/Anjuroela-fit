@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
-  ScrollView,
+  FlatList,
   TextInput,
   TouchableOpacity,
   StyleSheet,
@@ -11,8 +11,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useHeaderHeight } from '@react-navigation/elements';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { MessageBubble } from '../components/entrenador';
 import {
@@ -40,13 +39,12 @@ const WELCOME_MESSAGE =
 
 export default function EntrenadorScreen() {
   const { user } = useAuth();
-  const headerHeight = useHeaderHeight();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [hasApiKey, setHasApiKey] = useState<boolean | null>(null);
   const [chatLoaded, setChatLoaded] = useState(false);
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<FlatList<ChatMessage>>(null);
   const userId = user?.id;
 
   useEffect(() => {
@@ -76,9 +74,23 @@ export default function EntrenadorScreen() {
     return () => clearTimeout(timer);
   }, [messages, userId, chatLoaded]);
 
-  useEffect(() => {
-    getVisionApiKey().then((key) => setHasApiKey(!!key)).catch(() => setHasApiKey(false));
-  }, []);
+  // Al enfocar la pestaña se re-verifica la API Key, así el banner desaparece
+  // en cuanto el usuario guarda o borra la clave en Ajustes.
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      getVisionApiKey()
+        .then((key) => {
+          if (active) setHasApiKey(!!key);
+        })
+        .catch(() => {
+          if (active) setHasApiKey(false);
+        });
+      return () => {
+        active = false;
+      };
+    }, []),
+  );
 
   const scrollToEnd = useCallback(() => {
     setTimeout(() => {
@@ -173,69 +185,71 @@ export default function EntrenadorScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? headerHeight : 0}
-      >
-        {hasApiKey === false ? (
-          <View style={styles.keyBanner}>
-            <Ionicons name="key-outline" size={16} color={colors.warning} />
-            <Text style={styles.keyBannerText}>
-              Configura tu API Key en Ajustes para activar el entrenador de IA.
-            </Text>
-          </View>
-        ) : null}
+    <KeyboardAvoidingView
+      style={styles.safe}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+    >
+      {hasApiKey === false ? (
+        <View style={styles.keyBanner}>
+          <Ionicons name="key-outline" size={16} color={colors.warning} />
+          <Text style={styles.keyBannerText}>
+            Configura tu API Key en Ajustes para activar el entrenador de IA.
+          </Text>
+        </View>
+      ) : null}
 
-        <ScrollView
-          ref={scrollRef}
-          style={styles.flex}
-          contentContainerStyle={styles.listContent}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          {messages.map((message) => (
-            <MessageBubble
-              key={message.id}
-              message={message}
-              onAccept={handleAccept}
-              onCancel={handleCancel}
-            />
-          ))}
-          {sending ? (
+      <FlatList
+        ref={scrollRef}
+        style={styles.flex}
+        contentContainerStyle={styles.listContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        data={messages}
+        keyExtractor={(message) => message.id}
+        renderItem={({ item }) => (
+          <MessageBubble
+            key={item.id}
+            message={item}
+            onAccept={handleAccept}
+            onCancel={handleCancel}
+          />
+        )}
+        ListFooterComponent={
+          sending ? (
             <View style={styles.typingRow}>
               <View style={[styles.bubble, styles.typingBubble]}>
                 <Text style={styles.coachName}>Anjuroela</Text>
                 <ActivityIndicator size="small" color={colors.primary} />
               </View>
             </View>
-          ) : null}
-        </ScrollView>
+          ) : null
+        }
+      />
 
-        <View style={styles.composer}>
-          <TextInput
-            style={styles.input}
-            value={input}
-            onChangeText={setInput}
-            placeholder="Escribe tu mensaje..."
-            placeholderTextColor={colors.textSubtle}
-            multiline
-            maxLength={500}
-            onSubmitEditing={sendMessage}
-          />
-          <TouchableOpacity
-            style={[styles.sendBtn, (!input.trim() || sending) ? styles.sendBtnDisabled : null]}
-            onPress={sendMessage}
-            disabled={!input.trim() || sending}
-            accessibilityRole="button"
-            accessibilityLabel="Enviar mensaje"
-          >
-            <Ionicons name="send" size={20} color={colors.text} />
-          </TouchableOpacity>
-        </View>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+      <View style={styles.composer}>
+        <TextInput
+          style={styles.input}
+          value={input}
+          onChangeText={setInput}
+          placeholder="Escribe tu mensaje..."
+          placeholderTextColor={colors.textSubtle}
+          multiline
+          maxLength={500}
+          onFocus={scrollToEnd}
+          onSubmitEditing={sendMessage}
+        />
+        <TouchableOpacity
+          style={[styles.sendBtn, (!input.trim() || sending) ? styles.sendBtnDisabled : null]}
+          onPress={sendMessage}
+          disabled={!input.trim() || sending}
+          accessibilityRole="button"
+          accessibilityLabel="Enviar mensaje"
+        >
+          <Ionicons name="send" size={20} color={colors.text} />
+        </TouchableOpacity>
+      </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -293,8 +307,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-end',
     gap: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     borderTopWidth: 1,
     borderTopColor: colors.border,
     backgroundColor: colors.card,

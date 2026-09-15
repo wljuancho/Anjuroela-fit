@@ -1,5 +1,6 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { getDatabase } from './database';
+import { syncLocalToRemote } from './syncService';
 import type {
   ActivityLevel,
   MealIngredient,
@@ -96,6 +97,11 @@ export async function saveNutritionProfile(
     values.push(userId);
     await db.runAsync(`UPDATE user_profiles SET ${updates.join(', ')} WHERE user_id = ?`, values);
   }
+
+  void syncLocalToRemote('nutrition_profile');
+  if (updates.length > 0) {
+    void syncLocalToRemote('user_profiles');
+  }
 }
 
 export async function getDailyCaloriesConsumed(date: string): Promise<number> {
@@ -117,6 +123,7 @@ export async function addCaloriesToDay(date: string, calories: number): Promise<
        logged_at = excluded.logged_at`,
     [date, calories, new Date().toISOString()],
   );
+  void syncLocalToRemote('daily_calories');
 }
 
 export async function subtractCaloriesFromDay(date: string, calories: number): Promise<void> {
@@ -125,6 +132,7 @@ export async function subtractCaloriesFromDay(date: string, calories: number): P
     'UPDATE daily_calories SET calories_consumed = MAX(0, calories_consumed - ?) WHERE date = ?',
     [calories, date],
   );
+  void syncLocalToRemote('daily_calories');
 }
 
 export async function addMealLog(data: NewMealLog): Promise<MealLog> {
@@ -134,6 +142,7 @@ export async function addMealLog(data: NewMealLog): Promise<MealLog> {
     [data.date, data.meal_name.trim(), data.calories, data.photo_uri ?? null],
   );
   await addCaloriesToDay(data.date, data.calories);
+  void syncLocalToRemote('meal_logs');
   return {
     id: result.lastInsertRowId,
     date: data.date,
@@ -161,6 +170,7 @@ export async function deleteMealLog(id: number): Promise<void> {
     await subtractCaloriesFromDay(rows[0].date, rows[0].calories);
   }
   await db.runAsync('DELETE FROM meal_logs WHERE id = ?', [id]);
+  void syncLocalToRemote('meal_logs');
   const photoUri = rows[0]?.photo_uri;
   if (photoUri) {
     try {
@@ -268,17 +278,22 @@ export async function replaceWeeklyMealPlan(rows: WeeklyMealPlanInput[]): Promis
     );
     inserted += 1;
   }
+  if (inserted > 0) {
+    void syncLocalToRemote('weekly_meal_plan');
+  }
   return inserted;
 }
 
 export async function deleteWeeklyMealPlanItem(id: number): Promise<void> {
   const db = getDatabase();
   await db.runAsync('DELETE FROM weekly_meal_plan WHERE id = ?', [id]);
+  void syncLocalToRemote('weekly_meal_plan');
 }
 
 export async function clearWeeklyMealPlan(): Promise<void> {
   const db = getDatabase();
   await db.runAsync('DELETE FROM weekly_meal_plan');
+  void syncLocalToRemote('weekly_meal_plan');
 }
 
 function parseIngredientAmount(raw: string): { value: number | null; unit: string } {

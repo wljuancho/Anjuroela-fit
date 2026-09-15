@@ -1,5 +1,6 @@
 import { getDatabase } from './database';
 import { formatDate } from './utils';
+import { syncLocalToRemote } from './syncService';
 import type {
   DayOfWeek,
   DayMuscle,
@@ -103,6 +104,7 @@ export async function updateScheduleDay(dayOfWeek: DayOfWeek, bodyPartId: number
       'UPDATE weekly_schedule SET body_part_id = ? WHERE day_of_week = ?',
       [bodyPartId, dayOfWeek],
     );
+    void syncLocalToRemote('weekly_schedule');
   } catch {
     throw new Error('No se pudo actualizar el día de la rutina.');
   }
@@ -137,6 +139,7 @@ export async function completeSession(sessionId: number): Promise<void> {
   const db = getDatabase();
   try {
     await db.runAsync('UPDATE workout_sessions SET completed = 1 WHERE id = ?', [sessionId]);
+    void syncLocalToRemote('workout_sessions');
   } catch {
     throw new Error('No se pudo completar la sesión.');
   }
@@ -166,6 +169,7 @@ export async function upsertSets(sessionId: number, sets: WorkoutSetInput[]): Pr
         }
       }
     });
+    void syncLocalToRemote('workout_sets');
   } catch {
     throw new Error('No se pudieron guardar las series.');
   }
@@ -292,6 +296,9 @@ export async function addExercisesToDay(
         added += result.changes;
       }
     });
+    if (added > 0) {
+      void syncLocalToRemote('day_exercises');
+    }
     return added;
   } catch {
     throw new Error('No se pudieron agregar los ejercicios a la rutina.');
@@ -309,6 +316,7 @@ export async function removeExerciseFromDay(
       'DELETE FROM day_exercises WHERE day_of_week = ? AND body_part_id = ? AND exercise_id = ?',
       [day, bodyPartId, exerciseId],
     );
+    void syncLocalToRemote('day_exercises');
   } catch {
     throw new Error('No se pudo quitar el ejercicio de la rutina.');
   }
@@ -438,6 +446,7 @@ export async function addMusclesToDay(day: DayOfWeek, bodyPartIds: number[]): Pr
         );
       }
     });
+    void syncLocalToRemote('day_muscles');
   } catch {
     throw new Error('No se pudo agregar el músculo al día.');
   }
@@ -447,6 +456,7 @@ export async function removeMuscleFromDay(muscleId: number): Promise<void> {
   const db = getDatabase();
   try {
     await db.runAsync('DELETE FROM day_muscles WHERE id = ?', [muscleId]);
+    void syncLocalToRemote('day_muscles');
   } catch {
     throw new Error('No se pudo quitar el músculo del día.');
   }
@@ -459,6 +469,7 @@ export async function markMuscleCompleted(muscleId: number): Promise<void> {
       'UPDATE day_muscles SET completed = 1, completed_date = ? WHERE id = ?',
       [formatDate(new Date()), muscleId],
     );
+    void syncLocalToRemote('day_muscles');
   } catch {
     throw new Error('No se pudo marcar el músculo como terminado.');
   }

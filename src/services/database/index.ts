@@ -372,7 +372,7 @@ async function migrateWeeklyMealPlanSchema(database: SQLite.SQLiteDatabase): Pro
 
   await database.execAsync(`
     ALTER TABLE weekly_meal_plan RENAME TO weekly_meal_plan_legacy;
-    CREATE TABLE weekly_meal_plan (
+    CREATE TABLE IF NOT EXISTS weekly_meal_plan (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       day_of_week TEXT NOT NULL,
       date TEXT,

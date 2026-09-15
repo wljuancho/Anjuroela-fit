@@ -1,6 +1,7 @@
 import { getDatabase } from './database';
 import { formatDate } from './utils';
 import { getProfile, updateGoalStatus } from './authService';
+import { syncLocalToRemote } from './syncService';
 import type {
   WeightLog,
   NewWeightLog,
@@ -24,6 +25,7 @@ export async function addWeightLog(data: NewWeightLog): Promise<WeightLog> {
         'UPDATE weight_logs SET weight_kg = ?, notes = ? WHERE id = ?',
         [data.weight_kg, data.notes?.trim() || null, existing[0].id],
       );
+      void syncLocalToRemote('weight_logs');
       return {
         id: existing[0].id,
         date: data.date,
@@ -35,6 +37,7 @@ export async function addWeightLog(data: NewWeightLog): Promise<WeightLog> {
       'INSERT INTO weight_logs (date, weight_kg, notes) VALUES (?, ?, ?)',
       [data.date, data.weight_kg, data.notes?.trim() || null],
     );
+    void syncLocalToRemote('weight_logs');
     return {
       id: result.lastInsertRowId,
       date: data.date,
@@ -76,6 +79,7 @@ export async function updateWeightLog(id: number, data: NewWeightLog): Promise<v
       'UPDATE weight_logs SET date = ?, weight_kg = ?, notes = ? WHERE id = ?',
       [data.date, data.weight_kg, data.notes?.trim() || null, id],
     );
+    void syncLocalToRemote('weight_logs');
   } catch {
     throw new Error('No se pudo actualizar el registro.');
   }
@@ -85,6 +89,7 @@ export async function deleteWeightLog(id: number): Promise<void> {
   const db = getDatabase();
   try {
     await db.runAsync('DELETE FROM weight_logs WHERE id = ?', [id]);
+    void syncLocalToRemote('weight_logs');
   } catch {
     throw new Error('No se pudo eliminar el registro.');
   }
@@ -160,6 +165,7 @@ export async function updateGoalMeta(userId: number, data: NuevoMetaData): Promi
        WHERE user_id = ?`,
       [data.initialWeight, data.targetWeight, data.goalWeeks, data.goalDate || null, userId],
     );
+    void syncLocalToRemote('user_profiles');
   } catch {
     throw new Error('No se pudo actualizar la meta.');
   }

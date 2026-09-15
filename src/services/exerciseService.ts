@@ -1,4 +1,5 @@
 import { getDatabase } from './database';
+import { syncLocalToRemote } from './syncService';
 import type {
   BodyPart,
   ExerciseWithBodyPart,
@@ -30,12 +31,14 @@ export async function addBodyPart(data: NewBodyPart): Promise<BodyPart> {
     const rows = await db.getAllAsync<BodyPart>('SELECT * FROM body_parts WHERE id = ?', [
       existing[0].id,
     ]);
+    void syncLocalToRemote('body_parts');
     return rows[0];
   }
   const result = await db.runAsync(
     'INSERT INTO body_parts (name, icon) VALUES (?, ?)',
     [data.name.trim(), data.icon ?? null],
   );
+  void syncLocalToRemote('body_parts');
   return { id: result.lastInsertRowId, name: data.name.trim(), icon: data.icon ?? null };
 }
 
@@ -55,6 +58,8 @@ export async function deleteBodyPart(bodyPartId: number): Promise<void> {
       );
       await db.runAsync('UPDATE body_parts SET is_active = 0 WHERE id = ?', [bodyPartId]);
     });
+    void syncLocalToRemote('body_parts');
+    void syncLocalToRemote('exercises_v2');
   } catch {
     throw new Error('No se pudo eliminar la categoría.');
   }
@@ -70,6 +75,7 @@ export async function updateBodyPart(data: UpdateBodyPart): Promise<BodyPart> {
     throw new Error('Ya existe una categoría con ese nombre.');
   }
   await db.runAsync('UPDATE body_parts SET name = ? WHERE id = ?', [data.name.trim(), data.id]);
+  void syncLocalToRemote('body_parts');
   const rows = await db.getAllAsync<BodyPart>('SELECT * FROM body_parts WHERE id = ?', [data.id]);
   return rows[0];
 }
@@ -120,6 +126,7 @@ export async function addExercise(data: NewExercise): Promise<ExerciseWithBodyPa
       'UPDATE exercises_v2 SET is_active = 1, description = ?, equipment = ? WHERE id = ?',
       [data.description?.trim() ?? null, data.equipment?.trim() ?? null, existing[0].id],
     );
+    void syncLocalToRemote('exercises_v2');
     const rows = await db.getAllAsync<ExerciseWithBodyPart>(
       `SELECT e.*, bp.name as body_part_name
        FROM exercises_v2 e
@@ -133,6 +140,7 @@ export async function addExercise(data: NewExercise): Promise<ExerciseWithBodyPa
     'INSERT INTO exercises_v2 (name, body_part_id, description, equipment) VALUES (?, ?, ?, ?)',
     [data.name.trim(), data.body_part_id, data.description?.trim() ?? null, data.equipment?.trim() ?? null],
   );
+  void syncLocalToRemote('exercises_v2');
   const rows = await db.getAllAsync<ExerciseWithBodyPart>(
     `SELECT e.*, bp.name as body_part_name
      FROM exercises_v2 e
@@ -162,6 +170,7 @@ export async function updateExercise(data: UpdateExercise): Promise<ExerciseWith
       data.id,
     ],
   );
+  void syncLocalToRemote('exercises_v2');
   const rows = await db.getAllAsync<ExerciseWithBodyPart>(
     `SELECT e.*, bp.name as body_part_name
      FROM exercises_v2 e
@@ -179,6 +188,7 @@ export async function deleteExercise(exerciseId: number): Promise<void> {
       await db.runAsync('UPDATE exercises_v2 SET is_active = 0 WHERE id = ?', [exerciseId]);
       await db.runAsync('DELETE FROM day_exercises WHERE exercise_id = ?', [exerciseId]);
     });
+    void syncLocalToRemote('exercises_v2');
   } catch {
     throw new Error('No se pudo eliminar el ejercicio.');
   }

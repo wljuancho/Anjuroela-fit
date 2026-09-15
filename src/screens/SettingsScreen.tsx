@@ -121,6 +121,7 @@ const handleTest = async () => {
               onChangeText={setApiKey}
               autoCapitalize="none"
               autoCorrect={false}
+              selectTextOnFocus
               secureTextEntry={!showKey}
               accessory={
                 <TouchableOpacity

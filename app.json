@@ -35,9 +35,15 @@
       "expo-asset",
       "expo-sqlite",
       "expo-secure-store",
+      "expo-updates",
       "@react-native-community/datetimepicker"
     ],
     "scheme": "anjuroela-fit",
+    "updates": {
+      "enabled": true,
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    },
     "extra": {
       "eas": {
         "projectId": "9e5836b5-5a45-4619-a2fe-222ba8f8cdaf"

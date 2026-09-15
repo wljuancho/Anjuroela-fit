@@ -1,13 +1,17 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Alert, AppState } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
+import { useUpdates, reloadAsync } from 'expo-updates';
 import Navigation from './src/navigation';
 import { AuthProvider, OnboardingProvider, TutorialProvider } from './src/context';
 import { initDatabase } from './src/services/database';
+import { syncLocalToRemote } from './src/services/syncService';
+import UpdateCheckManager from './src/components/UpdateCheckManager';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -22,6 +26,27 @@ async function warmNativeModules() {
   } catch {
     // Pre-warm best effort; ignore failures
   }
+}
+
+// Comprueba en caliente si hay una actualización OTA disponible al abrir la app.
+// Solo se vuelve a avisar una vez por sesión para no interrumpir al usuario.
+function UpdatesManager() {
+  const { isUpdateAvailable, isUpdatePending, isDownloading } = useUpdates();
+  const warnedRef = useRef(false);
+
+  useEffect(() => {
+    if (!warnedRef.current && isUpdateAvailable && !isUpdatePending && !isDownloading) {
+      warnedRef.current = true;
+      Alert.alert(
+        'Actualización disponible',
+        'Nueva actualización disponible. Reiniciando para aplicar cambios...',
+        [{ text: 'Aplicar', onPress: () => reloadAsync() }],
+        { cancelable: false },
+      );
+    }
+  }, [isUpdateAvailable, isUpdatePending, isDownloading]);
+
+  return null;
 }
 
 export default function App() {
@@ -47,12 +72,25 @@ export default function App() {
     }
   }, [appReady]);
 
+  // Al abrir la app o volver al primer plano se sincroniza en segundo plano
+  // con Supabase si está configurado; nunca bloquea la UI ni la base local.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        void syncLocalToRemote();
+      }
+    });
+    return () => sub.remove();
+  }, []);
+
   if (!appReady) {
     return null;
   }
 
   return (
     <SafeAreaProvider>
+      <UpdatesManager />
+      <UpdateCheckManager />
       <AuthProvider>
         <OnboardingProvider>
           <TutorialProvider>

@@ -1,6 +1,7 @@
 import * as Crypto from 'expo-crypto';
 import { getDatabase } from './database';
 import { formatDate } from './utils';
+import { syncLocalToRemote } from './syncService';
 
 export type AuthProvider = 'local' | 'google';
 
@@ -111,6 +112,7 @@ export async function createLocalUser(
     'INSERT INTO users (name, email, password_hash, auth_provider) VALUES (?, ?, ?, ?)',
     [name, email.toLowerCase().trim(), passwordHash, 'local'],
   );
+  void syncLocalToRemote('users');
   return {
     id: result.lastInsertRowId,
     name,
@@ -165,6 +167,7 @@ export async function createGoogleUser(
      VALUES (?, ?, 'google', ?)`,
     [name, email.toLowerCase().trim(), googleId],
   );
+  void syncLocalToRemote('users');
   return {
     id: result.lastInsertRowId,
     name,
@@ -213,6 +216,7 @@ export async function updateGoalStatus(userId: number, status: 'active' | 'compl
     status,
     userId,
   ]);
+  void syncLocalToRemote('user_profiles');
 }
 
 export async function hasProfile(userId: number): Promise<boolean> {
@@ -252,6 +256,9 @@ export async function saveProfile(userId: number, data: {
      )`,
     [formatDate(new Date()), data.currentWeight, formatDate(new Date())],
   );
+
+  void syncLocalToRemote('user_profiles');
+  void syncLocalToRemote('weight_logs');
 }
 
 export async function getUserSession(userId: number): Promise<UserSession> {

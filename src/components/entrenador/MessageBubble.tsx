@@ -55,7 +55,7 @@ function ProposalCard({
       {proposal.kind === 'rutina' && proposal.actions ? (
         <View style={styles.actionList}>
           {proposal.actions.map((action, index) => (
-            <Text key={`${action.action}-${index}`} style={styles.actionLine}>
+            <Text selectable key={`${action.action}-${index}`} style={styles.actionLine}>
               • {describeAction(action)}
             </Text>
           ))}
@@ -63,7 +63,9 @@ function ProposalCard({
       ) : null}
 
       {proposal.kind === 'comidas' ? (
-        <Text style={styles.proposalSummary}>{proposal.summary}</Text>
+        <Text selectable style={styles.proposalSummary}>
+          {proposal.summary}
+        </Text>
       ) : null}
 
       {status === 'pending' ? (
@@ -103,7 +105,9 @@ export default function MessageBubble({ message, onAccept, onCancel }: MessageBu
     <View style={[styles.row, isUser ? styles.rowUser : styles.rowCoach]}>
       <View style={[styles.bubble, isUser ? styles.userBubble : styles.coachBubble]}>
         {!isUser ? <Text style={styles.coachName}>Anjuroela</Text> : null}
-        <Text style={isUser ? styles.userText : styles.coachText}>{message.text}</Text>
+        <Text selectable style={isUser ? styles.userText : styles.coachText}>
+          {message.text}
+        </Text>
         {!isUser && message.proposal ? (
           <ProposalCard
             message={message}
