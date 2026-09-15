@@ -52,7 +52,7 @@ export default function ProgresoScreen() {
     refresh,
     saveWeight,
     removeWeight,
-  } = useProgressData(user?.id ?? 0);
+  } = useProgressData(user?.id ?? '');
 
   useFocusEffect(
     useCallback(() => {
@@ -66,7 +66,7 @@ export default function ProgresoScreen() {
   const [goalModalVisible, setGoalModalVisible] = useState(false);
   const [metaModalVisible, setMetaModalVisible] = useState(false);
   const [physicalVisible, setPhysicalVisible] = useState(false);
-  const assertedGoal = useRef<number | null>(null);
+  const assertedGoal = useRef<string | null>(null);
 
   useEffect(() => {
     if (error) {

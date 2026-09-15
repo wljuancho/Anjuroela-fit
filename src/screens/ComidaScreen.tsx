@@ -41,7 +41,7 @@ export default function ComidaScreen() {
   const { user, profile, reloadProfile } = useAuth();
   const [date, setDate] = useState(() => formatDate(new Date()));
   const { data, loading, error, reload, saveMeal, removeMeal, saveProfile } = useNutritionData(
-    user?.id ?? 0,
+    user?.id ?? '',
     date,
   );
   const [scanVisible, setScanVisible] = useState(false);

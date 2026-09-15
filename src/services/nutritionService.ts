@@ -42,10 +42,10 @@ export function calculateTDEE(input: TDEECalculationInput): number {
   return Math.round(Math.min(3500, Math.max(1200, goal)));
 }
 
-export async function getNutritionProfile(userId: number): Promise<NutritionProfile | null> {
+export async function getNutritionProfile(userId: string): Promise<NutritionProfile | null> {
   const db = getDatabase();
   const rows = await db.getAllAsync<{
-    user_id: number;
+    user_id: string;
     daily_calories_goal: number;
     activity_level: ActivityLevel;
     goal_type: NutritionGoalType;
@@ -67,7 +67,7 @@ export async function getNutritionProfile(userId: number): Promise<NutritionProf
 }
 
 export async function saveNutritionProfile(
-  userId: number,
+  userId: string,
   data: NutritionProfileInput,
 ): Promise<void> {
   const db = getDatabase();
@@ -353,7 +353,7 @@ export function aggregateMarketList(items: WeeklyMealPlanItem[]): MarketIngredie
 }
 
 export async function getNutritionDayData(
-  userId: number,
+  userId: string,
   date: string,
 ): Promise<NutritionDayData> {
   const [profile, caloriesConsumed, meals] = await Promise.all([

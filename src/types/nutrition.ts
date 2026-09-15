@@ -5,7 +5,7 @@ export type NutritionGoalType = 'perder' | 'ganar' | 'mantener' | 'libre';
 export type PlanMealType = 'desayuno' | 'almuerzo' | 'cena' | 'snack';
 
 export interface NutritionProfile {
-  userId: number;
+  userId: string;
   dailyCaloriesGoal: number;
   activityLevel: ActivityLevel;
   goalType: NutritionGoalType;

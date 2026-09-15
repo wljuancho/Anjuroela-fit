@@ -2,22 +2,22 @@ import * as Crypto from 'expo-crypto';
 import { getDatabase } from './database';
 import { formatDate, assertSafeIdentifier } from './utils';
 import { syncLocalToRemote } from './syncService';
-import { supabase, isSupabaseConfigured } from './supabaseClient';
+import { getSupabase, setSupabaseAppUser, isSupabaseConfigured } from './supabaseClient';
 
 export type AuthProvider = 'local' | 'google';
 
+// El EMAIL es la clave primaria de `users` (identidad única de la cuenta),
+// por lo que `id` == `email` en todos los registros de usuario.
 export interface UserRecord {
-  id: number;
+  id: string;
   name: string;
   email: string;
   auth_provider: AuthProvider;
-  google_id?: string | null;
   created_at?: string;
 }
 
 export interface UserProfileRecord {
-  id: number;
-  user_id: number;
+  user_id: string;
   age?: number | null;
   height?: number | null;
   current_weight?: number | null;
@@ -81,24 +81,36 @@ async function verifyPassword(password: string, storedHash: string): Promise<boo
   return constantTimeEqual(digest, expectedHash);
 }
 
-async function upgradeLegacyHash(userId: number, storedHash: string, password: string): Promise<void> {
+async function upgradeLegacyHash(userId: string, storedHash: string, password: string): Promise<void> {
   if (storedHash.startsWith(`${HASH_PREFIX}:`)) {
     return;
   }
   const salt = await generateSalt();
   const nextHash = await hashPassword(password, salt);
   const db = getDatabase();
-  await db.runAsync('UPDATE users SET password_hash = ? WHERE id = ?', [nextHash, userId]);
+  await db.runAsync('UPDATE users SET password_hash = ? WHERE email = ?', [nextHash, userId]);
 }
 
 export async function findUserByEmail(email: string): Promise<UserRecord | null> {
   const db = getDatabase();
   const normalizedEmail = email.toLowerCase().trim();
-  const result = await db.getAllAsync<UserRecord>(
-    'SELECT id, name, email, auth_provider, google_id FROM users WHERE email = ? LIMIT 1',
+  const result = await db.getAllAsync<{
+    name: string;
+    email: string;
+    auth_provider: string;
+  }>(
+    'SELECT name, email, auth_provider FROM users WHERE email = ? LIMIT 1',
     [normalizedEmail],
   );
-  return result[0] ?? null;
+  if (!result[0]) {
+    return null;
+  }
+  return {
+    id: result[0].email,
+    name: result[0].name,
+    email: result[0].email,
+    auth_provider: result[0].auth_provider === 'google' ? 'google' : 'local',
+  };
 }
 
 export async function createLocalUser(
@@ -109,17 +121,21 @@ export async function createLocalUser(
   const db = getDatabase();
   const salt = await generateSalt();
   const passwordHash = await hashPassword(password, salt);
-  const result = await db.runAsync(
+  const normalizedEmail = email.toLowerCase().trim();
+  await db.runAsync(
     'INSERT INTO users (name, email, password_hash, auth_provider) VALUES (?, ?, ?, ?)',
-    [name, email.toLowerCase().trim(), passwordHash, 'local'],
+    [name, normalizedEmail, passwordHash, 'local'],
   );
+  // La cuenta recién creada se asume como usuario activo en la nube para que
+  // las políticas RLS del upsert de Registro acepten la fila (email=header).
+  setSupabaseAppUser(normalizedEmail);
   // Espera a que la fila `users` termine de replicarse en Supabase para que la
   // cuenta recién creada exista en la nube antes de completar el registro.
   await syncLocalToRemote('users');
   return {
-    id: result.lastInsertRowId,
+    id: normalizedEmail,
     name,
-    email: email.toLowerCase().trim(),
+    email: normalizedEmail,
     auth_provider: 'local',
   };
 }
@@ -131,12 +147,11 @@ export async function verifyLocalCredentials(
   const db = getDatabase();
   const normalizedEmail = email.toLowerCase().trim();
   const result = await db.getAllAsync<{
-    id: number;
     name: string;
     email: string;
     password_hash: string;
     auth_provider: string;
-  }>('SELECT id, name, email, password_hash, auth_provider FROM users WHERE email = ? LIMIT 1', [
+  }>('SELECT name, email, password_hash, auth_provider FROM users WHERE email = ? LIMIT 1', [
     normalizedEmail,
   ]);
 
@@ -149,10 +164,10 @@ export async function verifyLocalCredentials(
     return null;
   }
 
-  void upgradeLegacyHash(result[0].id, result[0].password_hash, password);
+  void upgradeLegacyHash(result[0].email, result[0].password_hash, password);
 
   return {
-    id: result[0].id,
+    id: result[0].email,
     name: result[0].name,
     email: result[0].email,
     auth_provider: 'local',
@@ -171,16 +186,16 @@ export interface UserSession {
   } | null;
 }
 
-export async function getProfile(userId: number): Promise<UserProfileRecord | null> {
+export async function getProfile(userId: string): Promise<UserProfileRecord | null> {
   const db = getDatabase();
   const result = await db.getAllAsync<UserProfileRecord>(
-    'SELECT id, user_id, age, height, current_weight, target_weight, goal_weeks, goal_date, goal_status FROM user_profiles WHERE user_id = ? LIMIT 1',
+    'SELECT user_id, age, height, current_weight, target_weight, goal_weeks, goal_date, goal_status FROM user_profiles WHERE user_id = ? LIMIT 1',
     [userId],
   );
   return result[0] ?? null;
 }
 
-export async function updateGoalStatus(userId: number, status: 'active' | 'completed' | 'expired'): Promise<void> {
+export async function updateGoalStatus(userId: string, status: 'active' | 'completed' | 'expired'): Promise<void> {
   const db = getDatabase();
   await db.runAsync('UPDATE user_profiles SET goal_status = ? WHERE user_id = ?', [
     status,
@@ -189,12 +204,12 @@ export async function updateGoalStatus(userId: number, status: 'active' | 'compl
   void syncLocalToRemote('user_profiles');
 }
 
-export async function hasProfile(userId: number): Promise<boolean> {
+export async function hasProfile(userId: string): Promise<boolean> {
   const profile = await getProfile(userId);
   return !!profile;
 }
 
-export async function saveProfile(userId: number, data: {
+export async function saveProfile(userId: string, data: {
   age?: number;
   height?: number;
   currentWeight: number;
@@ -231,13 +246,23 @@ export async function saveProfile(userId: number, data: {
   void syncLocalToRemote('weight_logs');
 }
 
-export async function getUserSession(userId: number): Promise<UserSession> {
+export async function getUserSession(userId: string): Promise<UserSession> {
   const db = getDatabase();
-  const userResult = await db.getAllAsync<UserRecord>(
-    'SELECT id, name, email, auth_provider, google_id FROM users WHERE id = ? LIMIT 1',
+  const userResult = await db.getAllAsync<{
+    name: string;
+    email: string;
+    auth_provider: string;
+  }>(
+    'SELECT name, email, auth_provider FROM users WHERE email = ? LIMIT 1',
     [userId],
   );
-  const user = userResult[0];
+  const row = userResult[0]!;
+  const user: UserRecord = {
+    id: row.email,
+    name: row.name,
+    email: row.email,
+    auth_provider: row.auth_provider === 'google' ? 'google' : 'local',
+  };
   const profile = await getProfile(userId);
 
   return {
@@ -260,21 +285,20 @@ export async function getUserSession(userId: number): Promise<UserSession> {
 // ---------------------------------------------------------------------------
 
 interface RemoteUserRow {
-  id: number;
   name: string;
   email: string;
   password_hash: string | null;
   auth_provider: string | null;
-  google_id: string | null;
 }
 
 async function findRemoteUserByEmail(email: string): Promise<RemoteUserRow | null> {
+  const supabase = getSupabase();
   if (!supabase || !isSupabaseConfigured()) return null;
   try {
     const normalizedEmail = email.toLowerCase().trim();
     const { data, error } = await supabase
       .from('users')
-      .select('id, name, email, password_hash, auth_provider, google_id')
+      .select('name, email, password_hash, auth_provider')
       .eq('email', normalizedEmail)
       .limit(1);
     if (error || !data || data.length === 0) return null;
@@ -287,51 +311,29 @@ async function findRemoteUserByEmail(email: string): Promise<RemoteUserRow | nul
 async function importRemoteUser(remote: RemoteUserRow): Promise<void> {
   const db = getDatabase();
   try {
-    await db.withTransactionAsync(async () => {
-      const existing = await db.getAllAsync<{ id: number }>(
-        'SELECT id FROM users WHERE email = ? LIMIT 1',
-        [remote.email.toLowerCase().trim()],
-      );
-      if (existing[0] && existing[0].id !== remote.id) {
-        await db.runAsync(
-          'UPDATE user_profiles SET user_id = ? WHERE user_id = ?',
-          [remote.id, existing[0].id],
-        );
-        await db.runAsync(
-          'UPDATE nutrition_profile SET user_id = ? WHERE user_id = ?',
-          [remote.id, existing[0].id],
-        );
-        await db.runAsync(
-          'UPDATE meals_v2 SET user_id = ? WHERE user_id = ?',
-          [remote.id, existing[0].id],
-        );
-        await db.runAsync('DELETE FROM users WHERE id = ?', [existing[0].id]);
-      }
-      await db.runAsync(
-        `INSERT INTO users (id, name, email, password_hash, auth_provider, google_id)
-         VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET
-           name = excluded.name,
-           email = excluded.email,
-           password_hash = excluded.password_hash,
-           auth_provider = excluded.auth_provider,
-           google_id = excluded.google_id`,
-        [
-          remote.id,
-          remote.name,
-          remote.email.toLowerCase().trim(),
-          remote.password_hash,
-          remote.auth_provider ?? 'local',
-          remote.google_id ?? null,
-        ],
-      );
-    });
+    const normalizedEmail = remote.email.toLowerCase().trim();
+    const provider = remote.auth_provider === 'google' ? 'google' : 'local';
+    await db.runAsync(
+      `INSERT INTO users (name, email, password_hash, auth_provider)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(email) DO UPDATE SET
+         name = excluded.name,
+         password_hash = excluded.password_hash,
+         auth_provider = excluded.auth_provider`,
+      [
+        remote.name,
+        normalizedEmail,
+        remote.password_hash,
+        provider,
+      ],
+    );
   } catch {
     // Fallo no letal: la sesión de usuario igual se crea sin importar la copia local.
   }
 }
 
-async function importRemoteProfile(userId: number): Promise<void> {
+async function importRemoteProfile(userId: string): Promise<void> {
+  const supabase = getSupabase();
   if (!supabase || !isSupabaseConfigured()) return;
   try {
     const { data: profileData, error: profileError } = await supabase
@@ -387,13 +389,17 @@ export type RemoteUserExistence = 'present' | 'absent' | 'unknown';
  * - 'unknown': Supabase no está configurado o hubo un error de red/timeout
  *   (no se puede concluir; NO se usa para revocar la sesión).
  */
-export async function checkRemoteUserExistence(userId: number): Promise<RemoteUserExistence> {
+export async function checkRemoteUserExistence(userId: string): Promise<RemoteUserExistence> {
+  const supabase = getSupabase();
   if (!supabase || !isSupabaseConfigured()) return 'unknown';
   try {
+    // La cabecera debe apuntar al usuario consultado para que las políticas
+    // RLS de `users` permitan leer su propia fila.
+    setSupabaseAppUser(userId);
     const { data, error } = await supabase
       .from('users')
-      .select('id')
-      .eq('id', userId);
+      .select('email')
+      .eq('email', userId);
     if (error) return 'unknown';
     return data && data.length > 0 ? 'present' : 'absent';
   } catch {
@@ -411,20 +417,24 @@ export async function verifyRemoteCredentials(
   email: string,
   password: string,
 ): Promise<UserRecord | null> {
-  const remote = await findRemoteUserByEmail(email);
+  const normalizedEmail = email.toLowerCase().trim();
+  // La lectura de `users` exige que la cabecera RLS coincida con la fila
+  // consultada; al verificarse las credenciales el usuario "se autentica" con
+  // su propio correo antes de descargar su cuenta al dispositivo.
+  setSupabaseAppUser(normalizedEmail);
+  const remote = await findRemoteUserByEmail(normalizedEmail);
   if (!remote || !remote.password_hash) return null;
 
   const valid = await verifyPassword(password, remote.password_hash);
   if (!valid) return null;
 
   await importRemoteUser(remote);
-  await importRemoteProfile(remote.id);
+  await importRemoteProfile(remote.email);
 
   return {
-    id: remote.id,
+    id: remote.email.toLowerCase().trim(),
     name: remote.name,
     email: remote.email.toLowerCase().trim(),
     auth_provider: (remote.auth_provider === 'google' ? 'google' : 'local') as AuthProvider,
-    google_id: remote.google_id ?? null,
   };
 }

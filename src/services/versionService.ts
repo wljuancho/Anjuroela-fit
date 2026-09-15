@@ -1,5 +1,5 @@
 import Constants from 'expo-constants';
-import { supabase, isSupabaseConfigured } from './supabaseClient';
+import { getSupabase, isSupabaseConfigured } from './supabaseClient';
 
 export interface RemoteUpdateInfo {
   hasUpdate: boolean;
@@ -36,6 +36,7 @@ export function getLocalVersionCode(): number | null {
  * cuando el backend de Supabase no está disponible.
  */
 export async function checkForRemoteUpdate(): Promise<RemoteUpdateInfo | null> {
+  const supabase = getSupabase();
   if (!supabase || !isSupabaseConfigured()) return null;
 
   const localVersionCode = getLocalVersionCode();

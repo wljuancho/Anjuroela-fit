@@ -26,9 +26,10 @@ import {
   removeLocalUserAccount,
   setSessionRevocationHandler,
 } from '../services/syncService';
+import { setSupabaseAppUser } from '../services/supabaseClient';
 
 export interface AuthUser {
-  id: number;
+  id: string;
   name: string;
   email: string;
   authProvider: 'local' | 'google';
@@ -70,7 +71,7 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 interface StoredSession {
-  userId: number;
+  userId: string;
   user: AuthUser;
   profile: UserProfile | null;
 }
@@ -97,9 +98,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const session = await getStoredSession<StoredSession>();
       if (session?.user) {
-        setUser(session.user);
-        setProfile(session.profile ?? null);
-        await setActiveUserId(session.user.id);
+        const storedUser = session.user;
+        // Sesiones guardadas por versiones antiguas de la app: `id` era
+        // numérico. Se normaliza para que la identidad sea siempre el email.
+        const nextUser: AuthUser = {
+          id: typeof storedUser.id === 'number' ? storedUser.email : storedUser.id,
+          name: storedUser.name,
+          email: storedUser.email,
+          authProvider: storedUser.authProvider,
+        };
+        const nextProfile = session.profile ?? null;
+        setUser(nextUser);
+        setProfile(nextProfile);
+        await setActiveUserId(nextUser.id);
+        setSupabaseAppUser(nextUser.id);
+        if (nextUser.id !== storedUser.id) {
+          await persistSession(nextUser, nextProfile);
+        }
       }
     } catch {
       // ignore
@@ -117,7 +132,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await setStoredSession(session);
   }
 
-  async function refreshProfile(userId: number): Promise<UserProfile | null> {
+  async function refreshProfile(userId: string): Promise<UserProfile | null> {
     const profileRow = await getProfile(userId);
     if (profileRow) {
       return {
@@ -137,6 +152,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // tablas locales de SQLite del usuario, elimina su cuenta local para evitar
   // resubirla y limpia la sesión/current_user_id de SecureStore/AsyncStorage.
   async function performSignOut() {
+    setSupabaseAppUser(null);
     const currentUserId = await getStoredCurrentUserId();
     if (currentUserId !== null) {
       await purgeUserData(currentUserId);
@@ -191,6 +207,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const previousUserId = await getStoredCurrentUserId();
         await setActiveUserId(nextUser.id);
         await setStoredCurrentUserId(nextUser.id);
+        setSupabaseAppUser(nextUser.id);
 
         if (previousUserId && previousUserId !== nextUser.id) {
           await purgeUserData(previousUserId);

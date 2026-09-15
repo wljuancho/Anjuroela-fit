@@ -54,11 +54,12 @@ export async function clearAll(): Promise<void> {
 // El prefijo v2 fuerza que TANTO usuarios nuevos COMO usuarios antiguos vean
 // el tutorial la primera vez que entren a cada pantalla, ya que la clave v1
 // no existe en sus dispositivos.
-export function tutorialStorageKey(userId: number, screen: string): string {
+// userId es el EMAIL del usuario (identidad principal de la cuenta).
+export function tutorialStorageKey(userId: string, screen: string): string {
   return `${PREFIX}:tutorial_v2_completed_${userId}_${screen}`;
 }
 
-export async function getTutorialCompleted(userId: number, screen: string): Promise<boolean> {
+export async function getTutorialCompleted(userId: string, screen: string): Promise<boolean> {
   try {
     const value = await AsyncStorage.getItem(tutorialStorageKey(userId, screen));
     return value === 'true';
@@ -67,7 +68,7 @@ export async function getTutorialCompleted(userId: number, screen: string): Prom
   }
 }
 
-export async function setTutorialCompleted(userId: number, screen: string): Promise<void> {
+export async function setTutorialCompleted(userId: string, screen: string): Promise<void> {
   try {
     await AsyncStorage.setItem(tutorialStorageKey(userId, screen), 'true');
   } catch {

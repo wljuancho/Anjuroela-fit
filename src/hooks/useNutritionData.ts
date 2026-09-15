@@ -19,7 +19,7 @@ export interface NutritionDataApi {
   saveProfile: (profile: NutritionProfileInput) => Promise<void>;
 }
 
-export function useNutritionData(userId: number, date: string): NutritionDataApi {
+export function useNutritionData(userId: string, date: string): NutritionDataApi {
   const loader = useCallback(
     () => (userId ? getNutritionDayData(userId, date) : Promise.resolve(null)),
     [userId, date],

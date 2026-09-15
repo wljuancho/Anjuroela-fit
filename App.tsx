@@ -6,7 +6,7 @@ import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
-import { useUpdates, reloadAsync } from 'expo-updates';
+import * as Updates from 'expo-updates';
 import Navigation from './src/navigation';
 import { AuthProvider, OnboardingProvider, TutorialProvider } from './src/context';
 import { initDatabase } from './src/services/database';
@@ -32,8 +32,19 @@ async function warmNativeModules() {
 // Comprueba en caliente si hay una actualización OTA disponible al abrir la app.
 // Solo se vuelve a avisar una vez por sesión para no interrumpir al usuario.
 function UpdatesManager() {
-  const { isUpdateAvailable, isUpdatePending, isDownloading } = useUpdates();
+  const { isUpdateAvailable, isUpdatePending, isDownloading } = Updates.useUpdates();
   const warnedRef = useRef(false);
+
+  // Aplica la actualización OTA. Se protege por si 'expo-updates' no expone el
+  // método o su módulo nativo no está disponible (dev client / emulador), que
+  // es cuando el error llega como 'Cannot read property reload of undefined'.
+  const applyReload = () => {
+    try {
+      void Updates.reloadAsync?.();
+    } catch {
+      // Se ignora: sin soporte nativo de expo-updates no se puede recargar.
+    }
+  };
 
   useEffect(() => {
     if (!warnedRef.current && isUpdateAvailable && !isUpdatePending && !isDownloading) {
@@ -41,7 +52,7 @@ function UpdatesManager() {
       Alert.alert(
         'Actualización disponible',
         'Nueva actualización disponible. Reiniciando para aplicar cambios...',
-        [{ text: 'Aplicar', onPress: () => reloadAsync() }],
+        [{ text: 'Aplicar', onPress: applyReload }],
         { cancelable: false },
       );
     }

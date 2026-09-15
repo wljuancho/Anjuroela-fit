@@ -15,19 +15,19 @@ export async function initDatabase(): Promise<void> {
   const database = getDatabase();
   await database.execAsync(`
     PRAGMA journal_mode = WAL;
+    -- El EMAIL es la clave primaria de users: es la identidad unica de la
+    -- cuenta y sustituye al antiguo id AUTOINCREMENT local (se migra en
+    -- migrateUsersEmailPk).
     CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT PRIMARY KEY,
       name TEXT NOT NULL,
-      email TEXT UNIQUE NOT NULL,
       password_hash TEXT,
       auth_provider TEXT DEFAULT 'local',
-      google_id TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS user_profiles (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
+      user_id TEXT PRIMARY KEY,
       age INTEGER,
       height REAL,
       current_weight REAL,
@@ -37,7 +37,7 @@ export async function initDatabase(): Promise<void> {
       goal_status TEXT DEFAULT 'active',
       username TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+      FOREIGN KEY (user_id) REFERENCES users (email) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS exercises (
@@ -100,7 +100,7 @@ export async function initDatabase(): Promise<void> {
 
     CREATE TABLE IF NOT EXISTS meals_v2 (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
+      user_id TEXT NOT NULL,
       date TEXT NOT NULL,
       meal_type TEXT NOT NULL CHECK (meal_type IN ('desayuno', 'almuerzo', 'cena', 'snack')),
       image_uri TEXT,
@@ -111,7 +111,7 @@ export async function initDatabase(): Promise<void> {
       fat_g REAL DEFAULT 0,
       notes TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+      FOREIGN KEY (user_id) REFERENCES users (email) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS progress (
@@ -183,12 +183,12 @@ export async function initDatabase(): Promise<void> {
     );
 
     CREATE TABLE IF NOT EXISTS nutrition_profile (
-      user_id INTEGER PRIMARY KEY,
+      user_id TEXT PRIMARY KEY,
       daily_calories_goal INTEGER NOT NULL,
       activity_level TEXT NOT NULL,
       goal_type TEXT NOT NULL,
       updated_at TEXT,
-      FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+      FOREIGN KEY (user_id) REFERENCES users (email) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS daily_calories (
@@ -232,6 +232,8 @@ export async function initDatabase(): Promise<void> {
   await migrateBodyPartsIsActive(database);
   await migrateExercisesIsActive(database);
   await migrateWeeklyMealPlanSchema(database);
+  await migrateUsersEmailPk(database);
+  await migrateDropUsersGoogleId(database);
 
   await database.execAsync(`
     CREATE INDEX IF NOT EXISTS idx_user_profiles_user ON user_profiles (user_id);
@@ -394,6 +396,137 @@ async function migrateWeeklyMealPlanSchema(database: SQLite.SQLiteDatabase): Pro
   await database.execAsync('DROP TABLE IF EXISTS weekly_meal_plan_legacy');
 }
 
+// Migra la identidad de `users` desde id INTEGER AUTOINCREMENT local hacia el
+// EMAIL como clave primaria (mismo modelo que el esquema de Supabase). Solo
+// actúa cuando la tabla mantenida en el dispositivo sigue el formato legacy
+// (existe la columna 'id'); en instalaciones nuevas ya no hace falta.
+//
+// Reconstruye `users`, `user_profiles`, `nutrition_profile` y `meals_v2`
+// mapeando el id numérico antiguo a su email mediante un JOIN, y después
+// reemplaza las tablas viejas por las nuevas.
+async function migrateUsersEmailPk(db: SQLite.SQLiteDatabase): Promise<void> {
+  const usersColumns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(users)');
+  if (!usersColumns.some((c) => c.name === 'id')) {
+    return;
+  }
+
+  await db.execAsync('PRAGMA foreign_keys = OFF;');
+  try {
+    await db.withTransactionAsync(async () => {
+      // 1) Tablas nuevas referenciando users(email).
+      await db.execAsync(`
+        CREATE TABLE IF NOT EXISTS users_v2 (
+          email TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          password_hash TEXT,
+          auth_provider TEXT DEFAULT 'local',
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS user_profiles_v2 (
+          user_id TEXT PRIMARY KEY,
+          age INTEGER,
+          height REAL,
+          current_weight REAL,
+          target_weight REAL,
+          goal_weeks INTEGER,
+          goal_date TEXT,
+          goal_status TEXT DEFAULT 'active',
+          username TEXT,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (user_id) REFERENCES users (email) ON DELETE CASCADE
+        );
+        CREATE TABLE IF NOT EXISTS nutrition_profile_v2 (
+          user_id TEXT PRIMARY KEY,
+          daily_calories_goal INTEGER NOT NULL,
+          activity_level TEXT NOT NULL,
+          goal_type TEXT NOT NULL,
+          updated_at TEXT,
+          FOREIGN KEY (user_id) REFERENCES users (email) ON DELETE CASCADE
+        );
+        CREATE TABLE IF NOT EXISTS meals_v2_v2 (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id TEXT NOT NULL,
+          date TEXT NOT NULL,
+          meal_type TEXT NOT NULL CHECK (meal_type IN ('desayuno', 'almuerzo', 'cena', 'snack')),
+          image_uri TEXT,
+          description TEXT,
+          calories REAL DEFAULT 0,
+          protein_g REAL DEFAULT 0,
+          carbs_g REAL DEFAULT 0,
+          fat_g REAL DEFAULT 0,
+          notes TEXT,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (user_id) REFERENCES users (email) ON DELETE CASCADE
+        );
+      `);
+
+      // 2) Copiar datos mapeando el id legacy -> email (usuario unificado).
+      await db.execAsync(`
+        INSERT OR IGNORE INTO users_v2 (email, name, password_hash, auth_provider, created_at)
+        SELECT lower(trim(email)), name, password_hash, auth_provider, created_at
+          FROM users;
+
+        INSERT OR IGNORE INTO user_profiles_v2
+          (user_id, age, height, current_weight, target_weight, goal_weeks, goal_date, goal_status, username, created_at)
+        SELECT users_v2.email, up.age, up.height, up.current_weight, up.target_weight,
+               up.goal_weeks, up.goal_date, up.goal_status, up.username, up.created_at
+          FROM user_profiles up
+          JOIN users u ON up.user_id = u.id
+          JOIN users_v2 ON users_v2.email = lower(trim(u.email));
+
+        INSERT OR IGNORE INTO nutrition_profile_v2
+          (user_id, daily_calories_goal, activity_level, goal_type, updated_at)
+        SELECT users_v2.email, np.daily_calories_goal, np.activity_level, np.goal_type, np.updated_at
+          FROM nutrition_profile np
+          JOIN users u ON np.user_id = u.id
+          JOIN users_v2 ON users_v2.email = lower(trim(u.email));
+
+        INSERT OR IGNORE INTO meals_v2_v2
+          (id, user_id, date, meal_type, image_uri, description, calories, protein_g, carbs_g, fat_g, notes, created_at)
+        SELECT m.id, users_v2.email, m.date, m.meal_type, m.image_uri, m.description,
+               m.calories, m.protein_g, m.carbs_g, m.fat_g, m.notes, m.created_at
+          FROM meals_v2 m
+          JOIN users u ON m.user_id = u.id
+          JOIN users_v2 ON users_v2.email = lower(trim(u.email));
+      `);
+
+      // 3) Reemplazar las tablas legacy por las nuevas (PK = email).
+      await db.execAsync(`
+        DROP TABLE user_profiles;
+        DROP TABLE nutrition_profile;
+        DROP TABLE meals_v2;
+        DROP TABLE users;
+        ALTER TABLE users_v2 RENAME TO users;
+        ALTER TABLE user_profiles_v2 RENAME TO user_profiles;
+        ALTER TABLE nutrition_profile_v2 RENAME TO nutrition_profile;
+        ALTER TABLE meals_v2_v2 RENAME TO meals_v2;
+      `);
+    });
+  } finally {
+    await db.execAsync('PRAGMA foreign_keys = ON;');
+  }
+}
+
+// Elimina la columna legacy 'google_id' de la tabla 'users' (el login con
+// Google se eliminó; la columna sobra en SQLite y hace que el payload de sync
+// incluya un campo inexistente en Supabase). Idempotente: solo actúa si la
+// columna sigue existiendo en el esquema mantenido por el dispositivo.
+// CREATE/IMPORT ya no la escriben; esta migración limpia dispositivos que
+// migraron a email-PK con la columna aún presente.
+async function migrateDropUsersGoogleId(db: SQLite.SQLiteDatabase): Promise<void> {
+  const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(users)');
+  const names = columns.map((c) => c.name);
+  if (!names.includes('google_id')) {
+    return;
+  }
+  try {
+    await db.execAsync('ALTER TABLE users DROP COLUMN google_id');
+  } catch {
+    // SQLite < 3.35 no soporta DROP COLUMN: opcional, el saneamiento del
+    // payload en syncService evita la advertencia en Supabase igualmente.
+  }
+}
+
 async function migrateUserProfileGoalStatus(db: SQLite.SQLiteDatabase): Promise<void> {
   const columns = await db.getAllAsync<{ name: string }>(
     "PRAGMA table_info(user_profiles)",
@@ -405,6 +538,13 @@ async function migrateUserProfileGoalStatus(db: SQLite.SQLiteDatabase): Promise<
 }
 
 async function migrateUserProfilesUnique(db: SQLite.SQLiteDatabase): Promise<void> {
+  const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(user_profiles)');
+  const names = columns.map((c) => c.name);
+  // Con la PK=email (post-migración) la columna 'id' ya no existe y la
+  // unicidad la garantiza la propia clave primaria.
+  if (!names.includes('id')) {
+    return;
+  }
   await db.execAsync(`
     DELETE FROM user_profiles
     WHERE id NOT IN (SELECT MIN(id) FROM user_profiles GROUP BY user_id);

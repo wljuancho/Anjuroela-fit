@@ -1,4 +1,4 @@
-import { supabase, isSupabaseConfigured } from './supabaseClient';
+import { getSupabase, isSupabaseConfigured } from './supabaseClient';
 import { getDatabase } from './database';
 import { getStoredCurrentUserId } from './sessionStorage';
 import { assertSafeIdentifier } from './utils';
@@ -87,7 +87,8 @@ let lastSyncAt = 0;
 let syncing = false;
 
 // Usuario activo (cacheado; se persiste con la sesión en SecureStore/AsyncStorage).
-let activeUserId: number | null | undefined;
+// Identidad = EMAIL del usuario (clave primaria de `users`).
+let activeUserId: string | null | undefined;
 
 // Callback que marca la sesión como revocada (usuario eliminado en Supabase).
 let sessionRevocationHandler: (() => void | Promise<void>) | null = null;
@@ -99,14 +100,14 @@ export function setSessionRevocationHandler(
   sessionRevocationHandler = handler;
 }
 
-export async function setActiveUserId(userId: number | null): Promise<void> {
-  activeUserId = userId;
+export async function setActiveUserId(userId: string | null): Promise<void> {
+  activeUserId = userId ?? null;
   if (userId !== null) {
     revocationTriggered = false;
   }
 }
 
-async function getActiveUserId(): Promise<number | null> {
+async function getActiveUserId(): Promise<string | null> {
   if (activeUserId === undefined) {
     activeUserId = await getStoredCurrentUserId();
   }
@@ -154,9 +155,9 @@ async function enforceRemoteUserExistence(): Promise<boolean> {
  * Elimina la fila de la cuenta local en SQLite para que un usuario borrado en
  * la nube no vuelva a subirse en sincronizaciones posteriores.
  */
-export async function removeLocalUserAccount(userId: number): Promise<void> {
+export async function removeLocalUserAccount(userId: string): Promise<void> {
   try {
-    await getDatabase().runAsync('DELETE FROM users WHERE id = ?', [userId]);
+    await getDatabase().runAsync('DELETE FROM users WHERE email = ?', [userId]);
   } catch {
     // Fallo no letal.
   }
@@ -194,6 +195,7 @@ function tableColumns(table: string): string[] {
  * restaurarlas en otro dispositivo.
  */
 export async function syncLocalToRemote(tableName?: string): Promise<void> {
+  const supabase = getSupabase();
   if (!supabase || !isSupabaseConfigured()) return;
 
   const now = Date.now();
@@ -240,7 +242,15 @@ export async function syncLocalToRemote(tableName?: string): Promise<void> {
         );
         if (!rows.length) continue;
         const conflictColumn = UPSERT_ON_CONFLICT[table] ?? 'id';
-        const { error } = await supabase.from(table).upsert(rows, { onConflict: conflictColumn });
+        // Solo se envían columnas válidas del esquema remoto. Para `users` se
+        // sanean los campos (email PK + nombre/clave/proveedor/fecha) y se
+        // descartan columnas legacy que ya no existen en Supabase (google_id),
+        // evitando advertencias y violaciones del contrato del upsert.
+        const rowsToSend =
+          table === 'users' ? sanitizeUsersPayload(rows) : rows;
+        const { error } = await supabase
+          .from(table)
+          .upsert(rowsToSend, { onConflict: conflictColumn });
         if (error) {
           // Tabla sin contraparte en Supabase o sin PK: se ignora sin cortar el resto.
           console.warn(`syncLocalToRemote: ${table} no sincronizada (${error.message})`);
@@ -260,10 +270,35 @@ export async function syncLocalToRemote(tableName?: string): Promise<void> {
   }
 }
 
+// Columnas válidas del esquema remoto de `users`. Cualquier otra columna que
+// exista en la tabla local (p. ej. 'google_id' en instalaciones sin migrar)
+// se descarta antes del upsert para no violar el esquema de Supabase.
+const VALID_USERS_COLUMNS = [
+  'email',
+  'name',
+  'password_hash',
+  'auth_provider',
+  'created_at',
+] as const;
+
+function sanitizeUsersPayload(rows: Record<string, unknown>[]): Record<string, unknown>[] {
+  return rows.map((row) => {
+    // Se elimina explícitamente la propiedad obsoleta 'google_id' del objeto
+    // (instalaciones que aún conserven la columna) antes de enviar el upsert.
+    const { google_id: _obsoleteGoogleId, ...cleanRow } = row;
+    const clean: Record<string, unknown> = {};
+    for (const column of VALID_USERS_COLUMNS) {
+      clean[column] = cleanRow[column] ?? null;
+    }
+    return clean;
+  });
+}
+
 async function markOwnedRows(
   table: string,
   rows: Record<string, unknown>[],
 ): Promise<void> {
+  const supabase = getSupabase();
   if (!supabase || !isSupabaseConfigured()) return;
   const ownerId = await getActiveUserId();
   if (ownerId === null) return;
@@ -320,7 +355,7 @@ async function replaceLocalRows(table: string, rows: Record<string, unknown>[]):
 async function mergeUserScopedRows(
   table: string,
   col: string,
-  userId: number,
+  userId: string,
   rows: Record<string, unknown>[],
 ): Promise<void> {
   assertSafeIdentifier(table);
@@ -338,6 +373,7 @@ async function mergeUserScopedRows(
  * iniciar sesión o al detectar un cambio de usuario, siempre de forma silenciosa.
  */
 export async function syncRemoteToLocal(): Promise<void> {
+  const supabase = getSupabase();
   if (!supabase || !isSupabaseConfigured()) return;
   const ownerId = await getActiveUserId();
   if (ownerId === null) return;
@@ -400,7 +436,7 @@ export async function syncRemoteToLocal(): Promise<void> {
  * cuenta no queden registros de la cuenta anterior en el dispositivo.
  * No borra el catálogo de ejercicios ni la propia cuenta de usuario.
  */
-export async function purgeUserData(userId: number): Promise<void> {
+export async function purgeUserData(userId: string): Promise<void> {
   const db = getDatabase();
   try {
     await db.withTransactionAsync(async () => {

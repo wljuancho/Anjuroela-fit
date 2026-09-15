@@ -37,7 +37,7 @@ export interface ProgressData {
   removeWeight: (id: number) => Promise<void>;
 }
 
-export function useProgressData(userId: number): ProgressData {
+export function useProgressData(userId: string): ProgressData {
   const [summary, setSummary] = useState<GoalSummary | null>(null);
   const [weightLogs, setWeightLogs] = useState<WeightLog[]>([]);
   const [strengthRecords, setStrengthRecords] = useState<ExerciseStrengthRecord[]>([]);

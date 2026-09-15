@@ -201,7 +201,7 @@ const SYSTEM_PROMPT =
   '   - Si es "Superávit calórico", enfócate en aumentar consumo de forma saludable para ganar masa.\n' +
   '   - Nunca sugieras dietas peligrosas, ayunos prolongados ni restricciones insostenibles.';
 
-async function buildContext(userId: number): Promise<string> {
+async function buildContext(userId: string): Promise<string> {
   const sections: string[] = ['DATOS ACTUALES DEL USUARIO (usados para recomendar):'];
   const now = new Date();
   sections.push(`- Fecha de hoy: ${formatDate(now)} (${getSpanishWeekday(now)}).`);
@@ -574,7 +574,7 @@ function friendlyProviderError(status: number, detail: string): { message: strin
 }
 
 export async function sendCoachMessage(
-  userId: number,
+  userId: string,
   userText: string,
   history: ChatMessage[],
 ): Promise<CoachOutcome> {

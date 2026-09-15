@@ -1,13 +1,13 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+﻿import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { ChatMessage } from '../types/coach';
 
 const PREFIX = 'anjuroela_fit:chat';
 
-function keyFor(userId: number): string {
+function keyFor(userId: string): string {
   return `${PREFIX}:${userId}`;
 }
 
-export async function getStoredChat(userId: number): Promise<ChatMessage[] | null> {
+export async function getStoredChat(userId: string): Promise<ChatMessage[] | null> {
   try {
     const raw = await AsyncStorage.getItem(keyFor(userId));
     if (!raw) return null;
@@ -18,7 +18,7 @@ export async function getStoredChat(userId: number): Promise<ChatMessage[] | nul
   }
 }
 
-export async function storeChat(userId: number, messages: ChatMessage[]): Promise<void> {
+export async function storeChat(userId: string, messages: ChatMessage[]): Promise<void> {
   try {
     await AsyncStorage.setItem(keyFor(userId), JSON.stringify(messages));
   } catch {
@@ -26,13 +26,13 @@ export async function storeChat(userId: number, messages: ChatMessage[]): Promis
   }
 }
 
-export async function appendChatMessage(userId: number, message: ChatMessage): Promise<void> {
+export async function appendChatMessage(userId: string, message: ChatMessage): Promise<void> {
   const current = (await getStoredChat(userId)) ?? [];
   current.push(message);
   await storeChat(userId, current);
 }
 
-export async function clearStoredChat(userId: number): Promise<void> {
+export async function clearStoredChat(userId: string): Promise<void> {
   try {
     await AsyncStorage.removeItem(keyFor(userId));
   } catch {

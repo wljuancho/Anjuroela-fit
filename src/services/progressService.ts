@@ -95,7 +95,7 @@ export async function deleteWeightLog(id: number): Promise<void> {
   }
 }
 
-export async function evaluateGoalDeadline(userId: number): Promise<GoalDeadlineEvaluation | null> {
+export async function evaluateGoalDeadline(userId: string): Promise<GoalDeadlineEvaluation | null> {
   try {
     const profile = await getProfile(userId);
     if (!profile) return null;
@@ -156,7 +156,7 @@ export interface NuevoMetaData {
   goalDate: string;
 }
 
-export async function updateGoalMeta(userId: number, data: NuevoMetaData): Promise<void> {
+export async function updateGoalMeta(userId: string, data: NuevoMetaData): Promise<void> {
   const db = getDatabase();
   try {
     await db.runAsync(
@@ -171,7 +171,7 @@ export async function updateGoalMeta(userId: number, data: NuevoMetaData): Promi
   }
 }
 
-export async function getGoalSummary(userId: number): Promise<GoalSummary> {
+export async function getGoalSummary(userId: string): Promise<GoalSummary> {
   try {
     const profile = await getProfile(userId);
     const latestLog = await getLatestWeightLog();
