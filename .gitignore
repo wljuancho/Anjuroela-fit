@@ -103,3 +103,8 @@ DerivedData/
 *.mobileprovision
 *.orig.*
 web-report/
+
+# CNG / Prebuild (generated)native dirs handled by expo prebuild
+/ios/
+/android/
+
