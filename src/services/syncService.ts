@@ -48,6 +48,22 @@ async function isOnline(): Promise<boolean> {
   }
 }
 
+// Columnas excluidas por tabla (nunca se envían a Supabase).
+const EXCLUDED_COLUMNS: Record<string, string[]> = {
+  users: ['password_hash'],
+};
+
+function buildSelect(table: string): string {
+  const excluded = EXCLUDED_COLUMNS[table];
+  if (!excluded) return `SELECT * FROM "${table}"`;
+  const columns = getDatabase()
+    .getAllSync<{ name: string }>(`PRAGMA table_info("${table}")`)
+    .map((c) => c.name)
+    .filter((name) => !excluded.includes(name));
+  const list = columns.map((c) => `"${c}"`).join(', ');
+  return `SELECT ${list} FROM "${table}"`;
+}
+
 /**
  * Replica en segundo plano una tabla (o todas) desde SQLite local a Supabase.
  * Silenciosa: si no hay Supabase configurado, no hay red o la consulta falla,
@@ -69,7 +85,7 @@ export async function syncLocalToRemote(tableName?: string): Promise<void> {
     for (const table of tables) {
       try {
         const rows = await getDatabase().getAllAsync<Record<string, unknown>>(
-          `SELECT * FROM "${table}"`,
+          buildSelect(table),
         );
         if (!rows.length) continue;
         const onConflict = UPSERT_ON_CONFLICT[table] ?? 'id';
