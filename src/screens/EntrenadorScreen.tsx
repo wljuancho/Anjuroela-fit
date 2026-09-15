@@ -14,6 +14,8 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { MessageBubble } from '../components/entrenador';
+import { ScreenTutorialModal } from '../components';
+import type { ScreenTutorialPoint } from '../components/ScreenTutorialModal';
 import {
   sendCoachMessage,
   executeRoutineProposal,
@@ -249,9 +251,22 @@ export default function EntrenadorScreen() {
           <Ionicons name="send" size={20} color={colors.text} />
         </TouchableOpacity>
       </View>
+
+      <ScreenTutorialModal
+        screenId="entrenador"
+        title="¿Cómo funciona el Entrenador?"
+        points={ENTRENADOR_TUTORIAL_POINTS}
+      />
     </KeyboardAvoidingView>
   );
 }
+
+const ENTRENADOR_TUTORIAL_POINTS: ScreenTutorialPoint[] = [
+  {
+    text: 'Configura tu API Key en Ajustes. Una vez activa, habla con la IA como tu entrenador personal para pedirle rutinas o planes de comida adaptados a tus metas.',
+    icon: 'chatbubbles-outline',
+  },
+];
 
 const styles = StyleSheet.create({
   safe: {

@@ -14,6 +14,8 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { SelectorDiasSemana, ModalAgregarMusculo } from '../components/rutina';
+import { ScreenTutorialModal } from '../components';
+import type { ScreenTutorialPoint } from '../components/ScreenTutorialModal';
 import type { RutinaStackParamList } from '../navigation/types';
 import { colors as themeColors } from '../theme/colors';
 import {
@@ -244,9 +246,30 @@ export default function RutinaScreen() {
         onClose={() => setAddModalVisible(false)}
         onSave={handleAddMuscles}
       />
+
+      <ScreenTutorialModal
+        screenId="rutina"
+        title="¿Cómo funciona tu Rutina?"
+        points={RUTINA_TUTORIAL_POINTS}
+      />
     </SafeAreaView>
   );
 }
+
+const RUTINA_TUTORIAL_POINTS: ScreenTutorialPoint[] = [
+  {
+    text: 'Organiza tu rutina semanal para llevar un control claro de tu entrenamiento. Al añadir un día, se reflejará abajo.',
+    icon: 'calendar-outline',
+  },
+  {
+    text: "Recuerda primero crear un grupo muscular en la pestaña 'Ejercicios' y asignarle ejercicios a ese músculo.",
+    warning: true,
+  },
+  {
+    text: 'Al darle en Play, puedes elegir 4 ejercicios al azar o seleccionarlos tú mismo, definir series y descanso, y registrar tu peso al final para seguir tu avance.',
+    icon: 'play-circle-outline',
+  },
+];
 
 function MuscleCard({
   muscle,

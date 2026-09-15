@@ -13,6 +13,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import AppButton from '../components/AppButton';
+import { ScreenTutorialModal } from '../components';
+import type { ScreenTutorialPoint } from '../components/ScreenTutorialModal';
 import {
   CardCaloriasDiarias,
   CardComidaItem,
@@ -270,9 +272,30 @@ export default function ComidaScreen() {
           await reload();
         }}
       />
+
+      <ScreenTutorialModal
+        screenId="comida"
+        title="¿Cómo funciona Comida?"
+        points={COMIDA_TUTORIAL_POINTS}
+      />
     </SafeAreaView>
   );
 }
+
+const COMIDA_TUTORIAL_POINTS: ScreenTutorialPoint[] = [
+  {
+    text: 'Para habilitar el scanner con IA, primero crea tu API Key gratuita en Google AI Studio (https://aistudio.google.com/api-keys?project=gen-lang-client-0135307545), ve a Ajustes, pégala, prueba la conexión y guárdala.',
+    icon: 'key-outline',
+  },
+  {
+    text: 'Realiza el test de déficit calórico para conocer tu consumo meta diario.',
+    icon: 'calculator-outline',
+  },
+  {
+    text: 'Si configuraste la API Key, tómale foto a tu plato para recibir un aproximado estimado (no verídico) de tus calorías.',
+    icon: 'camera-outline',
+  },
+];
 
 const styles = StyleSheet.create({
   safe: {

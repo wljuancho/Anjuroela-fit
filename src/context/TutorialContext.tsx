@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useMemo, useEffect } from 'react';
-import { getItem, setItem, StorageKeys } from '../services/storage';
+import { getTutorialCompleted, setTutorialCompleted } from '../services/storage';
+import { useAuth } from './AuthContext';
 
 interface TutorialContextValue {
   hasSeenTutorial: boolean;
@@ -9,23 +10,39 @@ interface TutorialContextValue {
 const TutorialContext = createContext<TutorialContextValue | undefined>(undefined);
 
 export function TutorialProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
   const [hasSeenTutorial, setHasSeenTutorial] = useState(false);
 
+  // Clave por usuario: si el usuario B inicia sesión en el mismo dispositivo
+  // después de que el usuario A completó el tutorial, a B se le vuelve a
+  // mostrar. Al cerrar sesión se resetea el estado local.
+  const userId = user?.id ?? null;
+
   useEffect(() => {
-    getItem<string>(StorageKeys.TutorialComplete).then((value) => {
-      setHasSeenTutorial(value === 'true');
+    if (userId === null) {
+      setHasSeenTutorial(false);
+      return;
+    }
+    let cancelled = false;
+    getTutorialCompleted(userId, 'onboarding').then((done) => {
+      if (!cancelled) setHasSeenTutorial(done);
     });
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
 
   const value = useMemo<TutorialContextValue>(
     () => ({
       hasSeenTutorial,
       async completeTutorial() {
-        await setItem(StorageKeys.TutorialComplete, 'true');
+        if (userId !== null) {
+          await setTutorialCompleted(userId, 'onboarding');
+        }
         setHasSeenTutorial(true);
       },
     }),
-    [hasSeenTutorial],
+    [hasSeenTutorial, userId],
   );
 
   return <TutorialContext.Provider value={value}>{children}</TutorialContext.Provider>;

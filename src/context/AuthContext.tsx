@@ -12,7 +12,6 @@ import {
   verifyLocalCredentials,
   verifyRemoteCredentials,
   findUserByEmail,
-  findOrCreateGoogleUser,
   getProfile,
   saveProfile as saveProfileForUser,
   getUserSession,
@@ -62,7 +61,6 @@ interface AuthContextValue {
   hasProfileCompleted: boolean;
   signUp: (name: string, email: string, password: string) => Promise<void>;
   signIn: (email: string, password: string) => Promise<boolean>;
-  signInWithGoogle: (name: string, email: string, googleId: string) => Promise<void>;
   saveHealthProfile: (data: HealthProfileData) => Promise<void>;
   reloadProfile: () => Promise<void>;
   clearProfile: () => Promise<void>;
@@ -212,33 +210,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await persistSession(nextUser, nextProfile);
         void syncLocalToRemote();
         return true;
-      },
-
-      async signInWithGoogle(name: string, email: string, googleId: string) {
-        const record = await findOrCreateGoogleUser(name, email, googleId);
-        const nextUser: AuthUser = {
-          id: record.id,
-          name: record.name,
-          email: record.email,
-          authProvider: 'google',
-        };
-
-        const previousUserId = await getStoredCurrentUserId();
-        await setActiveUserId(nextUser.id);
-        await setStoredCurrentUserId(nextUser.id);
-
-        if (previousUserId && previousUserId !== nextUser.id) {
-          await purgeUserData(previousUserId);
-        }
-
-        // Siempre se descargan los datos frescos del usuario desde Supabase.
-        await syncRemoteToLocal();
-
-        const nextProfile = await refreshProfile(record.id);
-        setUser(nextUser);
-        setProfile(nextProfile);
-        await persistSession(nextUser, nextProfile);
-        void syncLocalToRemote();
       },
 
       async saveHealthProfile(data: HealthProfileData) {

@@ -384,11 +384,14 @@ async function migrateWeeklyMealPlanSchema(database: SQLite.SQLiteDatabase): Pro
       servings_count INTEGER NOT NULL DEFAULT 1,
       expires_at TEXT
     );
-    INSERT INTO weekly_meal_plan (day_of_week, date, meal_type, title, description, servings_count, expires_at)
-      SELECT day_of_week, '${todayStr}', meal_type, title, description, servings, '${yesterdayStr}'
-        FROM weekly_meal_plan_legacy;
-    DROP TABLE weekly_meal_plan_legacy;
   `);
+  await database.runAsync(
+    `INSERT INTO weekly_meal_plan (day_of_week, date, meal_type, title, description, servings_count, expires_at)
+       SELECT day_of_week, ?, meal_type, title, description, servings, ?
+         FROM weekly_meal_plan_legacy`,
+    [todayStr, yesterdayStr],
+  );
+  await database.execAsync('DROP TABLE IF EXISTS weekly_meal_plan_legacy');
 }
 
 async function migrateUserProfileGoalStatus(db: SQLite.SQLiteDatabase): Promise<void> {

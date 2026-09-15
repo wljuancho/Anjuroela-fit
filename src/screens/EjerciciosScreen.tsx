@@ -18,6 +18,8 @@ import {
   ModalNuevaCategoria,
   ModalOpcionesMusculo,
 } from '../components/ejercicios';
+import { ScreenTutorialModal } from '../components';
+import type { ScreenTutorialPoint } from '../components/ScreenTutorialModal';
 import {
   getAllBodyParts,
   getExercisesByBodyPart,
@@ -366,9 +368,22 @@ export default function EjerciciosScreen() {
         onEditName={openEditCategory}
         onDelete={handleDeleteBodyPart}
       />
+
+      <ScreenTutorialModal
+        screenId="ejercicios"
+        title="¿Cómo funciona Ejercicios?"
+        points={EJERCICIOS_TUTORIAL_POINTS}
+      />
     </SafeAreaView>
   );
 }
+
+const EJERCICIOS_TUTORIAL_POINTS: ScreenTutorialPoint[] = [
+  {
+    text: 'Crea tus grupos musculares (ej. Pecho, Espalda) y añade los ejercicios correspondientes a cada músculo para usarlos luego en tu planificación semanal.',
+    icon: 'barbell-outline',
+  },
+];
 
 const styles = StyleSheet.create({
   safe: {

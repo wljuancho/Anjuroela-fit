@@ -1,6 +1,6 @@
 import * as Crypto from 'expo-crypto';
 import { getDatabase } from './database';
-import { formatDate } from './utils';
+import { formatDate, assertSafeIdentifier } from './utils';
 import { syncLocalToRemote } from './syncService';
 import { supabase, isSupabaseConfigured } from './supabaseClient';
 
@@ -113,7 +113,9 @@ export async function createLocalUser(
     'INSERT INTO users (name, email, password_hash, auth_provider) VALUES (?, ?, ?, ?)',
     [name, email.toLowerCase().trim(), passwordHash, 'local'],
   );
-  void syncLocalToRemote('users');
+  // Espera a que la fila `users` termine de replicarse en Supabase para que la
+  // cuenta recién creada exista en la nube antes de completar el registro.
+  await syncLocalToRemote('users');
   return {
     id: result.lastInsertRowId,
     name,
@@ -154,27 +156,6 @@ export async function verifyLocalCredentials(
     name: result[0].name,
     email: result[0].email,
     auth_provider: 'local',
-  };
-}
-
-export async function createGoogleUser(
-  name: string,
-  email: string,
-  googleId: string,
-): Promise<UserRecord> {
-  const db = getDatabase();
-  const result = await db.runAsync(
-    `INSERT INTO users (name, email, auth_provider, google_id)
-     VALUES (?, ?, 'google', ?)`,
-    [name, email.toLowerCase().trim(), googleId],
-  );
-  void syncLocalToRemote('users');
-  return {
-    id: result.lastInsertRowId,
-    name,
-    email: email.toLowerCase().trim(),
-    auth_provider: 'google',
-    google_id: googleId,
   };
 }
 
@@ -379,6 +360,7 @@ async function importRemoteProfile(userId: number): Promise<void> {
 }
 
 async function insertLocalRow(table: string, row: Record<string, unknown>): Promise<void> {
+  assertSafeIdentifier(table);
   const db = getDatabase();
   const columns = db
     .getAllSync<{ name: string }>(`PRAGMA table_info("${table}")`)
@@ -387,6 +369,7 @@ async function insertLocalRow(table: string, row: Record<string, unknown>): Prom
     (k) => columns.includes(k) && row[k] !== undefined,
   );
   if (!keys.length) return;
+  keys.forEach(assertSafeIdentifier);
   const quoted = keys.map((k) => `"${k}"`).join(', ');
   const placeholders = keys.map(() => '?').join(', ');
   await db.runAsync(
@@ -444,32 +427,4 @@ export async function verifyRemoteCredentials(
     auth_provider: (remote.auth_provider === 'google' ? 'google' : 'local') as AuthProvider,
     google_id: remote.google_id ?? null,
   };
-}
-
-/**
- * Flujo Google en contexto multidispositivo: primero busca localmente; si no
- * existe, busca en Supabase y lo importa al dispositivo.
- */
-export async function findOrCreateGoogleUser(
-  name: string,
-  email: string,
-  googleId: string,
-): Promise<UserRecord> {
-  const existing = await findUserByEmail(email);
-  if (existing) return existing;
-
-  const remote = await findRemoteUserByEmail(email);
-  if (remote) {
-    await importRemoteUser(remote);
-    await importRemoteProfile(remote.id);
-    return {
-      id: remote.id,
-      name: remote.name,
-      email: remote.email.toLowerCase().trim(),
-      auth_provider: 'google',
-      google_id: remote.google_id ?? null,
-    };
-  }
-
-  return createGoogleUser(name, email, googleId);
 }

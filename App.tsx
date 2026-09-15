@@ -12,6 +12,7 @@ import { AuthProvider, OnboardingProvider, TutorialProvider } from './src/contex
 import { initDatabase } from './src/services/database';
 import { syncLocalToRemote } from './src/services/syncService';
 import UpdateCheckManager from './src/components/UpdateCheckManager';
+import RemoteUpdateManager from './src/components/RemoteUpdateManager';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -91,6 +92,7 @@ export default function App() {
     <SafeAreaProvider>
       <UpdatesManager />
       <UpdateCheckManager />
+      <RemoteUpdateManager />
       <AuthProvider>
         <OnboardingProvider>
           <TutorialProvider>

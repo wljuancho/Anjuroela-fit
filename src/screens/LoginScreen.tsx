@@ -10,8 +10,10 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { AppButton, AppTextInput } from '../components';
 import { useAuth } from '../context';
 import { isValidEmail } from '../services/utils';
@@ -19,7 +21,7 @@ import { isValidEmail } from '../services/utils';
 type Mode = 'login' | 'register';
 
 export default function LoginScreen() {
-  const { signIn, signUp, signInWithGoogle } = useAuth();
+  const { signIn, signUp } = useAuth();
 
   const [mode, setMode] = useState<Mode>('login');
   const [name, setName] = useState('');
@@ -28,18 +30,21 @@ export default function LoginScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [errors, setErrors] = useState<Record<string, string | undefined>>({});
   const [submitting, setSubmitting] = useState(false);
-  const [loadingSession, setLoadingSession] = useState(false);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [showTerms, setShowTerms] = useState(false);
 
-  const showLoadingOverlay = submitting || loadingSession;
-  const loadingText = loadingSession
-    ? 'Iniciando sesión con Google...'
-    : mode === 'login'
+  const showLoadingOverlay = submitting;
+  const loadingText =
+    mode === 'login'
       ? 'Iniciando sesión...'
       : 'Creando cuenta...';
 
   function switchMode(next: Mode) {
     setMode(next);
     setErrors({});
+    if (next !== 'register') {
+      setAcceptedTerms(false);
+    }
   }
 
   function validate(): boolean {
@@ -77,6 +82,15 @@ export default function LoginScreen() {
       return;
     }
 
+    if (mode === 'register' && !acceptedTerms) {
+      setErrors({ terms: 'Debes aceptar los Términos y Condiciones para continuar.' });
+      Alert.alert(
+        'Términos y Condiciones',
+        'Debes aceptar los Términos y Condiciones para continuar',
+      );
+      return;
+    }
+
     if (!validate()) return;
 
     setSubmitting(true);
@@ -103,21 +117,6 @@ export default function LoginScreen() {
       );
     } finally {
       setSubmitting(false);
-    }
-  }
-
-  async function handleGoogleSignIn() {
-    setLoadingSession(true);
-    try {
-      // Mock local de Google Sign-In:
-      // Reemplazar con expo-auth-session + Google cuando haya cliente configurado.
-      await signInWithGoogle('Usuario Google', 'usuario.google@gmail.com', 'google-mock-1234');
-    } catch (error) {
-      setErrors({
-        form: error instanceof Error ? error.message : 'Error al iniciar sesión con Google.',
-      });
-    } finally {
-      setLoadingSession(false);
     }
   }
 
@@ -202,25 +201,35 @@ export default function LoginScreen() {
             />
           ) : null}
 
+          {mode === 'register' ? (
+            <View style={styles.termsRow}>
+              <TouchableOpacity
+                style={styles.checkbox}
+                onPress={() => setAcceptedTerms((prev) => !prev)}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: acceptedTerms }}
+              >
+                <Ionicons
+                  name={acceptedTerms ? 'checkbox' : 'square-outline'}
+                  size={22}
+                  color={acceptedTerms ? colors.primary : colors.textMuted}
+                />
+              </TouchableOpacity>
+              <Text style={styles.termsLabel}>
+                Acepto los{' '}
+                <Text style={styles.termsLink} onPress={() => setShowTerms(true)}>
+                  Términos y Condiciones de Uso
+                </Text>
+              </Text>
+            </View>
+          ) : null}
+          {errors.terms ? <Text style={styles.formError}>{errors.terms}</Text> : null}
+
           <AppButton
             title={mode === 'login' ? 'Iniciar sesión' : 'Crear cuenta'}
             onPress={handleSubmit}
             loading={submitting}
             style={styles.submitButton}
-          />
-
-          <View style={styles.dividerRow}>
-            <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>o</Text>
-            <View style={styles.dividerLine} />
-          </View>
-
-          <AppButton
-            title="Continuar con Google"
-            variant="secondary"
-            onPress={handleGoogleSignIn}
-            loading={loadingSession}
-            style={styles.googleButton}
           />
         </ScrollView>
       </KeyboardAvoidingView>
@@ -233,6 +242,37 @@ export default function LoginScreen() {
           </View>
         </View>
       ) : null}
+
+      <Modal
+        visible={showTerms}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowTerms(false)}
+      >
+        <View style={styles.termsBackdrop}>
+          <View style={styles.termsCard}>
+            <Text style={styles.termsTitle}>Términos y Condiciones de Uso</Text>
+            <ScrollView style={styles.termsScroll}>
+              <Text style={styles.termsBody}>
+                Al usar Anjuroela Fit aceptas que:{'\n\n'}
+                {'\u2022'} La información ofrecida (rutinas, ejercicios y nutrición) es{' '}
+                <Text style={styles.termsBold}>informativa y de bienestar</Text>, no sustituye
+                consejo médico profesional.{'\n\n'}
+                {'\u2022'} Consulta a un profesional de la salud antes de comenzar cualquier
+                programa de ejercicio o cambios en tu alimentación.{'\n\n'}
+                {'\u2022'} Tus datos (perfil, peso, progreso) se usan únicamente para{' '}
+                <Text style={styles.termsBold}>personalizar tu experiencia</Text>, respetando tu
+                privacidad conforme a nuestra política de uso.{'\n\n'}
+                {'\u2022'} Eres responsable del uso responsable de la app; la plataforma no se
+                hace responsable por lesiones o resultados derivados del mal uso.{'\n\n'}
+                {'\u2022'} Puedes eliminar tu cuenta y tus datos en cualquier momento desde el
+                perfil.
+              </Text>
+            </ScrollView>
+            <AppButton title="Entendido" onPress={() => setShowTerms(false)} />
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -322,22 +362,53 @@ const styles = StyleSheet.create({
   submitButton: {
     marginTop: 8,
   },
-  dividerRow: {
+  termsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: 24,
+    marginTop: 16,
   },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: colors.cardAlt,
+  checkbox: {
+    padding: 4,
+    marginRight: 4,
   },
-  dividerText: {
+  termsLabel: {
     color: colors.textMuted,
-    marginHorizontal: 12,
-    fontSize: 13,
+    fontSize: 14,
+    flex: 1,
   },
-  googleButton: {
-    flexDirection: 'row',
+  termsLink: {
+    color: colors.primary,
+    fontWeight: '600',
+  },
+  termsBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  termsCard: {
+    backgroundColor: colors.card,
+    borderRadius: 16,
+    padding: 24,
+    maxHeight: '80%',
+  },
+  termsTitle: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  termsScroll: {
+    marginBottom: 16,
+  },
+  termsBody: {
+    color: colors.textMuted,
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  termsBold: {
+    color: colors.text,
+    fontWeight: '600',
   },
 });

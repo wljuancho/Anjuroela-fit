@@ -17,6 +17,15 @@ export function isValidEmail(email: string): boolean {
   return re.test(email);
 }
 
+// Validación defensiva: garantiza que un identificador interpolado en SQL
+// (nombre de tabla/columna) solo contenga caracteres seguros. Evita que una
+// variable inesperada se convierta en vector de inyección.
+export function assertSafeIdentifier(name: string): void {
+  if (typeof name !== 'string' || !/^[A-Za-z0-9_]+$/.test(name)) {
+    throw new Error(`Identificador SQL no permitido: ${name}`);
+  }
+}
+
 export function uuid(): string {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
     const r = (Math.random() * 16) | 0;

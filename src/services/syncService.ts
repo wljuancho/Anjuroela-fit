@@ -1,6 +1,7 @@
 import { supabase, isSupabaseConfigured } from './supabaseClient';
 import { getDatabase } from './database';
 import { getStoredCurrentUserId } from './sessionStorage';
+import { assertSafeIdentifier } from './utils';
 
 // Tablas locales que se replican a Supabase en segundo plano.
 // Coinciden 1:1 con las tablas activas del esquema (supabase_schema.sql).
@@ -27,9 +28,17 @@ const SYNC_TABLES = [
 // Tablas cuya clave primaria no se llama 'id'; se usa su PK para el upsert.
 // 'users' usa su UNIQUE(email) para evitar que ids AUTOINCREMENT locales
 // sobrescriban una cuenta remota existente desde otro dispositivo.
+// El resto apunta a las restricciones UNIQUE de negocio de las tablas
+// (weekly_schedule por día, day_muscles por día+músculo, etc.) para que el
+// upsert actualice en vez de duplicar.
 const UPSERT_ON_CONFLICT: Record<string, string> = {
   users: 'email',
   nutrition_profile: 'user_id',
+  weekly_schedule: 'day_of_week',
+  day_muscles: 'day_of_week,body_part_id',
+  day_exercises: 'day_of_week,body_part_id,exercise_id',
+  workout_sessions: 'day_of_week,date',
+  daily_calories: 'date',
 };
 
 // Tablas cuyo contenido es POR USUARIO pero NO tienen columna user_id.
@@ -169,6 +178,7 @@ async function isOnline(): Promise<boolean> {
 }
 
 function tableColumns(table: string): string[] {
+  assertSafeIdentifier(table);
   return getDatabase()
     .getAllSync<{ name: string }>(`PRAGMA table_info("${table}")`)
     .map((c) => c.name);
@@ -209,25 +219,28 @@ export async function syncLocalToRemote(tableName?: string): Promise<void> {
         if (USER_SCOPED_TABLES[table] !== undefined) {
           if (activeUserIdValue === null) continue;
           const col = USER_SCOPED_TABLES[table];
+          assertSafeIdentifier(table);
+          assertSafeIdentifier(col);
           const rows = await getDatabase().getAllAsync<Record<string, unknown>>(
             `SELECT * FROM "${table}" WHERE "${col}" = ?`,
             [activeUserIdValue],
           );
           if (!rows.length) continue;
-          const onConflict = UPSERT_ON_CONFLICT[table] ?? 'id';
-          const { error } = await supabase.from(table).upsert(rows, { onConflict });
+          const conflictColumn = UPSERT_ON_CONFLICT[table] ?? 'id';
+          const { error } = await supabase.from(table).upsert(rows, { onConflict: conflictColumn });
           if (error) {
             console.warn(`syncLocalToRemote: ${table} no sincronizada (${error.message})`);
           }
           continue;
         }
 
+        assertSafeIdentifier(table);
         const rows = await getDatabase().getAllAsync<Record<string, unknown>>(
           `SELECT * FROM "${table}"`,
         );
         if (!rows.length) continue;
-        const onConflict = UPSERT_ON_CONFLICT[table] ?? 'id';
-        const { error } = await supabase.from(table).upsert(rows, { onConflict });
+        const conflictColumn = UPSERT_ON_CONFLICT[table] ?? 'id';
+        const { error } = await supabase.from(table).upsert(rows, { onConflict: conflictColumn });
         if (error) {
           // Tabla sin contraparte en Supabase o sin PK: se ignora sin cortar el resto.
           console.warn(`syncLocalToRemote: ${table} no sincronizada (${error.message})`);
@@ -275,9 +288,11 @@ async function markOwnedRows(
 }
 
 async function insertLocalRow(table: string, row: Record<string, unknown>): Promise<void> {
+  assertSafeIdentifier(table);
   const existing = tableColumns(table);
   const keys = Object.keys(row).filter((k) => existing.includes(k) && row[k] !== undefined);
   if (!keys.length) return;
+  keys.forEach(assertSafeIdentifier);
   const quoted = keys.map((k) => `"${k}"`).join(', ');
   const placeholders = keys.map(() => '?').join(', ');
   const params = keys.map((k) => (row[k] as string | number | null) ?? null);
@@ -288,6 +303,7 @@ async function insertLocalRow(table: string, row: Record<string, unknown>): Prom
 }
 
 async function replaceLocalRows(table: string, rows: Record<string, unknown>[]): Promise<void> {
+  assertSafeIdentifier(table);
   const db = getDatabase();
   const ids = rows
     .map((r) => Number(r.id))
@@ -307,6 +323,8 @@ async function mergeUserScopedRows(
   userId: number,
   rows: Record<string, unknown>[],
 ): Promise<void> {
+  assertSafeIdentifier(table);
+  assertSafeIdentifier(col);
   const db = getDatabase();
   await db.runAsync(`DELETE FROM "${table}" WHERE "${col}" = ?`, [userId]);
   for (const row of rows) {
@@ -387,6 +405,7 @@ export async function purgeUserData(userId: number): Promise<void> {
   try {
     await db.withTransactionAsync(async () => {
       for (const table of OWNED_TABLES) {
+        assertSafeIdentifier(table);
         await db.runAsync(`DELETE FROM "${table}"`);
       }
       await db.runAsync('DELETE FROM user_profiles WHERE user_id = ?', [userId]);

@@ -83,23 +83,24 @@ export async function saveNutritionProfile(
     [userId, data.dailyCaloriesGoal, data.activityLevel, data.goalType, new Date().toISOString()],
   );
 
-  const updates: string[] = [];
-  const values: (number | string)[] = [];
-  if (data.heightCm != null && data.heightCm > 0) {
-    updates.push('height = ?');
-    values.push(data.heightCm);
-  }
-  if (data.age != null && data.age > 0) {
-    updates.push('age = ?');
-    values.push(data.age);
-  }
-  if (updates.length > 0) {
-    values.push(userId);
-    await db.runAsync(`UPDATE user_profiles SET ${updates.join(', ')} WHERE user_id = ?`, values);
+  const hasHeight = data.heightCm != null && data.heightCm > 0;
+  const hasAge = data.age != null && data.age > 0;
+  if (hasHeight || hasAge) {
+    await db.runAsync(
+      `UPDATE user_profiles
+         SET height = COALESCE(?, height),
+             age = COALESCE(?, age)
+       WHERE user_id = ?`,
+      [
+        hasHeight ? (data.heightCm as number) : null,
+        hasAge ? (data.age as number) : null,
+        userId,
+      ],
+    );
   }
 
   void syncLocalToRemote('nutrition_profile');
-  if (updates.length > 0) {
+  if (hasHeight || hasAge) {
     void syncLocalToRemote('user_profiles');
   }
 }

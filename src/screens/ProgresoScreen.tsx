@@ -24,6 +24,8 @@ import {
   HistorialPromedioMuscularSesionCard,
 } from '../components/progreso';
 import AppButton from '../components/AppButton';
+import { ScreenTutorialModal } from '../components';
+import type { ScreenTutorialPoint } from '../components/ScreenTutorialModal';
 import { useAuth } from '../context';
 import { useProgressData } from '../hooks/useProgressData';
 import {
@@ -351,9 +353,22 @@ export default function ProgresoScreen() {
           </View>
         </Modal>
       ) : null}
+
+      <ScreenTutorialModal
+        screenId="progreso"
+        title="¿Cómo funciona tu Progreso?"
+        points={PROGRESO_TUTORIAL_POINTS}
+      />
     </SafeAreaView>
   );
 }
+
+const PROGRESO_TUTORIAL_POINTS: ScreenTutorialPoint[] = [
+  {
+    text: 'Aquí verás tu progreso diario, cómo avanzas hacia tu meta de peso, tu IMC y el peso máximo o volumen cargado por grupo muscular.',
+    icon: 'trending-up',
+  },
+];
 
 const styles = StyleSheet.create({
   safe: {

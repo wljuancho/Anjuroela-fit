@@ -48,3 +48,29 @@ export async function clearAll(): Promise<void> {
     // Silently ignore storage errors
   }
 }
+
+// Claves dinámicas por usuario para los tutoriales contextuales de pantalla
+// (formato pedido: tutorial_v2_completed_{userId}_{screenName}).
+// El prefijo v2 fuerza que TANTO usuarios nuevos COMO usuarios antiguos vean
+// el tutorial la primera vez que entren a cada pantalla, ya que la clave v1
+// no existe en sus dispositivos.
+export function tutorialStorageKey(userId: number, screen: string): string {
+  return `${PREFIX}:tutorial_v2_completed_${userId}_${screen}`;
+}
+
+export async function getTutorialCompleted(userId: number, screen: string): Promise<boolean> {
+  try {
+    const value = await AsyncStorage.getItem(tutorialStorageKey(userId, screen));
+    return value === 'true';
+  } catch {
+    return false;
+  }
+}
+
+export async function setTutorialCompleted(userId: number, screen: string): Promise<void> {
+  try {
+    await AsyncStorage.setItem(tutorialStorageKey(userId, screen), 'true');
+  } catch {
+    // Silently ignore storage errors
+  }
+}
