@@ -3,10 +3,14 @@ import {
   getStoredSession,
   setStoredSession,
   removeStoredSession,
+  getStoredCurrentUserId,
+  setStoredCurrentUserId,
+  removeStoredCurrentUserId,
 } from '../services/sessionStorage';
 import {
   createLocalUser,
   verifyLocalCredentials,
+  verifyRemoteCredentials,
   findUserByEmail,
   findOrCreateGoogleUser,
   getProfile,
@@ -15,6 +19,14 @@ import {
   hasProfile,
   type UserRecord,
 } from '../services/authService';
+import {
+  setActiveUserId,
+  syncRemoteToLocal,
+  purgeUserData,
+  syncLocalToRemote,
+  removeLocalUserAccount,
+  setSessionRevocationHandler,
+} from '../services/syncService';
 
 export interface AuthUser {
   id: number;
@@ -74,12 +86,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     loadSession();
   }, []);
 
+  // Registra el callback de revocación remota: si el usuario fue eliminado en
+  // Supabase, la sync fuerza el cierre de sesión limpio (purga + estado React).
+  useEffect(() => {
+    setSessionRevocationHandler(() => {
+      void performSignOut();
+    });
+    return () => setSessionRevocationHandler(null);
+  }, []);
+
   async function loadSession() {
     try {
       const session = await getStoredSession<StoredSession>();
       if (session?.user) {
         setUser(session.user);
         setProfile(session.profile ?? null);
+        await setActiveUserId(session.user.id);
       }
     } catch {
       // ignore
@@ -113,6 +135,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return null;
   }
 
+  // Cierre de sesión completo: limpia el estado en memoria de React, purga las
+  // tablas locales de SQLite del usuario, elimina su cuenta local para evitar
+  // resubirla y limpia la sesión/current_user_id de SecureStore/AsyncStorage.
+  async function performSignOut() {
+    const currentUserId = await getStoredCurrentUserId();
+    if (currentUserId !== null) {
+      await purgeUserData(currentUserId);
+      await removeLocalUserAccount(currentUserId);
+    }
+    setUser(null);
+    setProfile(null);
+    await setActiveUserId(null);
+    await removeStoredSession();
+    await removeStoredCurrentUserId();
+  }
+
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
@@ -126,20 +164,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (existing) {
           throw new Error('Ya existe una cuenta con este correo.');
         }
-        await createLocalUser(name, email, password);
+        const newRecord = await createLocalUser(name, email, password);
+        const prevUserId = await getStoredCurrentUserId();
+        await setActiveUserId(newRecord.id);
+        await setStoredCurrentUserId(newRecord.id);
+        if (prevUserId && prevUserId !== newRecord.id) {
+          await purgeUserData(prevUserId);
+        }
       },
 
       async signIn(email: string, password: string) {
-        const record = await verifyLocalCredentials(email, password);
+        const localRecord = await verifyLocalCredentials(email, password);
+        let record = localRecord;
+
         if (!record) {
-          return false;
+          const remoteRecord = await verifyRemoteCredentials(email, password);
+          if (!remoteRecord) return false;
+          record = remoteRecord;
         }
+
         const nextUser: AuthUser = {
           id: record.id,
           name: record.name,
           email: record.email,
           authProvider: 'local',
         };
+
+        const previousUserId = await getStoredCurrentUserId();
+        await setActiveUserId(nextUser.id);
+        await setStoredCurrentUserId(nextUser.id);
+
+        if (previousUserId && previousUserId !== nextUser.id) {
+          await purgeUserData(previousUserId);
+        }
+
+        // Siempre se descargan los datos frescos del usuario desde Supabase.
+        await syncRemoteToLocal();
+
         let nextProfile: UserProfile | null = null;
         try {
           nextProfile = await refreshProfile(record.id);
@@ -149,6 +210,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(nextUser);
         setProfile(nextProfile);
         await persistSession(nextUser, nextProfile);
+        void syncLocalToRemote();
         return true;
       },
 
@@ -160,10 +222,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           email: record.email,
           authProvider: 'google',
         };
+
+        const previousUserId = await getStoredCurrentUserId();
+        await setActiveUserId(nextUser.id);
+        await setStoredCurrentUserId(nextUser.id);
+
+        if (previousUserId && previousUserId !== nextUser.id) {
+          await purgeUserData(previousUserId);
+        }
+
+        // Siempre se descargan los datos frescos del usuario desde Supabase.
+        await syncRemoteToLocal();
+
         const nextProfile = await refreshProfile(record.id);
         setUser(nextUser);
         setProfile(nextProfile);
         await persistSession(nextUser, nextProfile);
+        void syncLocalToRemote();
       },
 
       async saveHealthProfile(data: HealthProfileData) {
@@ -205,9 +280,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       },
 
       async signOut() {
-        setUser(null);
-        setProfile(null);
-        await removeStoredSession();
+        await performSignOut();
       },
     }),
     [user, profile, isLoading],

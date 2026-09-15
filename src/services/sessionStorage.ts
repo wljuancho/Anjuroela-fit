@@ -8,6 +8,12 @@ const SESSION_KEY = 'anjuroela_fit:user_session';
 // guardamos una copia de seguridad que persiste de forma confiable.
 const SESSION_BACKUP_KEY = 'anjuroela_fit:user_session_backup';
 
+// Identificador del usuario activo. Se guarda en SecureStore con respaldo en
+// AsyncStorage igual que la sesión y permite aislar los datos sincronizados
+// (solo se suben/bajan los registros del usuario actualmente autenticado).
+const CURRENT_USER_ID_KEY = 'anjuroela_fit:current_user_id';
+const CURRENT_USER_ID_BACKUP_KEY = 'anjuroela_fit:current_user_id_backup';
+
 export async function getStoredSession<T>(): Promise<T | null> {
   let session: T | null = null;
 
@@ -82,6 +88,69 @@ export async function removeStoredSession(): Promise<void> {
   }
   try {
     await AsyncStorage.removeItem(SESSION_BACKUP_KEY);
+  } catch {
+    // Silently ignore storage errors
+  }
+}
+
+export async function getStoredCurrentUserId(): Promise<number | null> {
+  let userId: number | null = null;
+
+  try {
+    const secure = await SecureStore.getItemAsync(CURRENT_USER_ID_KEY);
+    if (secure) {
+      const parsed = JSON.parse(secure) as number;
+      if (Number.isFinite(parsed)) {
+        userId = parsed;
+      }
+    }
+  } catch {
+    userId = null;
+  }
+
+  if (userId === null) {
+    try {
+      const backup = await AsyncStorage.getItem(CURRENT_USER_ID_BACKUP_KEY);
+      if (backup) {
+        const parsed = JSON.parse(backup) as number;
+        if (Number.isFinite(parsed)) {
+          userId = parsed;
+          try {
+            await SecureStore.setItemAsync(CURRENT_USER_ID_KEY, JSON.stringify(userId));
+          } catch {
+            // ignore
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return userId;
+}
+
+export async function setStoredCurrentUserId(userId: number): Promise<void> {
+  try {
+    await SecureStore.setItemAsync(CURRENT_USER_ID_KEY, JSON.stringify(userId));
+  } catch {
+    // Silently ignore storage errors
+  }
+  try {
+    await AsyncStorage.setItem(CURRENT_USER_ID_BACKUP_KEY, JSON.stringify(userId));
+  } catch {
+    // Silently ignore storage errors
+  }
+}
+
+export async function removeStoredCurrentUserId(): Promise<void> {
+  try {
+    await SecureStore.deleteItemAsync(CURRENT_USER_ID_KEY);
+  } catch {
+    // Silently ignore storage errors
+  }
+  try {
+    await AsyncStorage.removeItem(CURRENT_USER_ID_BACKUP_KEY);
   } catch {
     // Silently ignore storage errors
   }

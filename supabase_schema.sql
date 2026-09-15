@@ -1,7 +1,7 @@
 -- ============================================================
 --  Anjuroela Fit - Esquema para Supabase (replica 1:1 de SQLite)
 --  Ejecutar completo en: Supabase Dashboard > SQL Editor.
---  Cada tabla local tiene su equivalente idéntico en nombre y columnas.
+--  Cada tabla local tiene su equivalente idÃ©ntico en nombre y columnas.
 --  Mapeo de tipos: INTEGER -> integer, REAL -> double precision,
 --  TEXT -> text, flags 0/1 -> integer (igual que en SQLite).
 -- ============================================================
@@ -239,10 +239,24 @@ create table if not exists public.app_meta (
   value text
 );
 
+-- ---------------- propietarios de filas (aislamiento multidispositivo) ----------------
+-- Tabla auxiliar aditiva: registra a quÃ© usuario pertenece cada fila de las
+-- tablas de usuario (workout_sessions, workout_sets, weight_logs, meal_logs, etc.)
+-- para que el pull filtre exactamente lo que corresponde al usuario activo.
+create table if not exists public.user_row_owners (
+  table_name text not null,
+  row_id bigint not null,
+  user_id bigint not null,
+  created_at text default (now()::text),
+  primary key (table_name, row_id),
+  constraint user_row_owners_user_fk
+    foreign key (user_id) references public.users (id) on delete cascade
+);
+
 -- ============================================================
 --  Accesos (anon) y Row Level Security
 --  Permite lectura/escritura (incluido upsert) al rol 'anon'.
---  NOTA: en producción se recomienda endurecer estas políticas.
+--  NOTA: en producciÃ³n se recomienda endurecer estas polÃ­ticas.
 -- ============================================================
 grant usage on schema public to anon;
 
@@ -267,6 +281,7 @@ grant all on table public.daily_calories to anon;
 grant all on table public.meal_logs to anon;
 grant all on table public.weekly_meal_plan to anon;
 grant all on table public.app_meta to anon;
+grant all on table public.user_row_owners to anon;
 
 grant usage, select on all sequences in schema public to anon;
 
@@ -291,46 +306,71 @@ alter table public.daily_calories enable row level security;
 alter table public.meal_logs enable row level security;
 alter table public.weekly_meal_plan enable row level security;
 alter table public.app_meta enable row level security;
+alter table public.user_row_owners enable row level security;
 
+drop policy if exists "anon_all_users" on public.users;
 create policy anon_all_users on public.users
   for all to anon using (true) with check (true);
+drop policy if exists "anon_all_user_profiles" on public.user_profiles;
 create policy anon_all_user_profiles on public.user_profiles
   for all to anon using (true) with check (true);
+drop policy if exists "anon_all_exercises" on public.exercises;
 create policy anon_all_exercises on public.exercises
   for all to anon using (true) with check (true);
+drop policy if exists "anon_all_body_parts" on public.body_parts;
 create policy anon_all_body_parts on public.body_parts
   for all to anon using (true) with check (true);
+drop policy if exists "anon_all_exercises_v2" on public.exercises_v2;
 create policy anon_all_exercises_v2 on public.exercises_v2
   for all to anon using (true) with check (true);
+drop policy if exists "anon_all_workouts" on public.workouts;
 create policy anon_all_workouts on public.workouts
   for all to anon using (true) with check (true);
+drop policy if exists "anon_all_workout_exercises" on public.workout_exercises;
 create policy anon_all_workout_exercises on public.workout_exercises
   for all to anon using (true) with check (true);
+drop policy if exists "anon_all_meals" on public.meals;
 create policy anon_all_meals on public.meals
   for all to anon using (true) with check (true);
+drop policy if exists "anon_all_meals_v2" on public.meals_v2;
 create policy anon_all_meals_v2 on public.meals_v2
   for all to anon using (true) with check (true);
+drop policy if exists "anon_all_progress" on public.progress;
 create policy anon_all_progress on public.progress
   for all to anon using (true) with check (true);
+drop policy if exists "anon_all_weekly_schedule" on public.weekly_schedule;
 create policy anon_all_weekly_schedule on public.weekly_schedule
   for all to anon using (true) with check (true);
+drop policy if exists "anon_all_day_muscles" on public.day_muscles;
 create policy anon_all_day_muscles on public.day_muscles
   for all to anon using (true) with check (true);
+drop policy if exists "anon_all_day_exercises" on public.day_exercises;
 create policy anon_all_day_exercises on public.day_exercises
   for all to anon using (true) with check (true);
+drop policy if exists "anon_all_workout_sessions" on public.workout_sessions;
 create policy anon_all_workout_sessions on public.workout_sessions
   for all to anon using (true) with check (true);
+drop policy if exists "anon_all_workout_sets" on public.workout_sets;
 create policy anon_all_workout_sets on public.workout_sets
   for all to anon using (true) with check (true);
+drop policy if exists "anon_all_weight_logs" on public.weight_logs;
 create policy anon_all_weight_logs on public.weight_logs
   for all to anon using (true) with check (true);
+drop policy if exists "anon_all_nutrition_profile" on public.nutrition_profile;
 create policy anon_all_nutrition_profile on public.nutrition_profile
   for all to anon using (true) with check (true);
+drop policy if exists "anon_all_daily_calories" on public.daily_calories;
 create policy anon_all_daily_calories on public.daily_calories
   for all to anon using (true) with check (true);
+drop policy if exists "anon_all_meal_logs" on public.meal_logs;
 create policy anon_all_meal_logs on public.meal_logs
   for all to anon using (true) with check (true);
+drop policy if exists "anon_all_weekly_meal_plan" on public.weekly_meal_plan;
 create policy anon_all_weekly_meal_plan on public.weekly_meal_plan
   for all to anon using (true) with check (true);
+drop policy if exists "anon_all_app_meta" on public.app_meta;
 create policy anon_all_app_meta on public.app_meta
+  for all to anon using (true) with check (true);
+drop policy if exists "anon_all_user_row_owners" on public.user_row_owners;
+create policy anon_all_user_row_owners on public.user_row_owners
   for all to anon using (true) with check (true);

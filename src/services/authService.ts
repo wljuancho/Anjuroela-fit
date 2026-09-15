@@ -2,6 +2,7 @@ import * as Crypto from 'expo-crypto';
 import { getDatabase } from './database';
 import { formatDate } from './utils';
 import { syncLocalToRemote } from './syncService';
+import { supabase, isSupabaseConfigured } from './supabaseClient';
 
 export type AuthProvider = 'local' | 'google';
 
@@ -177,18 +178,6 @@ export async function createGoogleUser(
   };
 }
 
-export async function findOrCreateGoogleUser(
-  name: string,
-  email: string,
-  googleId: string,
-): Promise<UserRecord> {
-  const existing = await findUserByEmail(email);
-  if (existing) {
-    return existing;
-  }
-  return createGoogleUser(name, email, googleId);
-}
-
 export interface UserSession {
   user: UserRecord;
   profile: {
@@ -283,4 +272,204 @@ export async function getUserSession(userId: number): Promise<UserSession> {
         }
       : null,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Autenticación multidispositivo (validación contra Supabase)
+// ---------------------------------------------------------------------------
+
+interface RemoteUserRow {
+  id: number;
+  name: string;
+  email: string;
+  password_hash: string | null;
+  auth_provider: string | null;
+  google_id: string | null;
+}
+
+async function findRemoteUserByEmail(email: string): Promise<RemoteUserRow | null> {
+  if (!supabase || !isSupabaseConfigured()) return null;
+  try {
+    const normalizedEmail = email.toLowerCase().trim();
+    const { data, error } = await supabase
+      .from('users')
+      .select('id, name, email, password_hash, auth_provider, google_id')
+      .eq('email', normalizedEmail)
+      .limit(1);
+    if (error || !data || data.length === 0) return null;
+    return data[0] as RemoteUserRow;
+  } catch {
+    return null;
+  }
+}
+
+async function importRemoteUser(remote: RemoteUserRow): Promise<void> {
+  const db = getDatabase();
+  try {
+    await db.withTransactionAsync(async () => {
+      const existing = await db.getAllAsync<{ id: number }>(
+        'SELECT id FROM users WHERE email = ? LIMIT 1',
+        [remote.email.toLowerCase().trim()],
+      );
+      if (existing[0] && existing[0].id !== remote.id) {
+        await db.runAsync(
+          'UPDATE user_profiles SET user_id = ? WHERE user_id = ?',
+          [remote.id, existing[0].id],
+        );
+        await db.runAsync(
+          'UPDATE nutrition_profile SET user_id = ? WHERE user_id = ?',
+          [remote.id, existing[0].id],
+        );
+        await db.runAsync(
+          'UPDATE meals_v2 SET user_id = ? WHERE user_id = ?',
+          [remote.id, existing[0].id],
+        );
+        await db.runAsync('DELETE FROM users WHERE id = ?', [existing[0].id]);
+      }
+      await db.runAsync(
+        `INSERT INTO users (id, name, email, password_hash, auth_provider, google_id)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           name = excluded.name,
+           email = excluded.email,
+           password_hash = excluded.password_hash,
+           auth_provider = excluded.auth_provider,
+           google_id = excluded.google_id`,
+        [
+          remote.id,
+          remote.name,
+          remote.email.toLowerCase().trim(),
+          remote.password_hash,
+          remote.auth_provider ?? 'local',
+          remote.google_id ?? null,
+        ],
+      );
+    });
+  } catch {
+    // Fallo no letal: la sesión de usuario igual se crea sin importar la copia local.
+  }
+}
+
+async function importRemoteProfile(userId: number): Promise<void> {
+  if (!supabase || !isSupabaseConfigured()) return;
+  try {
+    const { data: profileData, error: profileError } = await supabase
+      .from('user_profiles')
+      .select('*')
+      .eq('user_id', userId)
+      .limit(1);
+    if (!profileError && profileData && profileData.length) {
+      await insertLocalRow('user_profiles', profileData[0] as Record<string, unknown>);
+    }
+  } catch {
+    // Se ignora; el usuario puede simplemente no tener perfil aún.
+  }
+  try {
+    const { data: nutData, error: nutError } = await supabase
+      .from('nutrition_profile')
+      .select('*')
+      .eq('user_id', userId)
+      .limit(1);
+    if (!nutError && nutData && nutData.length) {
+      await insertLocalRow('nutrition_profile', nutData[0] as Record<string, unknown>);
+    }
+  } catch {
+    // Se ignora.
+  }
+}
+
+async function insertLocalRow(table: string, row: Record<string, unknown>): Promise<void> {
+  const db = getDatabase();
+  const columns = db
+    .getAllSync<{ name: string }>(`PRAGMA table_info("${table}")`)
+    .map((c) => c.name);
+  const keys = Object.keys(row).filter(
+    (k) => columns.includes(k) && row[k] !== undefined,
+  );
+  if (!keys.length) return;
+  const quoted = keys.map((k) => `"${k}"`).join(', ');
+  const placeholders = keys.map(() => '?').join(', ');
+  await db.runAsync(
+    `INSERT OR REPLACE INTO "${table}" (${quoted}) VALUES (${placeholders})`,
+    keys.map((k) => (row[k] as string | number | null) ?? null),
+  );
+}
+
+export type RemoteUserExistence = 'present' | 'absent' | 'unknown';
+
+/**
+ * Comprueba si la cuenta del usuario todavía existe en Supabase. Devuelve:
+ * - 'present': la fila `users` existe en la nube.
+ * - 'absent': la respuesta fue exitosa pero vacía (usuario borrado remotamente).
+ * - 'unknown': Supabase no está configurado o hubo un error de red/timeout
+ *   (no se puede concluir; NO se usa para revocar la sesión).
+ */
+export async function checkRemoteUserExistence(userId: number): Promise<RemoteUserExistence> {
+  if (!supabase || !isSupabaseConfigured()) return 'unknown';
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .select('id')
+      .eq('id', userId);
+    if (error) return 'unknown';
+    return data && data.length > 0 ? 'present' : 'absent';
+  } catch {
+    return 'unknown';
+  }
+}
+
+/**
+ * Valida credenciales contra la tabla `users` en Supabase. Se usa cuando
+ * un usuario intenta iniciar sesión desde un dispositivo nuevo (su cuenta
+ * existe en la nube pero no en la base SQLite local). Al verificar, importa
+ * la cuenta y su perfil al dispositivo local.
+ */
+export async function verifyRemoteCredentials(
+  email: string,
+  password: string,
+): Promise<UserRecord | null> {
+  const remote = await findRemoteUserByEmail(email);
+  if (!remote || !remote.password_hash) return null;
+
+  const valid = await verifyPassword(password, remote.password_hash);
+  if (!valid) return null;
+
+  await importRemoteUser(remote);
+  await importRemoteProfile(remote.id);
+
+  return {
+    id: remote.id,
+    name: remote.name,
+    email: remote.email.toLowerCase().trim(),
+    auth_provider: (remote.auth_provider === 'google' ? 'google' : 'local') as AuthProvider,
+    google_id: remote.google_id ?? null,
+  };
+}
+
+/**
+ * Flujo Google en contexto multidispositivo: primero busca localmente; si no
+ * existe, busca en Supabase y lo importa al dispositivo.
+ */
+export async function findOrCreateGoogleUser(
+  name: string,
+  email: string,
+  googleId: string,
+): Promise<UserRecord> {
+  const existing = await findUserByEmail(email);
+  if (existing) return existing;
+
+  const remote = await findRemoteUserByEmail(email);
+  if (remote) {
+    await importRemoteUser(remote);
+    await importRemoteProfile(remote.id);
+    return {
+      id: remote.id,
+      name: remote.name,
+      email: remote.email.toLowerCase().trim(),
+      auth_provider: 'google',
+      google_id: remote.google_id ?? null,
+    };
+  }
+
+  return createGoogleUser(name, email, googleId);
 }
