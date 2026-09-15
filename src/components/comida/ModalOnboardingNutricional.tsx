@@ -82,11 +82,14 @@ export default function ModalOnboardingNutricional({
   const heightNum = parseFloat(height.replace(',', '.')) || 0;
   const manualGoalNum =
     goalType === 'libre' && manualGoal.trim() !== '' ? parseFloat(manualGoal.replace(',', '.')) || 0 : 0;
-  const canPreview = ageNum > 0 && heightNum >= 100 && heightNum <= 250 && activity !== null && goalType !== null;
+  // La edad es OPCIONAL: si no se ha ingresado (o no es válida) se usa 30 años
+  // como valor por defecto para la estimación, sin bloquear el guardado.
+  const effectiveAge = ageNum >= 10 && ageNum <= 120 ? ageNum : 30;
+  const canPreview = heightNum >= 100 && heightNum <= 250 && activity !== null && goalType !== null;
   const previewGoal = useMemo(() => {
     if (!canPreview) return null;
     const base = calculateTDEE({
-      age: ageNum,
+      age: effectiveAge,
       weightKg,
       heightCm: heightNum,
       activityLevel: activity!,
@@ -94,13 +97,9 @@ export default function ModalOnboardingNutricional({
     });
     if (goalType === 'libre' && manualGoalNum > 0) return manualGoalNum;
     return base;
-  }, [canPreview, ageNum, weightKg, heightNum, activity, goalType, manualGoalNum]);
+  }, [canPreview, effectiveAge, weightKg, heightNum, activity, goalType, manualGoalNum]);
 
   const handleSave = async () => {
-    if (!ageNum || ageNum < 10 || ageNum > 120) {
-      setError('Ingresa una edad válida (entre 10 y 120 años)');
-      return;
-    }
     if (!heightNum || heightNum < 100 || heightNum > 250) {
       setError('Ingresa tu altura en centímetros (entre 100 y 250 cm)');
       return;
@@ -121,7 +120,7 @@ export default function ModalOnboardingNutricional({
     setSaving(true);
     try {
       const baseTdee = calculateTDEE({
-        age: ageNum,
+        age: effectiveAge,
         weightKg,
         heightCm: heightNum,
         activityLevel: activity,
@@ -131,7 +130,7 @@ export default function ModalOnboardingNutricional({
         dailyCaloriesGoal: goalType === 'libre' && manualGoalNum > 0 ? manualGoalNum : baseTdee,
         activityLevel: activity,
         goalType,
-        age: ageNum,
+        age: ageNum >= 10 && ageNum <= 120 ? ageNum : undefined,
         heightCm: heightNum,
       });
       onClose();
@@ -164,7 +163,7 @@ export default function ModalOnboardingNutricional({
 
           <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
             <AppTextInput
-              label="Edad"
+              label="Edad (opcional)"
               placeholder="Ej: 30"
               value={age}
               onChangeText={(t) => {

@@ -9,21 +9,48 @@ import { assertSafeIdentifier } from './utils';
 // workouts, workout_exercises, exercises, meals, meals_v2, progress (legacy
 // vacías tras la limpieza) y app_meta (metadatos internos del dispositivo).
 const SYNC_TABLES = [
+  // NIVEL 1: identidad y catálogo (tablas PADRE). Nunca son dependientes.
+  // No se incluyen 'exercises', 'workouts', 'meals', 'meals_v2' ni 'progress':
+  // son tablas legacy vacías tras la limpieza local; 'exercises_v2' es el
+  // catálogo de ejercicios activo que referencia day_* y workout_sets.
   'users',
-  'user_profiles',
   'body_parts',
   'exercises_v2',
+  // NIVEL 2: perfiles de usuario (FK a users por email).
+  'user_profiles',
+  'nutrition_profile',
+  // NIVEL 3: configuración de rutinas y dietas (FK al catálogo de body_parts
+  // y exercises_v2; dependen del catálogo subido en el NIVEL 1).
   'weekly_schedule',
   'day_muscles',
   'day_exercises',
+  'weekly_meal_plan',
+  // NIVEL 4: sesiones y progresos (workout_sets depende de workout_sessions y
+  // exercises_v2; el resto son hojas sin FKs).
   'workout_sessions',
   'workout_sets',
   'weight_logs',
-  'nutrition_profile',
   'daily_calories',
   'meal_logs',
-  'weekly_meal_plan',
 ] as const;
+
+// Dependencias FK para el sync DIRIGIDO (una sola tabla: p. ej. la edición de
+// una rutina invoca syncLocalToRemote('day_exercises')). Al subir una tabla
+// hija se suben antes sus padres para no tropezar con violaciones de clave
+// foránea en Supabase (day_exercises_exercise_fk, workout_sets_session_fk...).
+const PARENT_DEPENDENCIES: Record<string, readonly string[]> = {
+  user_profiles: ['users'],
+  nutrition_profile: ['users'],
+  weekly_schedule: ['body_parts'],
+  day_muscles: ['body_parts'],
+  day_exercises: ['body_parts', 'exercises_v2'],
+  workout_sets: ['workout_sessions', 'exercises_v2'],
+  workout_sessions: [],
+  weight_logs: [],
+  daily_calories: [],
+  meal_logs: [],
+  weekly_meal_plan: [],
+};
 
 // Tablas cuya clave primaria no se llama 'id'; se usa su PK para el upsert.
 // 'users' usa su UNIQUE(email) para evitar que ids AUTOINCREMENT locales
@@ -33,12 +60,16 @@ const SYNC_TABLES = [
 // upsert actualice en vez de duplicar.
 const UPSERT_ON_CONFLICT: Record<string, string> = {
   users: 'email',
+  user_profiles: 'user_id',
   nutrition_profile: 'user_id',
   weekly_schedule: 'day_of_week',
   day_muscles: 'day_of_week,body_part_id',
   day_exercises: 'day_of_week,body_part_id,exercise_id',
   workout_sessions: 'day_of_week,date',
   daily_calories: 'date',
+  // En una instalación limpia el id local se conserva también en Supabase.
+  // Así las FK de exercises_v2, sesiones y series son estables entre
+  // dispositivos del mismo usuario.
 };
 
 // Tablas cuyo contenido es POR USUARIO pero NO tienen columna user_id.
@@ -83,8 +114,46 @@ const PULL_ORDER = [
 
 const SYNC_THROTTLE_MS = 10000;
 
+// Reintento cuando la petición llega sin conexión: el flush se agendará para
+// este intervalo (además de reintentarse al volver a primer plano y con cada
+// nueva edición), hasta que la red vuelva.
+const FLUSH_RETRY_OFFLINE_MS = 30000;
+
 let lastSyncAt = 0;
 let syncing = false;
+
+// Cola de tablas pendientes de subir. Cuando una petición de sync llega dentro
+// del throttle o sin conexión, NO se descarta: se encola y una pasada completa
+// (con el orden FK de padres antes que hijos) la enviará en cuanto se libere el
+// throttle o se recupere la red. '*full*' representa pasada completa.
+const pendingSyncTables = new Set<string>();
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleFlush(delayMs = SYNC_THROTTLE_MS): void {
+  if (flushTimer) clearTimeout(flushTimer);
+  flushTimer = setTimeout(() => {
+    flushTimer = null;
+    void executePendingSync();
+  }, Math.max(0, delayMs));
+}
+
+function enqueueSync(tableName?: string, retryMs = SYNC_THROTTLE_MS): void {
+  if (tableName && tableName !== '*') {
+    pendingSyncTables.add(tableName);
+  } else {
+    pendingSyncTables.add('*');
+  }
+  scheduleFlush(retryMs);
+}
+
+/**
+ * Solicita una pasada completa de subida. Se usa al volver a primer plano de la
+ * app y al restaurar la conexión para vaciar la cola de pendientes (todo lo que
+ * se guardó offline se sube en cuanto hay red).
+ */
+export function requestFullSync(): void {
+  enqueueSync('*', 0);
+}
 
 // Usuario activo (cacheado; se persiste con la sesión en SecureStore/AsyncStorage).
 // Identidad = EMAIL del usuario (clave primaria de `users`).
@@ -195,24 +264,97 @@ function tableColumns(table: string): string[] {
  * restaurarlas en otro dispositivo.
  */
 export async function syncLocalToRemote(tableName?: string): Promise<void> {
+  enqueueSync(tableName, 0);
+}
+
+/**
+ * Crea la cuenta remota antes de ejecutar el resto de la sincronización.
+ *
+ * La comprobación normal de existencia remota protege sesiones ya creadas:
+ * si una cuenta desaparece de Supabase, no debe resubirse por accidente. Esa
+ * regla no puede aplicarse durante el registro, porque una cuenta nueva aún
+ * no existe en la nube. Este camino explícito evita que el primer sync la
+ * interprete como una cuenta revocada.
+ */
+export async function provisionRemoteUser(user: {
+  email: string;
+  name: string;
+  password_hash: string;
+  auth_provider: string;
+  created_at?: string | null;
+}): Promise<void> {
+  const supabase = getSupabase();
+  if (!supabase || !isSupabaseConfigured()) {
+    throw new Error('Supabase no está configurado; no es posible crear la cuenta en la nube.');
+  }
+
+  const payload = {
+    email: user.email.toLowerCase().trim(),
+    name: user.name,
+    password_hash: user.password_hash,
+    auth_provider: user.auth_provider,
+    ...(user.created_at ? { created_at: user.created_at } : {}),
+  };
+  // Un alta nunca debe sobrescribir una cuenta que ya existe en otro
+  // dispositivo. Las actualizaciones de cuenta, si se añaden, requieren un
+  // flujo autenticado independiente.
+  const { error } = await supabase.from('users').insert(payload);
+  if (error) {
+    // Se agenda el resto de la sincronización; el llamador decide si conserva
+    // o revierte la alta local para que su flujo de registro sea consistente.
+    enqueueSync('users', FLUSH_RETRY_OFFLINE_MS);
+    throw new Error(`No se pudo crear la cuenta en Supabase: ${error.message}`);
+  }
+}
+
+async function executePendingSync(): Promise<void> {
   const supabase = getSupabase();
   if (!supabase || !isSupabaseConfigured()) return;
+  if (pendingSyncTables.size === 0) return;
 
   const now = Date.now();
-  if (syncing || now - lastSyncAt < SYNC_THROTTLE_MS) return;
+  if (syncing) {
+    scheduleFlush(SYNC_THROTTLE_MS);
+    return;
+  }
+
+  const timeSinceLastSync = now - lastSyncAt;
+  if (timeSinceLastSync < SYNC_THROTTLE_MS) {
+    scheduleFlush(SYNC_THROTTLE_MS - timeSinceLastSync);
+    return;
+  }
+
   syncing = true;
-  lastSyncAt = now;
+  lastSyncAt = Date.now();
 
   try {
     const online = await isOnline();
-    if (!online) return;
+    if (!online) {
+      scheduleFlush(FLUSH_RETRY_OFFLINE_MS);
+      return;
+    }
 
     // Si el usuario activo ya no existe en Supabase: revoca y no sube nada.
     const userStillValid = await enforceRemoteUserExistence();
-    if (!userStillValid) return;
+    if (!userStillValid) {
+      pendingSyncTables.clear();
+      return;
+    }
 
-    const tables = tableName ? [tableName] : SYNC_TABLES;
-    for (const table of tables) {
+    let targetTables: string[];
+    if (pendingSyncTables.has('*')) {
+      targetTables = [...SYNC_TABLES];
+    } else {
+      const needed = new Set<string>();
+      for (const table of pendingSyncTables) {
+        needed.add(table);
+        const parents = PARENT_DEPENDENCIES[table] ?? [];
+        parents.forEach((p) => needed.add(p));
+      }
+      targetTables = SYNC_TABLES.filter((t) => needed.has(t));
+    }
+
+    for (const table of targetTables) {
       try {
         const activeUserIdValue =
           USER_SCOPED_TABLES[table] !== undefined ? await getActiveUserId() : null;
@@ -227,11 +369,29 @@ export async function syncLocalToRemote(tableName?: string): Promise<void> {
             `SELECT * FROM "${table}" WHERE "${col}" = ?`,
             [activeUserIdValue],
           );
-          if (!rows.length) continue;
+          if (!rows.length) {
+            pendingSyncTables.delete(table);
+            continue;
+          }
           const conflictColumn = UPSERT_ON_CONFLICT[table] ?? 'id';
-          const { error } = await supabase.from(table).upsert(rows, { onConflict: conflictColumn });
+          // Los perfiles se restringen a sus columnas oficiales: la remota (o
+          // una instalación antigua) puede no tener aún columnas locales extra
+          // (edad, etc.), así que se filtra el payload antes del upsert.
+          const rowsToSend =
+            table === 'user_profiles'
+              ? sanitizeUserProfilesPayload(rows)
+              : table === 'nutrition_profile'
+                ? sanitizeNutritionProfilePayload(rows)
+                : rows;
+          const { error } = await supabase.from(table).upsert(rowsToSend, { onConflict: conflictColumn });
           if (error) {
-            console.warn(`syncLocalToRemote: ${table} no sincronizada (${error.message})`);
+            console.warn(
+              `syncLocalToRemote: ${table} no sincronizada ` +
+                `(code=${error.code ?? 'n/a'}; message=${error.message}; ` +
+                `details=${error.details ?? 'n/a'}; hint=${error.hint ?? 'n/a'})`,
+            );
+          } else {
+            pendingSyncTables.delete(table);
           }
           continue;
         }
@@ -240,33 +400,70 @@ export async function syncLocalToRemote(tableName?: string): Promise<void> {
         const rows = await getDatabase().getAllAsync<Record<string, unknown>>(
           `SELECT * FROM "${table}"`,
         );
-        if (!rows.length) continue;
+        if (!rows.length) {
+          pendingSyncTables.delete(table);
+          continue;
+        }
         const conflictColumn = UPSERT_ON_CONFLICT[table] ?? 'id';
-        // Solo se envían columnas válidas del esquema remoto. Para `users` se
-        // sanean los campos (email PK + nombre/clave/proveedor/fecha) y se
-        // descartan columnas legacy que ya no existen en Supabase (google_id),
-        // evitando advertencias y violaciones del contrato del upsert.
+        // Solo se envían columnas válidas del esquema remoto. Para `users` y
+        // `user_profiles` se aplica un whitelist estricto (PK + columnas
+        // oficiales), descartando columnas legacy o locales que el esquema de
+        // Supabase pueda no tener aún, evitando advertencias y violaciones del
+        // contrato del upsert.
+        // Para las tablas de relación con UNIQUE compuesto NO se envía el 'id'
+        // local: la nube regenera el id con su propia secuencia y así los ids
+        // coincidentes de distintos dispositivos dejan de chocar contra la PK
+        // remota (p. ej. 'day_exercises_pkey') en el INSERT.
+        const isIdentityRegenerated = (
+          IDENTITY_REGENERATED_TABLES as readonly string[]
+        ).includes(table);
         const rowsToSend =
-          table === 'users' ? sanitizeUsersPayload(rows) : rows;
+          table === 'users'
+            ? sanitizeUsersPayload(rows)
+            : table === 'user_profiles'
+              ? sanitizeUserProfilesPayload(rows)
+              : table === 'workout_sets'
+                ? await mapWorkoutSetsToRemoteSessions(supabase, rows)
+              : isIdentityRegenerated
+                ? stripLocalIds(rows)
+                : rows;
         const { error } = await supabase
           .from(table)
           .upsert(rowsToSend, { onConflict: conflictColumn });
         if (error) {
           // Tabla sin contraparte en Supabase o sin PK: se ignora sin cortar el resto.
-          console.warn(`syncLocalToRemote: ${table} no sincronizada (${error.message})`);
+          console.warn(
+            `syncLocalToRemote: ${table} no sincronizada ` +
+              `(code=${error.code ?? 'n/a'}; message=${error.message}; ` +
+              `details=${error.details ?? 'n/a'}; hint=${error.hint ?? 'n/a'})`,
+          );
           continue;
         }
 
+        pendingSyncTables.delete(table);
+
         // Asociar las filas subidas al usuario activo.
         if ((OWNED_TABLES as readonly string[]).includes(table)) {
-          await markOwnedRows(table, rows);
+          // Si la nube regeneró los ids, la propiedad se registra con los ids
+          // REMOTOS reales (los locales ya no coinciden tras el INSERT).
+          const rowsForOwnership = isIdentityRegenerated
+            ? await fetchRemoteIdsByComposite(supabase, table, rows)
+            : rows;
+          await markOwnedRows(table, rowsForOwnership);
         }
       } catch {
         // La tabla puede no existir aún en local o divergir del esquema remoto.
       }
     }
+
+    if (pendingSyncTables.has('*')) {
+      pendingSyncTables.clear();
+    }
   } finally {
     syncing = false;
+    if (pendingSyncTables.size > 0) {
+      scheduleFlush(SYNC_THROTTLE_MS);
+    }
   }
 }
 
@@ -292,6 +489,156 @@ function sanitizeUsersPayload(rows: Record<string, unknown>[]): Record<string, u
     }
     return clean;
   });
+}
+
+// Columnas oficiales de 'user_profiles' enviadas a Supabase. La edad es
+// opcional, pero forma parte del contrato local/remoto y debe conservarse al
+// sincronizar; el esquema SQL garantiza su presencia con ADD COLUMN IF NOT
+// EXISTS en instalaciones anteriores.
+const VALID_USER_PROFILES_COLUMNS = [
+  'user_id',
+  'age',
+  'height',
+  'current_weight',
+  'target_weight',
+  'goal_weeks',
+  'goal_date',
+  'goal_status',
+  'username',
+  'created_at',
+] as const;
+
+function sanitizeUserProfilesPayload(rows: Record<string, unknown>[]): Record<string, unknown>[] {
+  return rows.map((row) => {
+    const clean: Record<string, unknown> = {};
+    for (const column of VALID_USER_PROFILES_COLUMNS) {
+      clean[column] = row[column] ?? null;
+    }
+    return clean;
+  });
+}
+
+// Columnas oficiales de 'nutrition_profile'. OJO: 'daily_calories_goal' NO se
+// elimina: es la meta calórica diaria y existe como columna real (NOT NULL) en
+// el esquema local y remoto; omitirla rompería el upsert con una violación de
+// NOT NULL. El whitelist solo descarta columnas locales extra desconocidas.
+const VALID_NUTRITION_PROFILE_COLUMNS = [
+  'user_id',
+  'daily_calories_goal',
+  'activity_level',
+  'goal_type',
+  'updated_at',
+] as const;
+
+function sanitizeNutritionProfilePayload(
+  rows: Record<string, unknown>[],
+): Record<string, unknown>[] {
+  return rows.map((row) => {
+    const clean: Record<string, unknown> = {};
+    for (const column of VALID_NUTRITION_PROFILE_COLUMNS) {
+      clean[column] = row[column] ?? null;
+    }
+    return clean;
+  });
+}
+
+// Tablas de relación con UNIQUE compuesto cuyo 'id' numérico es solo de la
+// instalación local: al subirlas se omite 'id' para que Supabase lo regenere.
+// Si se enviara, los ids locales de cada dispositivo coinciden y chocarían
+// contra la PK remota en el INSERT ('duplicate key ... day_exercises_pkey').
+const IDENTITY_REGENERATED_TABLES = [] as const;
+
+// Claves de negocio (UNIQUE compuesto) de esas tablas: sirven para localizar
+// en la nube la fila recién subida y conocer su id remoto real.
+const REMOTE_ID_KEYS: Record<string, string[]> = {
+  day_exercises: ['day_of_week', 'body_part_id', 'exercise_id'],
+  day_muscles: ['day_of_week', 'body_part_id'],
+  workout_sessions: ['day_of_week', 'date'],
+  weekly_schedule: ['day_of_week'],
+  daily_calories: ['date'],
+  body_parts: ['name'],
+};
+
+function stripLocalIds(rows: Record<string, unknown>[]): Record<string, unknown>[] {
+  return rows.map((row) => {
+    // Se descarta el 'id' local: la entidad se identifica únicamente por su
+    // UNIQUE compuesto en el upsert, y la secuencia remota asigna el id nuevo.
+    const { id: _localId, ...cleanRow } = row;
+    return cleanRow;
+  });
+}
+
+/**
+ * workout_sessions recibe un id nuevo en Supabase. Las series creadas offline
+ * conservan el id SQLite de la sesión, que no es una FK válida en la nube.
+ * Se traduce por la identidad estable de la sesión: día de semana + fecha.
+ */
+async function mapWorkoutSetsToRemoteSessions(
+  supabase: NonNullable<ReturnType<typeof getSupabase>>,
+  rows: Record<string, unknown>[],
+): Promise<Record<string, unknown>[]> {
+  const localSessionIds = [...new Set(rows.map((row) => Number(row.session_id)))].filter(
+    (id) => Number.isFinite(id) && id > 0,
+  );
+  if (!localSessionIds.length) return rows;
+
+  const placeholders = localSessionIds.map(() => '?').join(', ');
+  const localSessions = await getDatabase().getAllAsync<{
+    id: number;
+    day_of_week: string;
+    date: string;
+  }>(
+    `SELECT id, day_of_week, date FROM workout_sessions WHERE id IN (${placeholders})`,
+    localSessionIds,
+  );
+  const remoteByLocalId = new Map<number, number>();
+  for (const session of localSessions) {
+    const { data, error } = await supabase
+      .from('workout_sessions')
+      .select('id')
+      .eq('day_of_week', session.day_of_week)
+      .eq('date', session.date)
+      .limit(1);
+    const remoteId = data?.[0]?.id;
+    if (error || !Number.isFinite(Number(remoteId))) {
+      throw new Error('La sesión remota aún no está disponible para sus series.');
+    }
+    remoteByLocalId.set(session.id, Number(remoteId));
+  }
+
+  return rows.map((row) => ({
+    ...row,
+    session_id: remoteByLocalId.get(Number(row.session_id)) ?? row.session_id,
+  }));
+}
+
+async function fetchRemoteIdsByComposite(
+  supabase: NonNullable<ReturnType<typeof getSupabase>>,
+  table: string,
+  rows: Record<string, unknown>[],
+): Promise<Record<string, unknown>[]> {
+  const keys = REMOTE_ID_KEYS[table];
+  if (!keys || !keys.length) return [];
+  const { data, error } = await supabase
+    .from(table)
+    .select(['id', ...keys].join(', '));
+  if (error || !data) return [];
+  const remoteIdByIdentity = new Map<string, number>();
+  for (const row of data as unknown as Record<string, unknown>[]) {
+    remoteIdByIdentity.set(
+      keys.map((k) => String(row[k] ?? '')).join('|'),
+      Number(row.id),
+    );
+  }
+  const resolved: Record<string, unknown>[] = [];
+  for (const localRow of rows) {
+    const identity = keys.map((k) => String(localRow[k] ?? '')).join('|');
+    const remoteId = remoteIdByIdentity.get(identity);
+    if (remoteId !== undefined && Number.isFinite(remoteId)) {
+      resolved.push({ ...localRow, id: remoteId });
+    }
+  }
+  return resolved;
 }
 
 async function markOwnedRows(
@@ -386,6 +733,19 @@ export async function syncRemoteToLocal(): Promise<void> {
   if (!userStillValid) return;
 
   try {
+    // El catálogo es necesario para que las FK locales de las rutinas y
+    // sesiones tengan los mismos IDs que en Supabase al usar otro dispositivo.
+    for (const table of ['body_parts', 'exercises_v2'] as const) {
+      try {
+        const { data, error } = await supabase.from(table).select('*');
+        if (!error && data) {
+          await replaceLocalRows(table, data as Record<string, unknown>[]);
+        }
+      } catch {
+        // Catálogo opcional: se conserva el local si la tabla aún no existe.
+      }
+    }
+
     for (const [table, col] of Object.entries(USER_SCOPED_TABLES)) {
       try {
         const { data, error } = await supabase.from(table).select('*').eq(col, ownerId);

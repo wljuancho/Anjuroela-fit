@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useMemo, useEffect } from 'react';
+import { AppState, type AppStateStatus } from 'react-native';
 import {
   getStoredSession,
   setStoredSession,
@@ -23,6 +24,7 @@ import {
   syncRemoteToLocal,
   purgeUserData,
   syncLocalToRemote,
+  requestFullSync,
   removeLocalUserAccount,
   setSessionRevocationHandler,
 } from '../services/syncService';
@@ -94,6 +96,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => setSessionRevocationHandler(null);
   }, []);
 
+  // Escuchador de primer plano (AppState): vacía los pendientes acumulados offline
+  // y actualiza los datos desde Supabase al reabrir o volver a la app.
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
+      if (nextAppState === 'active') {
+        requestFullSync();
+        void syncRemoteToLocal();
+      }
+    });
+    return () => subscription.remove();
+  }, []);
+
   async function loadSession() {
     try {
       const session = await getStoredSession<StoredSession>();
@@ -112,6 +126,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setProfile(nextProfile);
         await setActiveUserId(nextUser.id);
         setSupabaseAppUser(nextUser.id);
+        // Los cambios hechos sin conexión viven en SQLite. Al reabrir la app
+        // se solicita una pasada completa para que se suban en cuanto haya
+        // red, incluso si Android cerró los temporizadores de reintento.
+        requestFullSync();
+        void syncRemoteToLocal();
         if (nextUser.id !== storedUser.id) {
           await persistSession(nextUser, nextProfile);
         }

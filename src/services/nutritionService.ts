@@ -28,7 +28,7 @@ const GOAL_ADJUSTMENTS: Record<NutritionGoalType, number> = {
 };
 
 export interface TDEECalculationInput {
-  age: number;
+  age?: number | null;
   weightKg: number;
   heightCm: number;
   activityLevel: ActivityLevel;
@@ -36,7 +36,10 @@ export interface TDEECalculationInput {
 }
 
 export function calculateTDEE(input: TDEECalculationInput): number {
-  const bmr = 10 * input.weightKg + 6.25 * input.heightCm - 5 * input.age - 78;
+  // La edad es opcional: si el usuario aún no la registró (NULL/ausente) se
+  // usa 30 años como valor por defecto para no bloquear la estimación de TDEE.
+  const age = input.age ?? 30;
+  const bmr = 10 * input.weightKg + 6.25 * input.heightCm - 5 * age - 78;
   const tdee = bmr * ACTIVITY_FACTORS[input.activityLevel];
   const goal = tdee + GOAL_ADJUSTMENTS[input.goalType];
   return Math.round(Math.min(3500, Math.max(1200, goal)));
@@ -87,14 +90,15 @@ export async function saveNutritionProfile(
   const hasAge = data.age != null && data.age > 0;
   if (hasHeight || hasAge) {
     await db.runAsync(
-      `UPDATE user_profiles
-         SET height = COALESCE(?, height),
-             age = COALESCE(?, age)
-       WHERE user_id = ?`,
+      `INSERT INTO user_profiles (user_id, height, age)
+       VALUES (?, ?, ?)
+       ON CONFLICT(user_id) DO UPDATE SET
+         height = COALESCE(excluded.height, user_profiles.height),
+         age = COALESCE(excluded.age, user_profiles.age)`,
       [
+        userId,
         hasHeight ? (data.heightCm as number) : null,
         hasAge ? (data.age as number) : null,
-        userId,
       ],
     );
   }

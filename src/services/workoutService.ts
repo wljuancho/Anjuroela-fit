@@ -75,6 +75,9 @@ async function ensureDefaultSchedule(): Promise<void> {
 export async function initWorkoutData(): Promise<void> {
   try {
     await ensureDefaultSchedule();
+    // La rutina inicial también es información del usuario y debe entrar en
+    // la misma cola offline que las ediciones posteriores.
+    void syncLocalToRemote('weekly_schedule');
   } catch {
     // ensureDefaultSchedule already raises a user-facing error
   }
@@ -129,6 +132,7 @@ export async function getOrCreateSession(dayOfWeek: DayOfWeek): Promise<WorkoutS
     if (!session) {
       throw new Error('No se pudo iniciar la sesión de entrenamiento.');
     }
+    void syncLocalToRemote('workout_sessions');
     return session;
   } catch {
     throw new Error('No se pudo iniciar la sesión de entrenamiento.');
@@ -485,13 +489,18 @@ export async function resetStaleCompletions(): Promise<void> {
     }>(
       'SELECT id, day_of_week, completed_date FROM day_muscles WHERE completed = 1',
     );
+    let changed = false;
     for (const row of rows) {
       if (!row.completed_date || row.completed_date !== getTargetDateForDay(row.day_of_week)) {
         await db.runAsync(
           'UPDATE day_muscles SET completed = 0, completed_date = NULL WHERE id = ?',
           [row.id],
         );
+        changed = true;
       }
+    }
+    if (changed) {
+      void syncLocalToRemote('day_muscles');
     }
   } catch {
     // Reset no requiere error al usuario; se ignora

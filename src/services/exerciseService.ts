@@ -58,8 +58,9 @@ export async function deleteBodyPart(bodyPartId: number): Promise<void> {
       );
       await db.runAsync('UPDATE body_parts SET is_active = 0 WHERE id = ?', [bodyPartId]);
     });
-    void syncLocalToRemote('body_parts');
-    void syncLocalToRemote('exercises_v2');
+    // La operación modifica también rutina y ejercicios asociados; una pasada
+    // completa conserva esos cambios si se hizo sin conexión.
+    void syncLocalToRemote();
   } catch {
     throw new Error('No se pudo eliminar la categoría.');
   }
@@ -188,7 +189,8 @@ export async function deleteExercise(exerciseId: number): Promise<void> {
       await db.runAsync('UPDATE exercises_v2 SET is_active = 0 WHERE id = ?', [exerciseId]);
       await db.runAsync('DELETE FROM day_exercises WHERE exercise_id = ?', [exerciseId]);
     });
-    void syncLocalToRemote('exercises_v2');
+    // La eliminación también quitó asignaciones en day_exercises.
+    void syncLocalToRemote();
   } catch {
     throw new Error('No se pudo eliminar el ejercicio.');
   }

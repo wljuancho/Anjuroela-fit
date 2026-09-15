@@ -1,7 +1,7 @@
 import * as Crypto from 'expo-crypto';
 import { getDatabase } from './database';
 import { formatDate, assertSafeIdentifier } from './utils';
-import { syncLocalToRemote } from './syncService';
+import { provisionRemoteUser, syncLocalToRemote } from './syncService';
 import { getSupabase, setSupabaseAppUser, isSupabaseConfigured } from './supabaseClient';
 
 export type AuthProvider = 'local' | 'google';
@@ -129,9 +129,23 @@ export async function createLocalUser(
   // La cuenta recién creada se asume como usuario activo en la nube para que
   // las políticas RLS del upsert de Registro acepten la fila (email=header).
   setSupabaseAppUser(normalizedEmail);
-  // Espera a que la fila `users` termine de replicarse en Supabase para que la
-  // cuenta recién creada exista en la nube antes de completar el registro.
-  await syncLocalToRemote('users');
+  // El registro no puede pasar por la cola ordinaria: esa cola comprueba si
+  // una cuenta ya existe en la nube para detectar eliminaciones remotas. Una
+  // cuenta nueva todavía no existe y sería revocada antes de subirla.
+  try {
+    await provisionRemoteUser({
+      email: normalizedEmail,
+      name,
+      password_hash: passwordHash,
+      auth_provider: 'local',
+    });
+  } catch (error) {
+    // No dejamos una cuenta local huérfana: de otro modo un reintento diría
+    // erróneamente que el correo ya está registrado aunque nunca llegó a la
+    // nube. Aún no existen datos dependientes de una cuenta recién creada.
+    await db.runAsync('DELETE FROM users WHERE email = ?', [normalizedEmail]);
+    throw error;
+  }
   return {
     id: normalizedEmail,
     name,

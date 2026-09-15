@@ -1,0 +1,26 @@
+-- DESTRUCTIVO: ejecutar una única vez, antes del nuevo supabase_schema.sql.
+-- Elimina todos los datos de Anjuroela Fit en Supabase.
+drop table if exists public.user_row_owners cascade;
+drop table if exists public.workout_sets cascade;
+drop table if exists public.workout_sessions cascade;
+drop table if exists public.day_exercises cascade;
+drop table if exists public.day_muscles cascade;
+drop table if exists public.weekly_schedule cascade;
+drop table if exists public.exercises_v2 cascade;
+drop table if exists public.body_parts cascade;
+drop table if exists public.weekly_meal_plan cascade;
+drop table if exists public.meal_logs cascade;
+drop table if exists public.daily_calories cascade;
+drop table if exists public.nutrition_profile cascade;
+drop table if exists public.weight_logs cascade;
+drop table if exists public.user_profiles cascade;
+drop table if exists public.meals_v2 cascade;
+drop table if exists public.workout_exercises cascade;
+drop table if exists public.workouts cascade;
+drop table if exists public.meals cascade;
+drop table if exists public.progress cascade;
+drop table if exists public.exercises cascade;
+drop table if exists public.app_meta cascade;
+drop table if exists public.app_versions cascade;
+drop table if exists public.users cascade;
+drop function if exists public.app_user_email();
