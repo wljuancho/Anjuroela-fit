@@ -2,7 +2,7 @@
   "expo": {
     "name": "Anjuroela Fit",
     "slug": "anjuroela-fit",
-    "version": "1.0.3",
+    "version": "1.0.5",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -17,7 +17,7 @@
         "backgroundColor": "#1a1a2e"
       },
       "package": "com.anjuroela.fit",
-      "versionCode": 4,
+      "versionCode": 6,
       "softwareKeyboardLayoutMode": "resize"
     },
     "web": {
@@ -40,7 +40,8 @@
           "resizeMode": "contain",
           "backgroundColor": "#1a1a2e"
         }
-      ]
+      ],
+      "expo-audio"
     ],
     "scheme": "anjuroela-fit",
     "updates": {

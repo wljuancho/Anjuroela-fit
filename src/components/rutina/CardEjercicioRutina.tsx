@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, Vibration } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { SetType, WorkoutSet, WorkoutSetInput } from '../../types/workout';
+import { playErrorSound } from '../../services/soundService';
 
 interface TimerControlsProps {
   targetSeconds: number;
@@ -28,6 +29,7 @@ function TimerControls({ targetSeconds }: TimerControlsProps) {
     if (running && remaining <= 0) {
       setRunning(false);
       Vibration.vibrate([0, 400, 200, 400]);
+      playErrorSound();
       Alert.alert('Tiempo completado', '¡Serie finalizada! Descansa y continúa.');
     }
   }, [running, remaining]);
