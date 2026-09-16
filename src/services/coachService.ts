@@ -12,6 +12,7 @@ import {
   addMusclesToDay,
   addExercisesToDay,
   getWeeklySchedule,
+  saveCircuitToDay,
 } from './workoutService';
 import {
   getWeightHistory,
@@ -49,6 +50,7 @@ const ACTION_TYPES: RoutineActionType[] = [
   'crear_ejercicio',
   'agregar_musculo_dia',
   'agregar_ejercicio_dia',
+  'agregar_circuito_dia',
 ];
 
 const NO_KEY_MESSAGE =
@@ -158,14 +160,24 @@ const SYSTEM_PROMPT =
   'añade un bloque JSON con las ACCIONES concretas que propones para la base de datos, con este formato exacto:\n\n' +
   `${ACTION_OPEN}\n` +
   '{"actions":[{"action":"crear_musculo","name":"Nombre","icon":"fitness"},' +
-  '{"action":"crear_ejercicio","body_part_name":"Nombre del músculo","name":"Nombre del ejercicio","description":"...","equipment":"..."},' +
+  '{"action":"crear_ejercicio","body_part_name":"Nombre del músculo","name":"Nombre del ejercicio","description":"...","equipment":"...","mode":"time"},' +
   '{"action":"agregar_musculo_dia","day":"lunes","body_part_name":"Nombre del músculo"},' +
-  '{"action":"agregar_ejercicio_dia","day":"lunes","body_part_name":"Nombre del músculo","exercise_name":"Nombre del ejercicio"}]}\n' +
+  '{"action":"agregar_ejercicio_dia","day":"lunes","body_part_name":"Nombre del músculo","exercise_name":"Nombre del ejercicio","mode":"reps"},' +
+  '{"action":"agregar_circuito_dia","day":"lunes","body_part_name":"Cardio","name":"Circuito cardio","exercises":[{"name":"Jumping Jacks"},{"name":"Skipping"}],"work_seconds":30,"rest_seconds":60,"rounds":4}]}\n' +
   `${ACTION_CLOSE}\n\n` +
-  '   - Acciones permitidas: "crear_musculo", "crear_ejercicio", "agregar_musculo_dia", "agregar_ejercicio_dia".\n' +
+  '   - Acciones permitidas: "crear_musculo", "crear_ejercicio", "agregar_musculo_dia", "agregar_ejercicio_dia", "agregar_circuito_dia".\n' +
   '   - "day" es uno de: lunes, martes, miercoles, jueves, viernes, sabado, domingo.\n' +
   '   - Reutiliza los nombres de músculos y ejercicios que ya existen en el contexto; crea nuevos solo cuando el usuario lo pida. ' +
   'Cuando crees un ejercicio incluye siempre su "body_part_name".\n' +
+  '   - MODO DE EJERCICIO: cada ejercicio tiene un modo. "reps" = series con repeticiones y peso (fuerza); "time" = series por tiempo de trabajo, típico de cardio. ' +
+  'Cuando vayas a crear o agregar un ejercicio usa "mode":"time" si el usuario dijo "por tiempo", "segundos", "cardio" o "circuito"; usa "mode":"reps" si habla de repeticiones, series o peso. ' +
+  'Si no está claro, pregúntale en texto y NO emitas la acción hasta que responda.\n' +
+  '   - CIRCUITO: cuando el usuario quiera un circuito (varios ejercicios seguidos por tiempo, cada uno con su trabajo, descanso entre ejercicios y varias rondas) usa "agregar_circuito_dia", ' +
+  'con "exercises" (nombres de ejercicios que ya existan o que crearás antes con "crear_ejercicio" y "mode":"time"), "work_seconds", "rest_seconds" y "rounds". ' +
+  'El circuito quedará listo para entrenarse como una sola sesión en su rutina.\n' +
+  '   - RONDAS: usa SIEMPRE el número EXACTO de rondas que pida el usuario (si dice "2 rondas" → "rounds":2; "4 rondas"/"cuatro rondas" → "rounds":4). ' +
+  'El número del ejemplo NO es un valor por defecto: si el usuario no indica rondas, usa 3. Tampoco cambies "rest_seconds" ni "work_seconds" salvo que el usuario las indique; ' +
+  'si las indica, usa ESOS valores exactos (p. ej. "trabajo 45 s" → "work_seconds":45, "descanso 90 s entre ejercicios" → "rest_seconds":90) y NUNCA los valores del ejemplo.\n' +
   '   - El bloque JSON debe ser válido y completo. Fuera del bloque escribe tu explicación en texto plano.\n' +
   '7. Cuando el usuario pida un plan o menú de comidas semanal o quincenal:\n' +
   '   - Si NO indica para cuántas personas es, para cuántos días, ni sus preferencias (gustos, alergias, objetivo), ' +
@@ -350,11 +362,19 @@ function describeRoutineActions(actions: RoutineAction[]): string {
         case 'crear_musculo':
           return `Crear músculo "${a.name ?? ''}"`;
         case 'crear_ejercicio':
-          return `Crear ejercicio "${a.name ?? ''}" en ${a.body_part_name ?? 'músculo'}`;
+          return `Crear ejercicio "${a.name ?? ''}" en ${a.body_part_name ?? 'músculo'}${
+            a.mode === 'time' ? ' (por tiempo)' : a.mode === 'reps' ? ' (repeticiones)' : ''
+          }`;
         case 'agregar_musculo_dia':
           return `Agregar "${a.body_part_name ?? ''}" al día ${a.day ?? ''}`;
         case 'agregar_ejercicio_dia':
-          return `Agregar "${a.exercise_name ?? ''}" al día ${a.day ?? ''}`;
+          return `Agregar "${a.exercise_name ?? ''}" al día ${a.day ?? ''}${
+            a.mode === 'time' ? ' (por tiempo)' : a.mode === 'reps' ? ' (repeticiones)' : ''
+          }`;
+        case 'agregar_circuito_dia': {
+          const names = (a.exercises ?? []).map((e) => e.name).filter(Boolean).join(', ');
+          return `Crear circuito "${a.name ?? 'Circuito'}" el ${a.day ?? ''}: ${names || 'sin ejercicios'} · ${a.work_seconds ?? 0}s × ${a.rounds ?? 1} rondas`;
+        }
       }
     })
     .filter(Boolean)
@@ -378,6 +398,30 @@ function parseRoutineProposal(jsonString: string): CoachProposal | null {
           day: typeof item.day === 'string' ? item.day : undefined,
           description: typeof item.description === 'string' ? item.description : undefined,
           equipment: typeof item.equipment === 'string' ? item.equipment : undefined,
+          mode:
+            item.mode === 'time' || item.mode === 'reps'
+              ? item.mode
+              : undefined,
+          exercises:
+            Array.isArray(item.exercises) && item.exercises.length > 0
+              ? item.exercises
+                  .map((e: any) =>
+                    typeof e?.name === 'string' && e.name.trim() ? { name: e.name.trim() } : null,
+                  )
+                  .filter((e: { name: string } | null) => !!e)
+              : undefined,
+          work_seconds:
+            typeof item.work_seconds === 'number' && Number.isFinite(item.work_seconds)
+              ? Math.round(item.work_seconds)
+              : undefined,
+          rest_seconds:
+            typeof item.rest_seconds === 'number' && Number.isFinite(item.rest_seconds)
+              ? Math.round(item.rest_seconds)
+              : undefined,
+          rounds:
+            typeof item.rounds === 'number' && Number.isFinite(item.rounds)
+              ? Math.round(item.rounds)
+              : undefined,
         });
       }
     }
@@ -689,6 +733,7 @@ export async function executeRoutineProposal(actions: RoutineAction[]): Promise<
     name?: string,
     description?: string,
     equipment?: string,
+    mode?: 'reps' | 'time',
   ): Promise<number | null> => {
     const trimmed = (name ?? '').trim();
     if (!trimmed) return null;
@@ -700,6 +745,7 @@ export async function executeRoutineProposal(actions: RoutineAction[]): Promise<
       body_part_id: bodyPartId,
       description,
       equipment,
+      mode,
     });
     exerciseMap.set(`${created.body_part_id}|${created.name.toLowerCase()}`, created);
     notes.push(`Creado el ejercicio "${created.name}".`);
@@ -719,7 +765,13 @@ export async function executeRoutineProposal(actions: RoutineAction[]): Promise<
           {
             const bodyPartId = await resolveBodyPart(action.body_part_name);
             if (bodyPartId !== null) {
-              await resolveExercise(bodyPartId, action.name, action.description, action.equipment);
+              await resolveExercise(
+                bodyPartId,
+                action.name,
+                action.description,
+                action.equipment,
+                action.mode,
+              );
             }
           }
           break;
@@ -741,10 +793,46 @@ export async function executeRoutineProposal(actions: RoutineAction[]): Promise<
                 action.exercise_name,
                 action.description,
                 action.equipment,
+                action.mode,
               );
               if (exerciseId !== null) {
                 await addExercisesToDay(validDay, bodyPartId, [exerciseId]);
                 notes.push(`"${action.exercise_name}" agregado al día ${validDay}.`);
+              }
+            }
+          }
+          break;
+        case 'agregar_circuito_dia':
+          {
+            const bodyPartId = await resolveBodyPart(action.body_part_name);
+            if (validDay && bodyPartId !== null) {
+              const exerciseIds: number[] = [];
+              const resolvedNames: { exerciseId: number; name: string }[] = [];
+              for (const ex of action.exercises ?? []) {
+                const exerciseId = await resolveExercise(
+                  bodyPartId,
+                  ex.name,
+                  undefined,
+                  undefined,
+                  'time',
+                );
+                if (exerciseId !== null) {
+                  exerciseIds.push(exerciseId);
+                  resolvedNames.push({ exerciseId, name: ex.name.trim() });
+                }
+              }
+              if (exerciseIds.length > 0) {
+                await addExercisesToDay(validDay, bodyPartId, exerciseIds);
+                await saveCircuitToDay(validDay, bodyPartId, {
+                  name: action.name?.trim() || `Circuito ${action.day ?? ''}`,
+                  workSeconds: action.work_seconds ?? 30,
+                  restSeconds: action.rest_seconds ?? 60,
+                  rounds: action.rounds ?? 3,
+                  exercises: resolvedNames,
+                });
+                notes.push(
+                  `Circuito "${action.name ?? 'Circuito'}" creado el día ${validDay} (${action.rounds ?? 3} rondas).`,
+                );
               }
             }
           }

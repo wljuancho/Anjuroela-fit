@@ -17,7 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import AppButton from '../components/AppButton';
 import { ModalAgregarEjercicioRutina } from '../components/rutina';
 import type { RutinaStackParamList } from '../navigation/types';
-import { DAY_LABELS, type MuscleExercise } from '../types/workout';
+import { DAY_LABELS, type MuscleExercise, type WorkoutCircuit } from '../types/workout';
 import { addExercise } from '../services/exerciseService';
 import {
   getOrCreateSession,
@@ -32,6 +32,8 @@ import {
   getLastWeightForExercise,
   getAverageWeightForExercise,
   getCompletedExerciseIds,
+  getCircuitForMuscle,
+  deleteCircuitFromDay,
 } from '../services/workoutService';
 import type { NewExercise } from '../types/exercise';
 
@@ -50,18 +52,21 @@ export default function MusclePanelScreen() {
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [completed, setCompleted] = useState(false);
   const [completedExerciseIds, setCompletedExerciseIds] = useState<Set<number>>(new Set());
+  const [circuit, setCircuit] = useState<WorkoutCircuit | null>(null);
   const [loading, setLoading] = useState(true);
   const [showAddExercise, setShowAddExercise] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [session, muscles, catalog] = await Promise.all([
+      const [session, muscles, catalog, circuitRow] = await Promise.all([
         getOrCreateSession(day),
         getDayMuscles(day),
         getExercisesForBodyPart(bodyPartId),
+        getCircuitForMuscle(day, bodyPartId),
       ]);
       setSessionId(session.id);
       setCatalogExercises(catalog);
+      setCircuit(circuitRow);
       const completedIds = await getCompletedExerciseIds(session.id);
       setCompletedExerciseIds(completedIds);
       setCompleted(muscles.find((m) => m.id === muscleId)?.isCompleted ?? false);
@@ -170,8 +175,84 @@ export default function MusclePanelScreen() {
       muscleId,
       bodyPartId,
       bodyPartName,
+      muscleExercises: exercises,
     });
   };
+
+  const startCircuit = () => {
+    if (!sessionId || !circuit) return;
+    let circuitExercises: { exerciseId: number; name: string }[] = [];
+    try {
+      const parsed = JSON.parse(circuit.exercises_json || '[]');
+      if (Array.isArray(parsed)) {
+        circuitExercises = parsed
+          .filter((e: unknown) => e && typeof e === 'object')
+          .map((e: Record<string, unknown>) => ({
+            exerciseId: Number(e.exerciseId),
+            name: typeof e.name === 'string' ? e.name : '',
+          }))
+          .filter((e) => Number.isFinite(e.exerciseId) && e.exerciseId > 0 && e.name);
+      }
+    } catch {
+      circuitExercises = [];
+    }
+    if (circuitExercises.length === 0) {
+      Alert.alert('Circuito vacío', 'Este circuito no tiene ejercicios válidos.');
+      return;
+    }
+    const first = circuitExercises[0];
+    navigation.navigate('WorkoutActive', {
+      day,
+      exercise: {
+        id: first.exerciseId,
+        name: first.name,
+        equipment: null,
+        lastWeightKg: null,
+        avgWeightKg: null,
+      },
+      sessionId,
+      muscleId,
+      bodyPartId,
+      bodyPartName,
+      plan: {
+        mode: 'circuit',
+        name: circuit.name,
+        exercises: circuitExercises,
+        rounds: circuit.rounds,
+        workSeconds: circuit.work_seconds,
+        restSeconds: circuit.rest_seconds,
+      },
+    });
+  };
+
+  const handleRemoveCircuit = () => {
+    const name = circuit?.name ?? 'Circuito';
+    Alert.alert('Quitar circuito', `¿Quitar "${name}" de la rutina del día?`, [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Quitar',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await deleteCircuitFromDay(day, bodyPartId);
+            await load();
+          } catch (e) {
+            Alert.alert('Error', e instanceof Error ? e.message : 'No se pudo quitar.');
+          }
+        },
+      },
+    ]);
+  };
+
+  const circuitCount = (() => {
+    if (!circuit) return 0;
+    try {
+      const parsed = JSON.parse(circuit.exercises_json || '[]');
+      return Array.isArray(parsed) ? parsed.length : 0;
+    } catch {
+      return 0;
+    }
+  })();
 
   if (loading) {
     return (
@@ -216,7 +297,33 @@ export default function MusclePanelScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.listContent}
       >
-        {exercises.length === 0 ? (
+        {circuit ? (
+        <View style={styles.circuitCard}>
+          <TouchableOpacity style={styles.circuitMain} onPress={startCircuit}>
+            <View style={styles.circuitInfo}>
+              <View style={styles.circuitTitleRow}>
+                <Ionicons name="repeat" size={18} color={colors.primary} />
+                <Text style={styles.circuitName}>{circuit.name}</Text>
+              </View>
+              <Text style={styles.circuitMeta}>
+                {circuitCount} {circuitCount === 1 ? 'ejercicio' : 'ejercicios'} · {circuit.rounds}{' '}
+                {circuit.rounds === 1 ? 'ronda' : 'rondas'} · {circuit.work_seconds}s trabajo ·{' '}
+                {circuit.rest_seconds}s descanso
+              </Text>
+            </View>
+            <Ionicons name="play-circle" size={32} color={colors.primary} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={handleRemoveCircuit}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            style={styles.removeBtn}
+          >
+            <Ionicons name="trash-outline" size={22} color={colors.primary} />
+          </TouchableOpacity>
+        </View>
+      ) : null}
+
+      {exercises.length === 0 ? (
           <View style={styles.emptyState}>
             <Ionicons name="barbell-outline" size={48} color={colors.cardAlt} />
             <Text style={styles.emptyText}>Sin ejercicios asignados</Text>
@@ -434,6 +541,41 @@ const styles = StyleSheet.create({
   emptyState: {
     alignItems: 'center',
     marginTop: 64,
+  },
+  circuitCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.primarySoft,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    borderRadius: 14,
+    padding: 16,
+    gap: 4,
+  },
+  circuitMain: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  circuitInfo: {
+    flex: 1,
+  },
+  circuitTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  circuitName: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '700',
+    flex: 1,
+  },
+  circuitMeta: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: 6,
   },
   emptyText: {
     color: colors.textMuted,

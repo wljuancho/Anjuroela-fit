@@ -30,6 +30,7 @@ export type RutinaStackParamList = {
   ExerciseConfig: MusclePanelParams & {
     exercise: MuscleExercise;
     sessionId: number;
+    muscleExercises?: MuscleExercise[];
   };
   WorkoutActive: MusclePanelParams & {
     exercise: MuscleExercise;

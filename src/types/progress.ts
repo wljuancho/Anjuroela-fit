@@ -56,3 +56,11 @@ export interface GoalDeadlineEvaluation {
   targetWeight: number;
   goalDate: string;
 }
+
+export interface SessionCaloriesBurned {
+  sessionId: number;
+  dayOfWeek: string;
+  date: string;
+  caloriesBurned: number;
+  setCount: number;
+}

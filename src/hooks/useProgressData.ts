@@ -8,6 +8,7 @@ import {
   deleteWeightLog,
   getStrengthExerciseRecords,
   getMuscleProgressHistory,
+  getCaloriesBurnedBySession,
 } from '../services/progressService';
 import { getAllBodyParts } from '../services/exerciseService';
 import type {
@@ -16,12 +17,14 @@ import type {
   NewWeightLog,
   ExerciseStrengthRecord,
   MuscleSessionPoint,
+  SessionCaloriesBurned,
 } from '../types/progress';
 import type { BodyPart } from '../types/exercise';
 
 export interface ProgressData {
   summary: GoalSummary | null;
   weightLogs: WeightLog[];
+  caloriesBurned: SessionCaloriesBurned[];
   strengthRecords: ExerciseStrengthRecord[];
   bodyParts: BodyPart[];
   selectedMuscleGroupId: number | null;
@@ -40,6 +43,7 @@ export interface ProgressData {
 export function useProgressData(userId: string): ProgressData {
   const [summary, setSummary] = useState<GoalSummary | null>(null);
   const [weightLogs, setWeightLogs] = useState<WeightLog[]>([]);
+  const [caloriesBurned, setCaloriesBurned] = useState<SessionCaloriesBurned[]>([]);
   const [strengthRecords, setStrengthRecords] = useState<ExerciseStrengthRecord[]>([]);
   const [bodyParts, setBodyParts] = useState<BodyPart[]>([]);
   const [selectedMuscleGroupId, setSelectedMuscleGroupId] = useState<number | null>(null);
@@ -60,17 +64,19 @@ export function useProgressData(userId: string): ProgressData {
         setError(null);
       }
       try {
-        const [goal, logs, records, parts] = await Promise.all([
+        const [goal, logs, records, parts, burned] = await Promise.all([
           getGoalSummary(userId),
           getWeightHistory(),
           getStrengthExerciseRecords(),
           getAllBodyParts(),
+          getCaloriesBurnedBySession(),
         ]);
         if (!mounted.current) {
           return;
         }
         setSummary(goal);
         setWeightLogs(logs);
+        setCaloriesBurned(burned);
         setStrengthRecords(records);
         setBodyParts(parts);
         setSelectedMuscleGroupId((prev) => {
@@ -171,6 +177,7 @@ export function useProgressData(userId: string): ProgressData {
   return {
     summary,
     weightLogs,
+    caloriesBurned,
     strengthRecords,
     bodyParts,
     selectedMuscleGroupId,

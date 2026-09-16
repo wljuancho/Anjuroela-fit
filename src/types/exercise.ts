@@ -11,6 +11,7 @@ export interface Exercise {
   body_part_id: number;
   description?: string | null;
   equipment?: string | null;
+  mode?: 'reps' | 'time' | null;
   created_at?: string;
 }
 
@@ -33,6 +34,7 @@ export interface NewExercise {
   body_part_id: number;
   description?: string;
   equipment?: string;
+  mode?: 'reps' | 'time';
 }
 
 export interface UpdateExercise {
@@ -41,4 +43,5 @@ export interface UpdateExercise {
   body_part_id: number;
   description?: string;
   equipment?: string;
+  mode?: 'reps' | 'time' | null;
 }

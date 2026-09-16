@@ -36,6 +36,7 @@ export interface MuscleExercise {
   id: number;
   name: string;
   equipment: string | null;
+  mode?: 'reps' | 'time' | null;
   lastWeightKg: number | null;
   avgWeightKg: number | null;
 }
@@ -47,6 +48,7 @@ export interface DayExercise {
   exercise_id: number;
   exercise_name: string;
   equipment: string | null;
+  mode?: 'reps' | 'time' | null;
   position: number;
 }
 
@@ -55,6 +57,7 @@ export interface WorkoutSession {
   day_of_week: DayOfWeek;
   date: string;
   completed: number;
+  calories_burned?: number;
   created_at?: string;
 }
 
@@ -74,7 +77,32 @@ export interface TimePlan {
   restSeconds: number;
 }
 
-export type WorkoutPlan = RepsPlan | TimePlan;
+export interface CircuitExercise {
+  exerciseId: number;
+  name: string;
+}
+
+export interface CircuitPlan {
+  mode: 'circuit';
+  name?: string;
+  exercises: CircuitExercise[];
+  rounds: number;
+  workSeconds: number;
+  restSeconds: number;
+}
+
+export interface WorkoutCircuit {
+  id: number;
+  day_of_week: DayOfWeek;
+  body_part_id: number;
+  name: string;
+  work_seconds: number;
+  rest_seconds: number;
+  rounds: number;
+  exercises_json: string;
+}
+
+export type WorkoutPlan = RepsPlan | TimePlan | CircuitPlan;
 
 export interface WorkoutSet {
   id: number;

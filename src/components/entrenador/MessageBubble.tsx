@@ -19,7 +19,13 @@ function describeAction(action: RoutineAction): string {
     case 'agregar_musculo_dia':
       return `Agregar "${action.body_part_name ?? ''}" al día ${action.day ?? ''}`;
     case 'agregar_ejercicio_dia':
-      return `Agregar "${action.exercise_name ?? ''}" al día ${action.day ?? ''}`;
+      return `Agregar "${action.exercise_name ?? ''}" al día ${action.day ?? ''}${
+        action.mode === 'time' ? ' (por tiempo)' : action.mode === 'reps' ? ' (repeticiones)' : ''
+      }`;
+    case 'agregar_circuito_dia': {
+      const names = (action.exercises ?? []).map((e) => e.name).filter(Boolean).join(', ');
+      return `Crear circuito "${action.name ?? 'Circuito'}" el día ${action.day ?? ''} (${names || 'sin ejercicios'}, ${action.work_seconds ?? 30}s × ${action.rounds ?? 1} rondas)`;
+    }
   }
 }
 

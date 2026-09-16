@@ -1,10 +1,9 @@
 import { colors } from '../theme/colors';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  Vibration,
   Alert,
   TextInput,
 } from 'react-native';
@@ -18,11 +17,10 @@ import AppButton from '../components/AppButton';
 import type { RutinaStackParamList } from '../navigation/types';
 import { DAY_LABELS, type WorkoutSetInput } from '../types/workout';
 import { upsertSets } from '../services/workoutService';
+import { useWorkoutTimer } from '../hooks/useWorkoutTimer';
 
 type ActiveNav = NativeStackNavigationProp<RutinaStackParamList, 'WorkoutActive'>;
 type ActiveRoute = RouteProp<RutinaStackParamList, 'WorkoutActive'>;
-
-type Phase = 'series' | 'rest' | 'work' | 'done';
 
 function formatCountdown(totalSeconds: number): string {
   const s = Math.max(0, totalSeconds);
@@ -38,85 +36,36 @@ export default function WorkoutActiveScreen() {
   const route = useRoute<ActiveRoute>();
   const { day, exercise, sessionId, plan, muscleId, bodyPartId, bodyPartName } = route.params;
 
-  const [phase, setPhase] = useState<Phase>(
-    plan.mode === 'reps' ? 'series' : 'work',
-  );
-  const [seconds, setSeconds] = useState<number>(plan.mode === 'reps' ? 0 : plan.workSeconds);
-  const [currentSeries, setCurrentSeries] = useState(1);
-  const [workDone, setWorkDone] = useState(0);
-  const [running, setRunning] = useState(true);
+  const timer = useWorkoutTimer({
+    plan,
+    sessionId,
+    exerciseId: exercise.id,
+    day,
+    muscleId,
+    bodyPartId,
+    bodyPartName,
+  });
+  const { phase, seconds, running, currentSeries, workDone, roundIndex, exerciseIndex, startRest, skipRest, togglePause, clearTimer } = timer;
 
   const [weightInput, setWeightInput] = useState('');
   const [saving, setSaving] = useState(false);
   const [finishError, setFinishError] = useState('');
 
-  const vibrate = useCallback(() => Vibration.vibrate(400), []);
-
-  const advance = useCallback(() => {
-    if (plan.mode === 'reps') {
-      if (phase === 'rest') {
-        if (currentSeries < plan.series) {
-          setCurrentSeries((s) => s + 1);
-          setPhase('series');
-          setSeconds(0);
-          setRunning(false);
-        } else {
-          vibrate();
-          setPhase('done');
-          setRunning(false);
-        }
-      }
-    } else if (plan.mode === 'time') {
-      if (phase === 'work') {
-        const done = workDone + 1;
-        setWorkDone(done);
-        if (done >= plan.series) {
-          vibrate();
-          setPhase('done');
-          setRunning(false);
-        } else {
-          vibrate();
-          setPhase('rest');
-          setSeconds(plan.restSeconds);
-        }
-      } else if (phase === 'rest') {
-        vibrate();
-        setPhase('work');
-        setSeconds(plan.workSeconds);
-      }
-    }
-  }, [plan, phase, currentSeries, workDone, vibrate]);
-
-  useEffect(() => {
-    if (phase === 'done' || !running) return;
-    const timer = setInterval(() => {
-      setSeconds((s) => Math.max(0, s - 1));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [phase, running]);
-
-  useEffect(() => {
-    if ((phase !== 'rest' && phase !== 'work') || seconds !== 0) return;
-    advance();
-  }, [seconds, phase, advance]);
-
-  const startRest = () => {
-    if (plan.mode !== 'reps') return;
-    setPhase('rest');
-    setSeconds(plan.restSeconds);
-    setRunning(true);
-  };
-
-  const skipRest = () => {
-    if (phase !== 'rest') return;
-    setSeconds(0);
-    advance();
-  };
+  const isCircuit = plan.mode === 'circuit';
+  const activeExerciseName =
+    isCircuit ? plan.exercises[exerciseIndex]?.name ?? '' : exercise.name;
 
   const cancel = () => {
     Alert.alert('Abandonar', '¿Salir sin guardar las series actuales?', [
       { text: 'Seguir', style: 'cancel' },
-      { text: 'Salir', style: 'destructive', onPress: () => navigation.goBack() },
+      {
+        text: 'Salir',
+        style: 'destructive',
+        onPress: () => {
+          clearTimer();
+          navigation.goBack();
+        },
+      },
     ]);
   };
 
@@ -126,32 +75,48 @@ export default function WorkoutActiveScreen() {
       setFinishError('Ingresa el peso cargado (kg) para comenzar la siguiente.');
       return;
     }
-    const totalSeries = plan.mode === 'reps' ? plan.series : Math.max(plan.series, workDone);
     const sets: WorkoutSetInput[] = [];
-    for (let i = 1; i <= totalSeries; i += 1) {
-      if (plan.mode === 'reps') {
-        sets.push({
-          exercise_id: exercise.id,
-          set_number: i,
-          weight_kg: weight,
-          reps: plan.reps,
-          set_type: 'reps',
-          time_seconds: null,
-        });
-      } else {
-        sets.push({
-          exercise_id: exercise.id,
-          set_number: i,
-          weight_kg: weight && weight > 0 ? weight : null,
-          reps: null,
-          set_type: 'time',
-          time_seconds: plan.workSeconds,
-        });
+    if (plan.mode === 'circuit') {
+      for (const ex of plan.exercises) {
+        for (let r = 1; r <= plan.rounds; r += 1) {
+          sets.push({
+            exercise_id: ex.exerciseId,
+            set_number: r,
+            weight_kg: null,
+            reps: null,
+            set_type: 'time',
+            time_seconds: plan.workSeconds,
+          });
+        }
+      }
+    } else {
+      const totalSeries = plan.mode === 'reps' ? plan.series : Math.max(plan.series, workDone);
+      for (let i = 1; i <= totalSeries; i += 1) {
+        if (plan.mode === 'reps') {
+          sets.push({
+            exercise_id: exercise.id,
+            set_number: i,
+            weight_kg: weight,
+            reps: plan.reps,
+            set_type: 'reps',
+            time_seconds: null,
+          });
+        } else {
+          sets.push({
+            exercise_id: exercise.id,
+            set_number: i,
+            weight_kg: weight && weight > 0 ? weight : null,
+            reps: null,
+            set_type: 'time',
+            time_seconds: plan.workSeconds,
+          });
+        }
       }
     }
     setSaving(true);
     try {
       await upsertSets(sessionId, sets);
+      clearTimer();
       navigation.popTo('MusclePanel', {
         day,
         muscleId,
@@ -166,7 +131,14 @@ export default function WorkoutActiveScreen() {
   };
 
   const isCounting = phase === 'work' || phase === 'rest';
-  const label = phase === 'work' ? 'TRABAJO' : phase === 'rest' ? 'DESCANSO' : 'SERIE';
+  const label =
+    phase === 'work'
+      ? plan.mode === 'circuit'
+        ? activeExerciseName
+        : 'TRABAJO'
+      : phase === 'rest'
+        ? 'DESCANSO'
+        : 'SERIE';
   const labelColor = phase === 'rest' ? colors.success : colors.primary;
 
   return (
@@ -176,7 +148,9 @@ export default function WorkoutActiveScreen() {
           <Ionicons name="close" size={24} color={colors.textMuted} />
         </TouchableOpacity>
         <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle}>{exercise.name}</Text>
+          <Text style={styles.headerTitle}>
+            {plan.mode === 'circuit' ? plan.name ?? 'Circuito' : exercise.name}
+          </Text>
           <Text style={styles.headerSubtitle}>{DAY_LABELS[day]}</Text>
         </View>
         <View style={styles.backBtn} />
@@ -189,27 +163,31 @@ export default function WorkoutActiveScreen() {
           <Text style={styles.doneSubtitle}>
             {plan.mode === 'reps'
               ? `Completaste ${plan.series} series de ${plan.reps} repeticiones.`
-              : `Completaste ${Math.max(plan.series, workDone)} series de ${plan.workSeconds}s de trabajo.`}
+              : plan.mode === 'circuit'
+                ? `Completaste ${plan.rounds} rondas de ${plan.exercises.length} ejercicios.`
+                : `Completaste ${Math.max(plan.series, workDone)} series de ${plan.workSeconds}s de trabajo.`}
           </Text>
 
-          <View style={styles.weightBox}>
-            <Text style={styles.weightLabel}>Peso cargado (kg)</Text>
-            <View style={styles.weightInputWrap}>
-              <TextInput
-                style={styles.weightInput}
-                value={weightInput}
-                onChangeText={setWeightInput}
-                placeholder="Ej: 40"
-                placeholderTextColor={colors.textSubtle}
-                keyboardType="decimal-pad"
-              />
-              <Text style={styles.weightUnit}>kg</Text>
+          {plan.mode !== 'circuit' ? (
+            <View style={styles.weightBox}>
+              <Text style={styles.weightLabel}>Peso cargado (kg)</Text>
+              <View style={styles.weightInputWrap}>
+                <TextInput
+                  style={styles.weightInput}
+                  value={weightInput}
+                  onChangeText={setWeightInput}
+                  placeholder="Ej: 40"
+                  placeholderTextColor={colors.textSubtle}
+                  keyboardType="decimal-pad"
+                />
+                <Text style={styles.weightUnit}>kg</Text>
+              </View>
+              {plan.mode === 'time' ? (
+                <Text style={styles.weightHint}>Opcional en modo tiempo.</Text>
+              ) : null}
+              {finishError ? <Text style={styles.errorText}>{finishError}</Text> : null}
             </View>
-            {plan.mode === 'time' ? (
-              <Text style={styles.weightHint}>Opcional en modo tiempo.</Text>
-            ) : null}
-            {finishError ? <Text style={styles.errorText}>{finishError}</Text> : null}
-          </View>
+          ) : null}
 
           <AppButton title="Guardar" onPress={handleFinish} loading={saving} style={styles.finishBtn} />
         </View>
@@ -234,6 +212,14 @@ export default function WorkoutActiveScreen() {
             </View>
           ) : (
             <View style={styles.seriesInfo}>
+              {plan.mode === 'circuit' && phase === 'work' ? (
+                <Text style={styles.seriesCount}>
+                  Ronda {roundIndex + 1} de {plan.rounds} · {activeExerciseName}
+                </Text>
+              ) : null}
+              {plan.mode === 'circuit' && phase === 'rest' ? (
+                <Text style={styles.seriesCount}>Descanso — Ronda {roundIndex + 1}</Text>
+              ) : null}
               {plan.mode === 'time' && phase === 'work' ? (
                 <Text style={styles.seriesCount}>
                   Trabajo {workDone + 1} de {plan.series}
@@ -255,7 +241,7 @@ export default function WorkoutActiveScreen() {
           )}
 
           {isCounting ? (
-            <TouchableOpacity style={styles.pauseBtn} onPress={() => setRunning((r) => !r)}>
+            <TouchableOpacity style={styles.pauseBtn} onPress={togglePause}>
               <Ionicons name={running ? 'pause' : 'play'} size={20} color={colors.text} />
               <Text style={styles.pauseText}>{running ? 'Pausar' : 'Reanudar'}</Text>
             </TouchableOpacity>

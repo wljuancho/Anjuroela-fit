@@ -62,6 +62,7 @@ export async function initDatabase(): Promise<void> {
       body_part_id INTEGER NOT NULL,
       description TEXT,
       equipment TEXT,
+      mode TEXT,
       is_active INTEGER DEFAULT 1,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (body_part_id) REFERENCES body_parts (id) ON DELETE CASCADE
@@ -158,6 +159,7 @@ export async function initDatabase(): Promise<void> {
       day_of_week TEXT NOT NULL,
       date TEXT NOT NULL,
       completed INTEGER DEFAULT 0,
+      calories_burned REAL NOT NULL DEFAULT 0,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -172,6 +174,48 @@ export async function initDatabase(): Promise<void> {
       time_seconds REAL,
       FOREIGN KEY (session_id) REFERENCES workout_sessions (id) ON DELETE CASCADE,
       FOREIGN KEY (exercise_id) REFERENCES exercises_v2 (id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS workout_circuits (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      day_of_week TEXT NOT NULL,
+      body_part_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      work_seconds INTEGER NOT NULL,
+      rest_seconds INTEGER NOT NULL,
+      rounds INTEGER NOT NULL DEFAULT 3,
+      exercises_json TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (body_part_id) REFERENCES body_parts (id) ON DELETE CASCADE,
+      UNIQUE (day_of_week, body_part_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS workout_circuits (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      day_of_week TEXT NOT NULL,
+      body_part_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      work_seconds REAL NOT NULL DEFAULT 30,
+      rest_seconds REAL NOT NULL DEFAULT 60,
+      rounds INTEGER NOT NULL DEFAULT 4,
+      exercises_json TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (body_part_id) REFERENCES body_parts (id) ON DELETE CASCADE,
+      UNIQUE (day_of_week, body_part_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS workout_circuits (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      day_of_week TEXT NOT NULL,
+      body_part_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      work_seconds INTEGER NOT NULL,
+      rest_seconds INTEGER NOT NULL,
+      rounds INTEGER NOT NULL,
+      exercises_json TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (body_part_id) REFERENCES body_parts (id) ON DELETE CASCADE,
+      UNIQUE (day_of_week, body_part_id)
     );
 
     CREATE TABLE IF NOT EXISTS weight_logs (
@@ -227,6 +271,8 @@ export async function initDatabase(): Promise<void> {
   `);
 
   await migrateWorkoutSets(database);
+  await migrateWorkoutSessionsCalories(database);
+  await migrateExercisesV2Mode(database);
   await migrateDayMuscles(database);
   await migrateUniqueSessionIndex(database);
   await migrateBodyPartsIsActive(database);
@@ -338,8 +384,20 @@ async function migrateWorkoutSets(db: SQLite.SQLiteDatabase): Promise<void> {
   if (!names.includes('set_type')) {
     await db.execAsync(`ALTER TABLE workout_sets ADD COLUMN set_type TEXT DEFAULT 'reps'`);
   }
-  if (!names.includes('time_seconds')) {
+if (!names.includes('time_seconds')) {
     await db.execAsync('ALTER TABLE workout_sets ADD COLUMN time_seconds REAL');
+  }
+}
+
+async function migrateWorkoutSessionsCalories(db: SQLite.SQLiteDatabase): Promise<void> {
+  const columns = await db.getAllAsync<{ name: string }>(
+    'PRAGMA table_info(workout_sessions)',
+  );
+  const names = columns.map((c) => c.name);
+  if (!names.includes('calories_burned')) {
+    await db.execAsync(
+      'ALTER TABLE workout_sessions ADD COLUMN calories_burned REAL NOT NULL DEFAULT 0',
+    );
   }
 }
 
@@ -348,6 +406,14 @@ async function migrateBodyPartsIsActive(db: SQLite.SQLiteDatabase): Promise<void
   const names = columns.map((c) => c.name);
   if (!names.includes('is_active')) {
     await db.execAsync('ALTER TABLE body_parts ADD COLUMN is_active INTEGER DEFAULT 1');
+  }
+}
+
+async function migrateExercisesV2Mode(db: SQLite.SQLiteDatabase): Promise<void> {
+  const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(exercises_v2)');
+  const names = columns.map((c) => c.name);
+  if (!names.includes('mode')) {
+    await db.execAsync("ALTER TABLE exercises_v2 ADD COLUMN mode TEXT");
   }
 }
 

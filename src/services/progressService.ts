@@ -11,6 +11,7 @@ import type {
   MuscleGroupStrengthHistory,
   MuscleSessionPoint,
   GoalDeadlineEvaluation,
+  SessionCaloriesBurned,
 } from '../types/progress';
 
 export async function addWeightLog(data: NewWeightLog): Promise<WeightLog> {
@@ -224,6 +225,38 @@ export async function getGoalSummary(userId: string): Promise<GoalSummary> {
     };
   } catch {
     throw new Error('No se pudo cargar el resumen de tu progreso.');
+  }
+}
+
+export async function getCaloriesBurnedBySession(limit = 30): Promise<SessionCaloriesBurned[]> {
+  const db = getDatabase();
+  try {
+    const rows = await db.getAllAsync<{
+      id: number;
+      day_of_week: string;
+      date: string;
+      calories_burned: number | null;
+      set_count: number;
+    }>(
+      `SELECT s.id, s.day_of_week, s.date, s.calories_burned,
+              COUNT(w.id) AS set_count
+       FROM workout_sessions s
+       LEFT JOIN workout_sets w ON w.session_id = s.id
+       WHERE s.completed = 1 AND s.calories_burned IS NOT NULL AND s.calories_burned > 0
+       GROUP BY s.id
+       ORDER BY s.date DESC, s.id DESC
+       LIMIT ?`,
+      [limit],
+    );
+    return rows.map((r) => ({
+      sessionId: r.id,
+      dayOfWeek: r.day_of_week,
+      date: r.date,
+      caloriesBurned: Math.max(0, Math.round((r.calories_burned ?? 0) * 10) / 10),
+      setCount: r.set_count,
+    }));
+  } catch {
+    throw new Error('No se pudieron cargar las calorías quemadas por entrenamiento.');
   }
 }
 

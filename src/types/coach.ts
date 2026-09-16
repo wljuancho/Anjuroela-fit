@@ -6,7 +6,8 @@ export type RoutineActionType =
   | 'crear_musculo'
   | 'crear_ejercicio'
   | 'agregar_musculo_dia'
-  | 'agregar_ejercicio_dia';
+  | 'agregar_ejercicio_dia'
+  | 'agregar_circuito_dia';
 
 export type ProposalStatus = 'pending' | 'applied' | 'cancelled' | 'error';
 
@@ -19,6 +20,11 @@ export interface RoutineAction {
   day?: string;
   description?: string;
   equipment?: string;
+  mode?: 'reps' | 'time';
+  exercises?: { name: string }[];
+  work_seconds?: number;
+  rest_seconds?: number;
+  rounds?: number;
 }
 
 export interface WeeklyPlanRow {

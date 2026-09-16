@@ -29,6 +29,7 @@ const SYNC_TABLES = [
   // exercises_v2; el resto son hojas sin FKs).
   'workout_sessions',
   'workout_sets',
+  'workout_circuits',
   'weight_logs',
   'daily_calories',
   'meal_logs',
@@ -45,6 +46,7 @@ const PARENT_DEPENDENCIES: Record<string, readonly string[]> = {
   day_muscles: ['body_parts'],
   day_exercises: ['body_parts', 'exercises_v2'],
   workout_sets: ['workout_sessions', 'exercises_v2'],
+  workout_circuits: ['body_parts'],
   workout_sessions: [],
   weight_logs: [],
   daily_calories: [],
@@ -66,6 +68,7 @@ const UPSERT_ON_CONFLICT: Record<string, string> = {
   day_muscles: 'day_of_week,body_part_id',
   day_exercises: 'day_of_week,body_part_id,exercise_id',
   workout_sessions: 'day_of_week,date',
+  workout_circuits: 'day_of_week,body_part_id',
   daily_calories: 'date',
   // En una instalación limpia el id local se conserva también en Supabase.
   // Así las FK de exercises_v2, sesiones y series son estables entre
@@ -82,6 +85,7 @@ const OWNED_TABLES = [
   'day_exercises',
   'workout_sessions',
   'workout_sets',
+  'workout_circuits',
   'weight_logs',
   'meal_logs',
   'daily_calories',
@@ -106,6 +110,7 @@ const PULL_ORDER = [
   'day_muscles',
   'day_exercises',
   'workout_sets',
+  'workout_circuits',
   'weight_logs',
   'meal_logs',
   'daily_calories',

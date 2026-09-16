@@ -124,8 +124,8 @@ export async function addExercise(data: NewExercise): Promise<ExerciseWithBodyPa
       throw new Error('Ya existe un ejercicio con ese nombre en esta parte del cuerpo.');
     }
     await db.runAsync(
-      'UPDATE exercises_v2 SET is_active = 1, description = ?, equipment = ? WHERE id = ?',
-      [data.description?.trim() ?? null, data.equipment?.trim() ?? null, existing[0].id],
+      'UPDATE exercises_v2 SET is_active = 1, description = ?, equipment = ?, mode = ? WHERE id = ?',
+      [data.description?.trim() ?? null, data.equipment?.trim() ?? null, data.mode ?? null, existing[0].id],
     );
     void syncLocalToRemote('exercises_v2');
     const rows = await db.getAllAsync<ExerciseWithBodyPart>(
@@ -138,8 +138,8 @@ export async function addExercise(data: NewExercise): Promise<ExerciseWithBodyPa
     return rows[0];
   }
   const result = await db.runAsync(
-    'INSERT INTO exercises_v2 (name, body_part_id, description, equipment) VALUES (?, ?, ?, ?)',
-    [data.name.trim(), data.body_part_id, data.description?.trim() ?? null, data.equipment?.trim() ?? null],
+    'INSERT INTO exercises_v2 (name, body_part_id, description, equipment, mode) VALUES (?, ?, ?, ?, ?)',
+    [data.name.trim(), data.body_part_id, data.description?.trim() ?? null, data.equipment?.trim() ?? null, data.mode ?? null],
   );
   void syncLocalToRemote('exercises_v2');
   const rows = await db.getAllAsync<ExerciseWithBodyPart>(
@@ -162,12 +162,13 @@ export async function updateExercise(data: UpdateExercise): Promise<ExerciseWith
     throw new Error('Ya existe un ejercicio con ese nombre en esta parte del cuerpo.');
   }
   await db.runAsync(
-    'UPDATE exercises_v2 SET name = ?, body_part_id = ?, description = ?, equipment = ? WHERE id = ?',
+    'UPDATE exercises_v2 SET name = ?, body_part_id = ?, description = ?, equipment = ?, mode = ? WHERE id = ?',
     [
       data.name.trim(),
       data.body_part_id,
       data.description?.trim() ?? null,
       data.equipment?.trim() ?? null,
+      data.mode ?? null,
       data.id,
     ],
   );

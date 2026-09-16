@@ -8,6 +8,7 @@ export const StorageKeys = {
   OnboardingComplete: `${PREFIX}:onboarding_complete`,
   TutorialComplete: `${PREFIX}:tutorial_complete`,
   Theme: `${PREFIX}:theme`,
+  WorkoutActiveTimer: `${PREFIX}:workout_active_timer`,
 } as const;
 
 export type StorageKey = (typeof StorageKeys)[keyof typeof StorageKeys];

@@ -15,18 +15,21 @@ import { getLastWeightForExercise } from '../services/workoutService';
 type ConfigNav = NativeStackNavigationProp<RutinaStackParamList, 'ExerciseConfig'>;
 type ConfigRoute = RouteProp<RutinaStackParamList, 'ExerciseConfig'>;
 
-type Mode = 'reps' | 'time';
+type Mode = 'reps' | 'time' | 'circuit';
 
 export default function ExerciseConfigScreen() {
   const navigation = useNavigation<ConfigNav>();
   const route = useRoute<ConfigRoute>();
-  const { day, exercise, sessionId, muscleId, bodyPartId, bodyPartName } = route.params;
+  const { day, exercise, sessionId, muscleId, bodyPartId, bodyPartName, muscleExercises } =
+    route.params;
 
-  const [mode, setMode] = useState<Mode>('reps');
+  const [mode, setMode] = useState<Mode>(exercise.mode === 'time' ? 'time' : 'reps');
   const [series, setSeries] = useState('3');
   const [reps, setReps] = useState('10');
   const [workSeconds, setWorkSeconds] = useState('30');
   const [restSeconds, setRestSeconds] = useState('60');
+  const [rounds, setRounds] = useState('4');
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [lastWeightKg, setLastWeightKg] = useState<number | null>(exercise.lastWeightKg ?? null);
   const [error, setError] = useState('');
 
@@ -89,6 +92,51 @@ export default function ExerciseConfigScreen() {
     });
   };
 
+  const toggleExercise = (id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+    setError('');
+  };
+
+  const startCircuit = () => {
+    const exercises = (muscleExercises ?? []).filter((e) => selectedIds.has(e.id));
+    if (exercises.length === 0) {
+      setError('Elige al menos un ejercicio para el circuito.');
+      return;
+    }
+    if (parsePositive(workSeconds) <= 0 || parsePositive(rounds) <= 0) {
+      setError('El tiempo de trabajo y las rondas deben ser mayores a 0.');
+      return;
+    }
+    if (parseNonNegative(restSeconds) < 0) {
+      setError('El tiempo de descanso no puede ser negativo.');
+      return;
+    }
+    navigation.navigate('WorkoutActive', {
+      day,
+      exercise,
+      sessionId,
+      muscleId,
+      bodyPartId,
+      bodyPartName,
+      plan: {
+        mode: 'circuit',
+        name: `Circuito · ${exercises.map((e) => e.name).join(', ')}`,
+        exercises: exercises.map((e) => ({ exerciseId: e.id, name: e.name })),
+        rounds: parsePositive(rounds),
+        workSeconds: parsePositive(workSeconds),
+        restSeconds: parseNonNegative(restSeconds),
+      },
+    });
+  };
+
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
@@ -142,15 +190,29 @@ export default function ExerciseConfigScreen() {
               Tiempo
             </Text>
           </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.modeTab, mode === 'circuit' ? styles.modeTabActive : null]}
+            onPress={() => {
+              setMode('circuit');
+              setError('');
+            }}
+          >
+            <Ionicons name="repeat" size={16} color={mode === 'circuit' ? colors.text : colors.textMuted} />
+            <Text style={[styles.modeTabText, mode === 'circuit' ? styles.modeTabTextActive : null]}>
+              Circuito
+            </Text>
+          </TouchableOpacity>
         </View>
 
-        <AppTextInput
-          label="Número de series"
-          value={series}
-          onChangeText={(t) => setSeries(t.replace(/[^0-9]/g, ''))}
-          keyboardType="number-pad"
-          placeholder="Ej: 3"
-        />
+        {mode !== 'circuit' ? (
+          <AppTextInput
+            label="Número de series"
+            value={series}
+            onChangeText={(t) => setSeries(t.replace(/[^0-9]/g, ''))}
+            keyboardType="number-pad"
+            placeholder="Ej: 3"
+          />
+        ) : null}
 
         {mode === 'reps' ? (
           <>
@@ -188,6 +250,61 @@ export default function ExerciseConfigScreen() {
           </>
         )}
 
+        {mode === 'circuit' ? (
+          <>
+            <Text style={styles.label}>Ejercicios del circuito</Text>
+            {(muscleExercises ?? []).length === 0 ? (
+              <View style={styles.emptyCircuit}>
+                <Text style={styles.emptyCircuitText}>
+                  Este músculo aún no tiene ejercicios asignados hoy. Regresa y agrégalos para
+                  armar un circuito.
+                </Text>
+              </View>
+            ) : (
+              (muscleExercises ?? []).map((ex) => {
+                const selected = selectedIds.has(ex.id);
+                return (
+                  <TouchableOpacity
+                    key={ex.id}
+                    style={[styles.pickRow, selected ? styles.pickRowSelected : null]}
+                    onPress={() => toggleExercise(ex.id)}
+                  >
+                    <Ionicons
+                      name={selected ? 'checkbox' : 'square-outline'}
+                      size={20}
+                      color={selected ? colors.primary : colors.textMuted}
+                    />
+                    <Text style={[styles.pickText, selected ? styles.pickTextSelected : null]}>
+                      {ex.name}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })
+            )}
+            <AppTextInput
+              label="Tiempo de trabajo por ejercicio (s)"
+              value={workSeconds}
+              onChangeText={(t) => setWorkSeconds(t.replace(/[^0-9]/g, ''))}
+              keyboardType="number-pad"
+              placeholder="Ej: 30"
+            />
+            <AppTextInput
+              label="Descanso entre ejercicios (s)"
+              value={restSeconds}
+              onChangeText={(t) => setRestSeconds(t.replace(/[^0-9]/g, ''))}
+              keyboardType="number-pad"
+              placeholder="Ej: 60"
+            />
+            <AppTextInput
+              label="Rondas (repeticiones del circuito)"
+              value={rounds}
+              onChangeText={(t) => setRounds(t.replace(/[^0-9]/g, ''))}
+              keyboardType="number-pad"
+              placeholder="Ej: 4"
+            />
+          </>
+        ) : null}
+
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
         <View style={styles.actions}>
@@ -201,9 +318,19 @@ export default function ExerciseConfigScreen() {
                 style={styles.secondaryBtn}
               />
             </>
-          ) : (
+          ) : mode === 'time' ? (
             <>
               <AppButton title="Comenzar ya" onPress={startTime} />
+              <AppButton
+                title="Regresar al panel del músculo"
+                variant="outline"
+                onPress={() => navigation.goBack()}
+                style={styles.secondaryBtn}
+              />
+            </>
+          ) : (
+            <>
+              <AppButton title="Comenzar circuito" onPress={startCircuit} />
               <AppButton
                 title="Regresar al panel del músculo"
                 variant="outline"
@@ -310,6 +437,41 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontSize: 13,
     marginBottom: 12,
+  },
+  pickRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.cardAlt,
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+  },
+  pickRowSelected: {
+    borderColor: colors.primary,
+  },
+  pickText: {
+    color: colors.textMuted,
+    fontSize: 14,
+    fontWeight: '600',
+    flex: 1,
+  },
+  pickTextSelected: {
+    color: colors.text,
+  },
+  emptyCircuit: {
+    backgroundColor: colors.primarySoft,
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 12,
+  },
+  emptyCircuitText: {
+    color: colors.primary,
+    fontSize: 13,
+    lineHeight: 18,
   },
   actions: {
     marginTop: 12,

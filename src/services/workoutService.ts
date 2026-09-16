@@ -10,6 +10,7 @@ import type {
   WorkoutSet,
   WorkoutSetInput,
   ExerciseWithSets,
+  WorkoutCircuit,
 } from '../types/workout';
 import { DAYS_ORDER } from '../types/workout';
 
@@ -149,6 +150,59 @@ export async function completeSession(sessionId: number): Promise<void> {
   }
 }
 
+// Estimación aproximada de kcal quemadas (fórmula MET) a partir de lo que el
+// usuario registra en cada sesión. MET=5 es el valor representativo del
+// compendio de actividades para entrenamiento de fuerza moderado-vigoroso.
+const RESISTANCE_TRAINING_MET = 5;
+// Cadencia media por repetición (fase concéntrica + excéntrica) en segundos.
+const SECONDS_PER_REP = 2;
+const FALLBACK_BODY_WEIGHT_KG = 70;
+
+function estimateSetDuration(
+  set: Pick<WorkoutSet, 'set_type' | 'reps' | 'time_seconds'>,
+): number {
+  if (set.set_type === 'time' && set.time_seconds && set.time_seconds > 0) {
+    return set.time_seconds;
+  }
+  if (set.reps && set.reps > 0) {
+    return set.reps * SECONDS_PER_REP;
+  }
+  return 0;
+}
+
+async function getCurrentBodyWeightKg(): Promise<number> {
+  const db = getDatabase();
+  const rows = await db.getAllAsync<{ weight_kg: number }>(
+    'SELECT weight_kg FROM weight_logs ORDER BY date DESC, id DESC LIMIT 1',
+  );
+  if (rows[0] && rows[0].weight_kg > 0) {
+    return rows[0].weight_kg;
+  }
+  const profiles = await db.getAllAsync<{ current_weight: number | null }>(
+    'SELECT current_weight FROM user_profiles LIMIT 1',
+  );
+  if (profiles[0] && profiles[0].current_weight != null && profiles[0].current_weight > 0) {
+    return profiles[0].current_weight;
+  }
+  return FALLBACK_BODY_WEIGHT_KG;
+}
+
+async function recalculateSessionCalories(sessionId: number): Promise<void> {
+  const db = getDatabase();
+  try {
+    const sets = await getSetsForSession(sessionId);
+    const bodyWeightKg = await getCurrentBodyWeightKg();
+    const totalSeconds = sets.reduce((acc, set) => acc + estimateSetDuration(set), 0);
+    const calories = Math.round((RESISTANCE_TRAINING_MET * bodyWeightKg * totalSeconds) / 3600);
+    await db.runAsync('UPDATE workout_sessions SET calories_burned = ? WHERE id = ?', [
+      Math.max(0, calories),
+      sessionId,
+    ]);
+  } catch {
+    // Fallo no letal: no se bloquea el guardado de las series por el cálculo.
+  }
+}
+
 export async function upsertSets(sessionId: number, sets: WorkoutSetInput[]): Promise<void> {
   const db = getDatabase();
   try {
@@ -173,6 +227,8 @@ export async function upsertSets(sessionId: number, sets: WorkoutSetInput[]): Pr
         }
       }
     });
+    await recalculateSessionCalories(sessionId);
+    void syncLocalToRemote('workout_sessions');
     void syncLocalToRemote('workout_sets');
   } catch {
     throw new Error('No se pudieron guardar las series.');
@@ -267,7 +323,7 @@ export async function getDayExercises(day: DayOfWeek, bodyPartId: number): Promi
   try {
     return await db.getAllAsync<DayExercise>(
       `SELECT de.id, de.day_of_week, de.body_part_id, de.exercise_id,
-              e.name as exercise_name, e.equipment, de.position
+              e.name as exercise_name, e.equipment, e.mode, de.position
        FROM day_exercises de
        INNER JOIN exercises_v2 e ON e.id = de.exercise_id
        WHERE de.day_of_week = ? AND de.body_part_id = ?
@@ -276,6 +332,77 @@ export async function getDayExercises(day: DayOfWeek, bodyPartId: number): Promi
     );
   } catch {
     throw new Error('No se pudieron cargar los ejercicios de la rutina.');
+  }
+}
+
+export async function saveCircuitToDay(
+  day: DayOfWeek,
+  bodyPartId: number,
+  data: {
+    name: string;
+    workSeconds: number;
+    restSeconds: number;
+    rounds: number;
+    exercises: { exerciseId: number; name: string }[];
+  },
+): Promise<void> {
+  const db = getDatabase();
+  try {
+    const exercisesJson = JSON.stringify(data.exercises);
+    await db.runAsync(
+      `INSERT INTO workout_circuits (day_of_week, body_part_id, name, work_seconds, rest_seconds, rounds, exercises_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(day_of_week, body_part_id) DO UPDATE SET
+         name = excluded.name,
+         work_seconds = excluded.work_seconds,
+         rest_seconds = excluded.rest_seconds,
+         rounds = excluded.rounds,
+         exercises_json = excluded.exercises_json`,
+      [
+        day,
+        bodyPartId,
+        data.name.trim() || 'Circuito',
+        data.workSeconds,
+        data.restSeconds,
+        data.rounds,
+        exercisesJson,
+      ],
+    );
+    void syncLocalToRemote('workout_circuits');
+  } catch {
+    throw new Error('No se pudo guardar el circuito.');
+  }
+}
+
+export async function getCircuitForMuscle(
+  day: DayOfWeek,
+  bodyPartId: number,
+): Promise<WorkoutCircuit | null> {
+  const db = getDatabase();
+  try {
+    const rows = await db.getAllAsync<WorkoutCircuit>(
+      'SELECT * FROM workout_circuits WHERE day_of_week = ? AND body_part_id = ? LIMIT 1',
+      [day, bodyPartId],
+    );
+    return rows[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function deleteCircuitFromDay(
+  day: DayOfWeek,
+  bodyPartId: number,
+): Promise<void> {
+  const db = getDatabase();
+  try {
+    await db.runAsync(
+      'DELETE FROM workout_circuits WHERE day_of_week = ? AND body_part_id = ?',
+      [day, bodyPartId],
+    );
+    void syncLocalToRemote('workout_circuits');
+  } catch {
+    throw new Error('No se pudo quitar el circuito.');
   }
 }
 

@@ -7,3 +7,4 @@ export { default as HistorialPesoLista } from './HistorialPesoLista';
 export { default as HistorialFuerzaCard } from './HistorialFuerzaCard';
 export { default as HistorialPromedioMuscularCard } from './HistorialPromedioMuscularCard';
 export { default as HistorialPromedioMuscularSesionCard } from './HistorialPromedioMuscularSesionCard';
+export { default as CardCaloriasQuemadas } from './CardCaloriasQuemadas';

@@ -22,6 +22,7 @@ import {
   HistorialPesoLista,
   HistorialFuerzaCard,
   HistorialPromedioMuscularSesionCard,
+  CardCaloriasQuemadas,
 } from '../components/progreso';
 import AppButton from '../components/AppButton';
 import { ScreenTutorialModal } from '../components';
@@ -40,6 +41,7 @@ export default function ProgresoScreen() {
   const {
     summary,
     weightLogs,
+    caloriesBurned,
     strengthRecords,
     bodyParts,
     selectedMuscleGroupId,
@@ -205,6 +207,8 @@ export default function ProgresoScreen() {
           onDelete={handleDeleteWeight}
           onEdit={openEditModal}
         />
+
+        <CardCaloriasQuemadas sessions={caloriesBurned} />
 
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Progreso de Fuerza</Text>
