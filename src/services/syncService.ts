@@ -103,6 +103,40 @@ const USER_SCOPED_TABLES: Record<string, string> = {
 // Tabla auxiliar que guarda la relación (tabla, fila) -> usuario dueño.
 const OWNERSHIP_TABLE = 'user_row_owners';
 
+// Buffer local de borrados pendientes de propagar a Supabase (solo lo usa
+// syncService; no se sincroniza ni se restaura desde la nube).
+const DELETIONS_TABLE = 'pending_deletions';
+
+// Tablas cuya clave de negocio es un UNIQUE compuesto y cuyos ids remotos
+// pueden no coincidir con el id local (el upsert por conflicto compuesto puede
+// regenerar el id en la nube). Sus borrados se localizan por estas columnas
+// (además del id local, cuando se conozca) en vez de solo por el id.
+const DELETION_COMPOSITE_KEYS: Record<string, readonly string[]> = {
+  weekly_schedule: ['day_of_week'],
+  day_muscles: ['day_of_week', 'body_part_id'],
+  day_exercises: ['day_of_week', 'body_part_id', 'exercise_id'],
+  workout_circuits: ['day_of_week', 'body_part_id'],
+  workout_sessions: ['day_of_week', 'date'],
+  daily_calories: ['date'],
+};
+
+// Identidad de una fila eliminada localmente: id local (si lo había) y/o el
+// UNIQUE de negocio (para tablas con clave compuesta).
+export interface LocalDeletionIdentity {
+  table: string;
+  rowId?: number;
+  key?: Record<string, string | number | null>;
+}
+
+interface PendingDeletionRow {
+  id: number;
+  table_name: string;
+  row_id: number | null;
+  key_json: string | null;
+  user_id: string;
+  created_at: string;
+}
+
 // Orden seguro para restaurar filas respetando FK (padres antes que hijos).
 const PULL_ORDER = [
   'weekly_schedule',
@@ -237,6 +271,207 @@ export async function removeLocalUserAccount(userId: string): Promise<void> {
   }
 }
 
+/**
+ * Registra en el buffer local un borrado que debe propagarse a Supabase en cuanto
+ * haya conexión. Se invoca junto a cada DELETE de una tabla sincronizada; si el
+ * borrado se hizo sin red, la entrada queda esperando y se envía al reconectar.
+ * La entrada pertenece al usuario activo (se flushea solo con su sesión).
+ */
+export async function queueLocalDeletion(identity: LocalDeletionIdentity): Promise<void> {
+  const userId = await getActiveUserId();
+  if (userId === null) return;
+  assertSafeIdentifier(identity.table);
+  const rowId =
+    identity.rowId !== undefined && Number.isFinite(Number(identity.rowId))
+      ? Number(identity.rowId)
+      : null;
+  const keyJson = identity.key ? JSON.stringify(identity.key) : null;
+  try {
+    await getDatabase().runAsync(
+      `INSERT INTO ${DELETIONS_TABLE} (table_name, row_id, key_json, user_id) VALUES (?, ?, ?, ?)`,
+      [identity.table, rowId, keyJson, userId],
+    );
+  } catch {
+    // Si el buffer no puede persistir, la fila local ya está borrada; el
+    // siguiente flush completo del resto de tablas no la resucitará.
+  }
+}
+
+let flushingDeletions = false;
+
+/**
+ * Propaga a Supabase los borrados pendientes del usuario activo. Se ejecuta
+ * ANTES de los upserts en la subida y ANTES de la restauración en la bajada,
+ * para que una fila eliminada sin conexión no vuelva a aparecer. Por cada
+ * entrada: localiza la fila remota (por id local o por su clave de negocio),
+ * la borra, limpia su registro de propietario y elimina la entrada del buffer.
+ * Si falta red o falla la petición, la entrada se conserva para reintentar.
+ */
+async function flushPendingDeletions(): Promise<void> {
+  const supabase = getSupabase();
+  if (!supabase || !isSupabaseConfigured()) return;
+  const userId = await getActiveUserId();
+  if (userId === null) return;
+  if (flushingDeletions) return;
+
+  const db = getDatabase();
+  let entries: PendingDeletionRow[] = [];
+  try {
+    entries = await db.getAllAsync<PendingDeletionRow>(
+      `SELECT * FROM ${DELETIONS_TABLE} WHERE user_id = ? ORDER BY id`,
+      [userId],
+    );
+  } catch {
+    return;
+  }
+  if (!entries.length) return;
+
+  flushingDeletions = true;
+  try {
+    for (const entry of entries) {
+      try {
+        const outcome = await deleteRemoteRow(supabase, entry);
+        // 'done' u 'absent': la fila ya no existe remoto (o nunca existió), la
+        // entrada del buffer se descarta.
+        if (outcome === 'done' || outcome === 'absent') {
+          await db.runAsync(`DELETE FROM ${DELETIONS_TABLE} WHERE id = ?`, [entry.id]);
+        }
+      } catch {
+        // Sin red o error transitorio: la entrada se conserva para reintentar.
+        console.warn(`flushPendingDeletions: ${entry.table_name} (${entry.id}) sin borrar`);
+      }
+    }
+  } finally {
+    flushingDeletions = false;
+  }
+
+  try {
+    const remaining = await db.getAllAsync<{ cnt: number }>(
+      `SELECT COUNT(*) as cnt FROM ${DELETIONS_TABLE} WHERE user_id = ?`,
+      [userId],
+    );
+    if ((remaining[0]?.cnt ?? 0) > 0) {
+      scheduleFlush(FLUSH_RETRY_OFFLINE_MS);
+    }
+  } catch {
+    // Reintento programado por la cola de sync si el conteo falla.
+  }
+}
+
+async function deleteRemoteRow(
+  supabase: NonNullable<ReturnType<typeof getSupabase>>,
+  entry: PendingDeletionRow,
+): Promise<'done' | 'absent' | 'kept'> {
+  const composited = DELETION_COMPOSITE_KEYS[entry.table_name] ?? null;
+  let remoteId: number | null =
+    entry.row_id !== null && Number.isFinite(Number(entry.row_id))
+      ? Number(entry.row_id)
+      : null;
+
+  if (composited) {
+    let keyValues: Record<string, string | number | null> | null = null;
+    if (entry.key_json) {
+      try {
+        keyValues = JSON.parse(entry.key_json) as Record<string, string | number | null>;
+      } catch {
+        keyValues = null;
+      }
+    }
+    if (!keyValues) {
+      // Sin clave de negocio no se puede localizar la fila remota con seguridad.
+      return 'kept';
+    }
+    let valid = true;
+    for (const k of composited) {
+      if (keyValues[k] === undefined || keyValues[k] === null) valid = false;
+    }
+    if (!valid) return 'kept';
+
+    // Se resuelve el id remoto real por la clave de negocio: el upsert con
+    // conflicto compuesto pudo haber regenerado el id en la nube.
+    let query = supabase.from(entry.table_name).select('id').limit(1);
+    for (const k of composited) {
+      assertSafeIdentifier(k);
+      query = query.eq(k, keyValues![k]);
+    }
+    const resolved = await query;
+    if (resolved.error) {
+      throw resolved.error;
+    }
+    if (!resolved.data || resolved.data.length === 0) {
+      // La fila ya no existe en la nube.
+      return 'absent';
+    }
+    remoteId = Number(resolved.data[0].id);
+  }
+
+  if (remoteId === null || !Number.isFinite(remoteId)) {
+    return 'kept';
+  }
+
+  const { error: deleteError } = await supabase
+    .from(entry.table_name)
+    .delete()
+    .eq('id', remoteId);
+  if (deleteError) {
+    throw deleteError;
+  }
+
+  // Limpieza del registro de propietario (solo tras un borrado correcto).
+  try {
+    await supabase
+      .from(OWNERSHIP_TABLE)
+      .delete()
+      .eq('table_name', entry.table_name)
+      .eq('row_id', remoteId);
+  } catch {
+    // La propiedad se pierde junto con la fila; el fallo no bloquea el flujo.
+  }
+
+  return 'done';
+}
+
+/**
+ * Re-aplica localmente los borrados que siguen pendientes (p. ej. si una
+ * restauración desde la nube volvió a insertar filas que tenían ticket de
+ * borrado). Garantiza que cerrar y reabrir la app nunca resucite lo eliminado.
+ */
+async function reapplyPendingDeletionsLocal(): Promise<void> {
+  const userId = await getActiveUserId();
+  if (userId === null) return;
+  const db = getDatabase();
+  let entries: PendingDeletionRow[] = [];
+  try {
+    entries = await db.getAllAsync<PendingDeletionRow>(
+      `SELECT * FROM ${DELETIONS_TABLE} WHERE user_id = ? ORDER BY id`,
+      [userId],
+    );
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    try {
+      assertSafeIdentifier(entry.table_name);
+      const composited = DELETION_COMPOSITE_KEYS[entry.table_name] ?? null;
+      if (composited && entry.key_json) {
+        const keyValues = JSON.parse(entry.key_json) as Record<string, string | number | null>;
+        if (composited.some((k) => keyValues[k] === undefined || keyValues[k] === null)) continue;
+        const conditions = composited.map((k) => `"${k}" = ?`).join(' AND ');
+        await db.runAsync(
+          `DELETE FROM "${entry.table_name}" WHERE ${conditions}`,
+          composited.map((k) => keyValues[k] ?? null),
+        );
+      } else if (entry.row_id !== null && Number.isFinite(Number(entry.row_id))) {
+        await db.runAsync(`DELETE FROM "${entry.table_name}" WHERE id = ?`, [
+          Number(entry.row_id),
+        ]);
+      }
+    } catch {
+      // Entrada con identidad insuficiente o error local: se conserva.
+    }
+  }
+}
+
 async function isOnline(): Promise<boolean> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 4000);
@@ -345,6 +580,11 @@ async function executePendingSync(): Promise<void> {
       pendingSyncTables.clear();
       return;
     }
+
+    // Los borrados pendientes de propagar se envían ANTES de los upserts:
+    // así una fila re-creada con la misma clave de negocio no es borrada por
+    // el ticket de la fila antigua tras ser re-insertada en la nube.
+    await flushPendingDeletions();
 
     let targetTables: string[];
     if (pendingSyncTables.has('*')) {
@@ -736,6 +976,13 @@ export async function syncRemoteToLocal(): Promise<void> {
   // Si el usuario activo ya no existe en Supabase: revoca y no descarga.
   const userStillValid = await enforceRemoteUserExistence();
   if (!userStillValid) return;
+
+  // Se propagan los borrados pendientes ANTES de restaurar desde la nube: si
+  // no, una fila eliminada sin conexión volvería a aparecer al reabrir la app.
+  await flushPendingDeletions();
+  // Si la restauración anterior (o una concurrente) reintrodujo filas que
+  // tenían ticket de borrado, se vuelven a eliminar en local.
+  await reapplyPendingDeletionsLocal();
 
   try {
     // El catálogo es necesario para que las FK locales de las rutinas y

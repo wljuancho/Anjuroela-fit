@@ -1,6 +1,6 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { getDatabase } from './database';
-import { syncLocalToRemote } from './syncService';
+import { syncLocalToRemote, queueLocalDeletion } from './syncService';
 import type {
   ActivityLevel,
   MealIngredient,
@@ -175,6 +175,7 @@ export async function deleteMealLog(id: number): Promise<void> {
     await subtractCaloriesFromDay(rows[0].date, rows[0].calories);
   }
   await db.runAsync('DELETE FROM meal_logs WHERE id = ?', [id]);
+  await queueLocalDeletion({ table: 'meal_logs', rowId: id });
   void syncLocalToRemote('meal_logs');
   const photoUri = rows[0]?.photo_uri;
   if (photoUri) {
@@ -190,8 +191,22 @@ export async function getWeeklyMealPlan(): Promise<WeeklyMealPlanItem[]> {
   const db = getDatabase();
   const today = formatDate(new Date());
 
-  await db.runAsync('DELETE FROM weekly_meal_plan WHERE expires_at IS NOT NULL AND expires_at < ?', [today]);
-  await db.runAsync('DELETE FROM weekly_meal_plan WHERE date IS NOT NULL AND date < ?', [today]);
+  // Las filas caducadas se eliminan localmente; se registran en el buffer de
+  // borrados para que también desaparezcan de Supabase y no vuelvan al reabrir.
+  const expired = await db.getAllAsync<{ id: number }>(
+    `SELECT id FROM weekly_meal_plan
+     WHERE (expires_at IS NOT NULL AND expires_at < ?) OR (date IS NOT NULL AND date < ?)`,
+    [today, today],
+  );
+  if (expired.length > 0) {
+    await db.runAsync(
+      'DELETE FROM weekly_meal_plan WHERE (expires_at IS NOT NULL AND expires_at < ?) OR (date IS NOT NULL AND date < ?)',
+      [today, today],
+    );
+    for (const row of expired) {
+      await queueLocalDeletion({ table: 'weekly_meal_plan', rowId: row.id });
+    }
+  }
 
   const rows = await db.getAllAsync<{
     id: number;
@@ -260,7 +275,11 @@ const VALID_MEAL_TYPES = ['desayuno', 'almuerzo', 'cena', 'snack'];
 
 export async function replaceWeeklyMealPlan(rows: WeeklyMealPlanInput[]): Promise<number> {
   const db = getDatabase();
+  const removed = await db.getAllAsync<{ id: number }>('SELECT id FROM weekly_meal_plan');
   await db.runAsync('DELETE FROM weekly_meal_plan');
+  for (const oldRow of removed) {
+    await queueLocalDeletion({ table: 'weekly_meal_plan', rowId: oldRow.id });
+  }
   let inserted = 0;
   for (const row of rows) {
     if (!VALID_MEAL_TYPES.includes(row.meal_type)) continue;
@@ -292,12 +311,17 @@ export async function replaceWeeklyMealPlan(rows: WeeklyMealPlanInput[]): Promis
 export async function deleteWeeklyMealPlanItem(id: number): Promise<void> {
   const db = getDatabase();
   await db.runAsync('DELETE FROM weekly_meal_plan WHERE id = ?', [id]);
+  await queueLocalDeletion({ table: 'weekly_meal_plan', rowId: id });
   void syncLocalToRemote('weekly_meal_plan');
 }
 
 export async function clearWeeklyMealPlan(): Promise<void> {
   const db = getDatabase();
+  const removed = await db.getAllAsync<{ id: number }>('SELECT id FROM weekly_meal_plan');
   await db.runAsync('DELETE FROM weekly_meal_plan');
+  for (const oldRow of removed) {
+    await queueLocalDeletion({ table: 'weekly_meal_plan', rowId: oldRow.id });
+  }
   void syncLocalToRemote('weekly_meal_plan');
 }
 

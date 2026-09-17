@@ -1,7 +1,7 @@
 import { getDatabase } from './database';
 import { formatDate } from './utils';
 import { getProfile, updateGoalStatus } from './authService';
-import { syncLocalToRemote } from './syncService';
+import { syncLocalToRemote, queueLocalDeletion } from './syncService';
 import type {
   WeightLog,
   NewWeightLog,
@@ -90,6 +90,7 @@ export async function deleteWeightLog(id: number): Promise<void> {
   const db = getDatabase();
   try {
     await db.runAsync('DELETE FROM weight_logs WHERE id = ?', [id]);
+    await queueLocalDeletion({ table: 'weight_logs', rowId: id });
     void syncLocalToRemote('weight_logs');
   } catch {
     throw new Error('No se pudo eliminar el registro.');

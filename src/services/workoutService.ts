@@ -1,6 +1,6 @@
 import { getDatabase } from './database';
 import { formatDate } from './utils';
-import { syncLocalToRemote } from './syncService';
+import { syncLocalToRemote, queueLocalDeletion } from './syncService';
 import type {
   DayOfWeek,
   DayMuscle,
@@ -396,10 +396,19 @@ export async function deleteCircuitFromDay(
 ): Promise<void> {
   const db = getDatabase();
   try {
+    const rows = await db.getAllAsync<{ id: number }>(
+      'SELECT id FROM workout_circuits WHERE day_of_week = ? AND body_part_id = ? LIMIT 1',
+      [day, bodyPartId],
+    );
     await db.runAsync(
       'DELETE FROM workout_circuits WHERE day_of_week = ? AND body_part_id = ?',
       [day, bodyPartId],
     );
+    await queueLocalDeletion({
+      table: 'workout_circuits',
+      rowId: rows[0]?.id,
+      key: { day_of_week: day, body_part_id: bodyPartId },
+    });
     void syncLocalToRemote('workout_circuits');
   } catch {
     throw new Error('No se pudo quitar el circuito.');
@@ -443,10 +452,19 @@ export async function removeExerciseFromDay(
 ): Promise<void> {
   const db = getDatabase();
   try {
+    const rows = await db.getAllAsync<{ id: number }>(
+      'SELECT id FROM day_exercises WHERE day_of_week = ? AND body_part_id = ? AND exercise_id = ? LIMIT 1',
+      [day, bodyPartId, exerciseId],
+    );
     await db.runAsync(
       'DELETE FROM day_exercises WHERE day_of_week = ? AND body_part_id = ? AND exercise_id = ?',
       [day, bodyPartId, exerciseId],
     );
+    await queueLocalDeletion({
+      table: 'day_exercises',
+      rowId: rows[0]?.id,
+      key: { day_of_week: day, body_part_id: bodyPartId, exercise_id: exerciseId },
+    });
     void syncLocalToRemote('day_exercises');
   } catch {
     throw new Error('No se pudo quitar el ejercicio de la rutina.');
@@ -586,7 +604,18 @@ export async function addMusclesToDay(day: DayOfWeek, bodyPartIds: number[]): Pr
 export async function removeMuscleFromDay(muscleId: number): Promise<void> {
   const db = getDatabase();
   try {
+    const rows = await db.getAllAsync<{ day_of_week: DayOfWeek; body_part_id: number }>(
+      'SELECT day_of_week, body_part_id FROM day_muscles WHERE id = ? LIMIT 1',
+      [muscleId],
+    );
     await db.runAsync('DELETE FROM day_muscles WHERE id = ?', [muscleId]);
+    if (rows[0]) {
+      await queueLocalDeletion({
+        table: 'day_muscles',
+        rowId: muscleId,
+        key: { day_of_week: rows[0].day_of_week, body_part_id: rows[0].body_part_id },
+      });
+    }
     void syncLocalToRemote('day_muscles');
   } catch {
     throw new Error('No se pudo quitar el músculo del día.');

@@ -268,6 +268,19 @@ export async function initDatabase(): Promise<void> {
       key TEXT PRIMARY KEY,
       value TEXT
     );
+
+    -- Buffer local de borrados pendientes de propagar a Supabase: cada fila
+    -- guarda la identidad (id local y/o clave de negocio) de una fila eliminada
+    -- en SQLite para poder borrarla en la nube cuando haya conexión. Solo lo
+    -- usa syncService; no se sincroniza ni se restaura desde la nube.
+    CREATE TABLE IF NOT EXISTS pending_deletions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      table_name TEXT NOT NULL,
+      row_id INTEGER,
+      key_json TEXT,
+      user_id TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 
   await migrateWorkoutSets(database);
@@ -296,6 +309,7 @@ export async function initDatabase(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_meal_logs_date ON meal_logs (date);
     CREATE INDEX IF NOT EXISTS idx_weekly_meal_plan_day ON weekly_meal_plan (day_of_week);
     CREATE INDEX IF NOT EXISTS idx_weekly_meal_plan_date ON weekly_meal_plan (date);
+    CREATE INDEX IF NOT EXISTS idx_pending_deletions_user ON pending_deletions (user_id);
   `);
 
   await migrateUserProfileGoalStatus(database);
