@@ -422,6 +422,27 @@ export async function checkRemoteUserExistence(userId: string): Promise<RemoteUs
 }
 
 /**
+ * Elimina la cuenta del usuario en Supabase. Al borrar la fila de `users` se
+ * dispara el borrado en cascada (`cascade_delete_user_data()` + FKs) que
+ * elimina todo su contenido: perfiles, rutinas, sesiones, series, peso y
+ * comidas. La política RLS anon_own_users solo permite borrar la propia fila,
+ * así que la operación exige la cabecera x-app-user con el correo de la sesión
+ * (se establece aquí antes de la petición).
+ */
+export async function deleteRemoteUserAccount(userId: string): Promise<void> {
+  const supabase = getSupabase();
+  if (!supabase || !isSupabaseConfigured()) {
+    throw new Error('Supabase no está configurado; no se pudo eliminar la cuenta.');
+  }
+  const normalized = userId.toLowerCase().trim();
+  setSupabaseAppUser(normalized);
+  const { error } = await supabase.from('users').delete().eq('email', normalized);
+  if (error) {
+    throw new Error(`No se pudo eliminar la cuenta: ${error.message}`);
+  }
+}
+
+/**
  * Valida credenciales contra la tabla `users` en Supabase. Se usa cuando
  * un usuario intenta iniciar sesión desde un dispositivo nuevo (su cuenta
  * existe en la nube pero no en la base SQLite local). Al verificar, importa

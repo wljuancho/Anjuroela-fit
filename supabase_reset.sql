@@ -1,5 +1,7 @@
 -- DESTRUCTIVO: ejecutar una única vez, antes del nuevo supabase_schema.sql.
 -- Elimina todos los datos de Anjuroela Fit en Supabase.
+drop trigger if exists trg_users_cascade_delete on public.users;
+drop function if exists public.cascade_delete_user_data();
 drop table if exists public.user_row_owners cascade;
 drop table if exists public.workout_sets cascade;
 drop table if exists public.workout_sessions cascade;

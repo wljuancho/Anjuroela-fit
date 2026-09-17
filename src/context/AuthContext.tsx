@@ -17,6 +17,7 @@ import {
   saveProfile as saveProfileForUser,
   getUserSession,
   hasProfile,
+  deleteRemoteUserAccount,
   type UserRecord,
 } from '../services/authService';
 import {
@@ -27,6 +28,7 @@ import {
   requestFullSync,
   removeLocalUserAccount,
   setSessionRevocationHandler,
+  discardPendingDeletionsForUser,
 } from '../services/syncService';
 import { setSupabaseAppUser } from '../services/supabaseClient';
 
@@ -68,6 +70,7 @@ interface AuthContextValue {
   reloadProfile: () => Promise<void>;
   clearProfile: () => Promise<void>;
   signOut: () => Promise<void>;
+  deleteAccount: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -287,6 +290,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       },
 
       async signOut() {
+        await performSignOut();
+      },
+
+      async deleteAccount() {
+        if (!user) return;
+        // 1) Se borra la cuenta y todo su contenido en Supabase (cascada).
+        await deleteRemoteUserAccount(user.id);
+        // 2) Los borrados pendientes de esa cuenta quedan huérfanos: se
+        //    descartan para que no se apliquen con otra sesión.
+        await discardPendingDeletionsForUser(user.id);
+        // 3) Limpieza local completa (datos, cuenta local y sesión).
         await performSignOut();
       },
     }),

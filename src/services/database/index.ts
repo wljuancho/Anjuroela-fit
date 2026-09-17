@@ -40,14 +40,6 @@ export async function initDatabase(): Promise<void> {
       FOREIGN KEY (user_id) REFERENCES users (email) ON DELETE CASCADE
     );
 
-    CREATE TABLE IF NOT EXISTS exercises (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      muscle_group TEXT,
-      description TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
-
     CREATE TABLE IF NOT EXISTS body_parts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
@@ -66,62 +58,6 @@ export async function initDatabase(): Promise<void> {
       is_active INTEGER DEFAULT 1,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (body_part_id) REFERENCES body_parts (id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS workouts (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      description TEXT,
-      completed INTEGER DEFAULT 0,
-      date TEXT DEFAULT CURRENT_DATE,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS workout_exercises (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      workout_id INTEGER NOT NULL,
-      exercise_id INTEGER NOT NULL,
-      sets INTEGER DEFAULT 3,
-      reps INTEGER DEFAULT 10,
-      weight REAL,
-      FOREIGN KEY (workout_id) REFERENCES workouts (id) ON DELETE CASCADE,
-      FOREIGN KEY (exercise_id) REFERENCES exercises (id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS meals (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      calories INTEGER,
-      protein REAL,
-      carbs REAL,
-      fats REAL,
-      date TEXT DEFAULT CURRENT_DATE,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS meals_v2 (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id TEXT NOT NULL,
-      date TEXT NOT NULL,
-      meal_type TEXT NOT NULL CHECK (meal_type IN ('desayuno', 'almuerzo', 'cena', 'snack')),
-      image_uri TEXT,
-      description TEXT,
-      calories REAL DEFAULT 0,
-      protein_g REAL DEFAULT 0,
-      carbs_g REAL DEFAULT 0,
-      fat_g REAL DEFAULT 0,
-      notes TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (user_id) REFERENCES users (email) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS progress (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      date TEXT DEFAULT CURRENT_DATE,
-      weight REAL,
-      body_fat REAL,
-      muscle_mass REAL,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS weekly_schedule (
@@ -299,7 +235,6 @@ export async function initDatabase(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_day_muscles_day ON day_muscles (day_of_week);
     CREATE INDEX IF NOT EXISTS idx_day_exercises_day ON day_exercises (day_of_week);
     CREATE INDEX IF NOT EXISTS idx_exercises_v2_body_part ON exercises_v2 (body_part_id);
-    CREATE INDEX IF NOT EXISTS idx_meals_v2_user_date ON meals_v2 (user_id, date);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_workout_sessions_day_date ON workout_sessions (day_of_week, date);
     CREATE INDEX IF NOT EXISTS idx_workout_sets_session ON workout_sets (session_id);
     CREATE INDEX IF NOT EXISTS idx_workout_sets_exercise ON workout_sets (exercise_id);
@@ -314,7 +249,7 @@ export async function initDatabase(): Promise<void> {
 
   await migrateUserProfileGoalStatus(database);
   await migrateUserProfilesUnique(database);
-  await cleanLegacyTestRecords(database);
+  await dropLegacyTables(database);
   await resetExerciseCatalogOnce(database);
 }
 
@@ -341,11 +276,21 @@ async function migrateUniqueSessionIndex(db: SQLite.SQLiteDatabase): Promise<voi
   `);
 }
 
-async function cleanLegacyTestRecords(db: SQLite.SQLiteDatabase): Promise<void> {
+// Elimina las tablas legacy que la app ya no utiliza y cuyo contenido era solo
+// de pruebas/en desuso: el catálogo de ejercicios antiguo (exercises), las
+// rutinas workouts/workout_exercises, las comidas meals/meals_v2 y el progreso
+// progress. La app usa exercises_v2, meal_logs y weekly_meal_plan en su lugar.
+// Se ejecuta DESPUÉS de migrateUsersEmailPk para no interferir con la migración
+// de instalaciones antiguas. Idempotente: DROP TABLE IF EXISTS no estorba en
+// instalaciones nuevas ni repite trabajo en las ya migradas.
+async function dropLegacyTables(db: SQLite.SQLiteDatabase): Promise<void> {
   await db.execAsync(`
-    DELETE FROM workout_exercises;
-    DELETE FROM workouts;
-    DELETE FROM exercises;
+    DROP TABLE IF EXISTS workout_exercises;
+    DROP TABLE IF EXISTS workouts;
+    DROP TABLE IF EXISTS exercises;
+    DROP TABLE IF EXISTS meals;
+    DROP TABLE IF EXISTS meals_v2;
+    DROP TABLE IF EXISTS progress;
   `);
 }
 
@@ -366,9 +311,6 @@ async function resetExerciseCatalogOnce(db: SQLite.SQLiteDatabase): Promise<void
     DELETE FROM day_muscles;
     DELETE FROM exercises_v2;
     DELETE FROM body_parts;
-    DELETE FROM exercises;
-    DELETE FROM workout_exercises;
-    DELETE FROM workouts;
   `);
   await db.runAsync(
     "INSERT OR REPLACE INTO app_meta (key, value) VALUES ('catalog_cleaned', '1')",

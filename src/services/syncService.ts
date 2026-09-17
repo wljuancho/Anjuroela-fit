@@ -5,14 +5,14 @@ import { assertSafeIdentifier } from './utils';
 
 // Tablas locales que se replican a Supabase en segundo plano.
 // Coinciden 1:1 con las tablas activas del esquema (supabase_schema.sql).
-// NO se sincronizan (quedan solo en el script como copia del esquema local):
-// workouts, workout_exercises, exercises, meals, meals_v2, progress (legacy
-// vacías tras la limpieza) y app_meta (metadatos internos del dispositivo).
+// Las tablas legacy (exercises, workouts, workout_exercises, meals, meals_v2,
+// progress) se eliminaron del esquema local y de Supabase; solo app_meta
+// queda como metadato interno del dispositivo y no se sincroniza.
 const SYNC_TABLES = [
-  // NIVEL 1: identidad y catálogo (tablas PADRE). Nunca son dependientes.
-  // No se incluyen 'exercises', 'workouts', 'meals', 'meals_v2' ni 'progress':
-  // son tablas legacy vacías tras la limpieza local; 'exercises_v2' es el
-  // catálogo de ejercicios activo que referencia day_* y workout_sets.
+  // NIVEL 1: identidad y catálogo (tablas PADRE). Excluye las tablas legacy
+  // eliminadas (exercises, workouts, workout_exercises, meals, meals_v2,
+  // progress); 'exercises_v2' es el catálogo de ejercicios activo que
+  // referencia day_* y workout_sets.
   'users',
   'body_parts',
   'exercises_v2',
@@ -97,7 +97,6 @@ const OWNED_TABLES = [
 const USER_SCOPED_TABLES: Record<string, string> = {
   user_profiles: 'user_id',
   nutrition_profile: 'user_id',
-  meals_v2: 'user_id',
 };
 
 // Tabla auxiliar que guarda la relación (tabla, fila) -> usuario dueño.
@@ -266,6 +265,23 @@ async function enforceRemoteUserExistence(): Promise<boolean> {
 export async function removeLocalUserAccount(userId: string): Promise<void> {
   try {
     await getDatabase().runAsync('DELETE FROM users WHERE email = ?', [userId]);
+  } catch {
+    // Fallo no letal.
+  }
+}
+
+/**
+ * Elimina del buffer local los borrados pendientes del usuario indicado. Se
+ * usa al borrar la cuenta de forma definitiva: sus tickets de borrado han
+ * quedado huérfanos (la fila remota ya no existe) y no deben propagarse ni
+ * aplicarse con otra sesión.
+ */
+export async function discardPendingDeletionsForUser(userId: string): Promise<void> {
+  try {
+    await getDatabase().runAsync(
+      `DELETE FROM ${DELETIONS_TABLE} WHERE user_id = ?`,
+      [userId],
+    );
   } catch {
     // Fallo no letal.
   }
@@ -1058,7 +1074,6 @@ export async function purgeUserData(userId: string): Promise<void> {
       }
       await db.runAsync('DELETE FROM user_profiles WHERE user_id = ?', [userId]);
       await db.runAsync('DELETE FROM nutrition_profile WHERE user_id = ?', [userId]);
-      await db.runAsync('DELETE FROM meals_v2 WHERE user_id = ?', [userId]);
     });
   } catch {
     // Si el borrado falla, el aislamiento se garantiza en el pull siguiente.

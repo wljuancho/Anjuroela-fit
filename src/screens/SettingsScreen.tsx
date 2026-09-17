@@ -31,7 +31,9 @@ export default function SettingsScreen() {
   const [testing, setTesting] = useState(false);
   const [status, setStatus] = useState<Status>('idle');
   const [testDetail, setTestDetail] = useState<string | null>(null);
-  const { signOut } = useAuth();
+  const { signOut, deleteAccount } = useAuth();
+
+  const [deletingAccount, setDeletingAccount] = useState(false);
 
   const handleSignOut = () => {
     Alert.alert(
@@ -92,6 +94,36 @@ const handleTest = async () => {
     setTesting(false);
     setStatus(result.ok ? 'tested-ok' : 'tested-fail');
     setTestDetail(result.ok ? null : result.detail);
+  };
+
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      'Eliminar mi cuenta',
+      'Se borrarán permanentemente tu cuenta y todos tus datos (rutinas, entrenamientos, peso, comidas y progreso) tanto en la nube como en este dispositivo. Esta acción no se puede deshacer.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Eliminar definitivamente',
+          style: 'destructive',
+          onPress: () => void performDeleteAccount(),
+        },
+      ],
+    );
+  };
+
+  const performDeleteAccount = async () => {
+    setDeletingAccount(true);
+    try {
+      await deleteAccount();
+      // El provider purga los datos y cierra la sesión; la pantalla se desmonta.
+    } catch {
+      Alert.alert(
+        'Error',
+        'No se pudo eliminar la cuenta. Revisa tu conexión e inténtalo de nuevo.',
+      );
+    } finally {
+      setDeletingAccount(false);
+    }
   };
 
   return (
@@ -208,6 +240,24 @@ const handleTest = async () => {
             sesión, tus datos de progreso permanecen guardados en el dispositivo.
           </Text>
           <AppButton title="Cerrar Sesión" variant="outline" onPress={handleSignOut} />
+        </View>
+
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Ionicons name="trash-outline" size={22} color={colors.primary} />
+            <Text style={styles.sectionTitle}>Zona de peligro</Text>
+          </View>
+          <Text style={styles.sectionSubtitle}>
+            Elimina tu cuenta de forma permanente. Se borrará todo tu historial en la nube
+            y en este dispositivo, y no podrás recuperarlo.
+          </Text>
+          <AppButton
+            title={deletingAccount ? 'Eliminando cuenta…' : 'Eliminar mi cuenta'}
+            variant="outline"
+            onPress={handleDeleteAccount}
+            loading={deletingAccount}
+            disabled={deletingAccount}
+          />
         </View>
 
         <View style={styles.section}>
