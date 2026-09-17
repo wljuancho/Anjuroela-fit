@@ -289,7 +289,7 @@ export default function ExerciseConfigScreen() {
               placeholder="Ej: 30"
             />
             <AppTextInput
-              label="Descanso entre ejercicios (s)"
+              label="Descanso entre rondas (s)"
               value={restSeconds}
               onChangeText={(t) => setRestSeconds(t.replace(/[^0-9]/g, ''))}
               keyboardType="number-pad"

@@ -172,9 +172,10 @@ const SYSTEM_PROMPT =
   '   - MODO DE EJERCICIO: cada ejercicio tiene un modo. "reps" = series con repeticiones y peso (fuerza); "time" = series por tiempo de trabajo, típico de cardio. ' +
   'Cuando vayas a crear o agregar un ejercicio usa "mode":"time" si el usuario dijo "por tiempo", "segundos", "cardio" o "circuito"; usa "mode":"reps" si habla de repeticiones, series o peso. ' +
   'Si no está claro, pregúntale en texto y NO emitas la acción hasta que responda.\n' +
-  '   - CIRCUITO: cuando el usuario quiera un circuito (varios ejercicios seguidos por tiempo, cada uno con su trabajo, descanso entre ejercicios y varias rondas) usa "agregar_circuito_dia", ' +
-  'con "exercises" (nombres de ejercicios que ya existan o que crearás antes con "crear_ejercicio" y "mode":"time"), "work_seconds", "rest_seconds" y "rounds". ' +
-  'El circuito quedará listo para entrenarse como una sola sesión en su rutina.\n' +
+'   - CIRCUITO: el circuito ejecuta los ejercicios UNO TRAS OTRO, SIN descanso entre ellos; cada ejercicio dura "work_seconds" y al terminar TODOS los ejercicios de la ronda recién ahí va el descanso ("rest_seconds"). ' +
+'Cada ronda completa equivale a una serie. Cuando el usuario quiera un circuito usa "agregar_circuito_dia", ' +
+'con "exercises" (nombres de ejercicios que ya existan o que crearás antes con "crear_ejercicio" y "mode":"time"), "work_seconds" (tiempo de trabajo POR EJERCICIO), "rest_seconds" (descanso ENTRE RONDAS, no entre ejercicios) y "rounds". ' +
+'El circuito quedará listo para entrenarse como una sola sesión en su rutina.\n' +
   '   - RONDAS: usa SIEMPRE el número EXACTO de rondas que pida el usuario (si dice "2 rondas" → "rounds":2; "4 rondas"/"cuatro rondas" → "rounds":4). ' +
   'El número del ejemplo NO es un valor por defecto: si el usuario no indica rondas, usa 3. Tampoco cambies "rest_seconds" ni "work_seconds" salvo que el usuario las indique; ' +
   'si las indica, usa ESOS valores exactos (p. ej. "trabajo 45 s" → "work_seconds":45, "descanso 90 s entre ejercicios" → "rest_seconds":90) y NUNCA los valores del ejemplo.\n' +
@@ -211,7 +212,10 @@ const SYSTEM_PROMPT =
   'a menos que el usuario lo pida explícitamente; recomienda comida equilibrada y sostenible.\n' +
   '   - Si es "Déficit calórico activo", diseña recetas, porciones y ajustes acordes a esa restricción sin caer en extremos riesgosos.\n' +
   '   - Si es "Superávit calórico", enfócate en aumentar consumo de forma saludable para ganar masa.\n' +
-  '   - Nunca sugieras dietas peligrosas, ayunos prolongados ni restricciones insostenibles.';
+  '   - Nunca sugieras dietas peligrosas, ayunos prolongados ni restricciones insostenibles.\n' +
+'11. NO repitas preguntas ni pidas información que el usuario ya haya indicado en la conversación: si ya dio el día, los ejercicios, ' +
+'los tiempos de trabajo/descanso o las series/rondas, úsalo directamente y emite la acción. Si falta un dato indispensable, ' +
+'pregunta SOLO ese dato (una sola pregunta por turno).\n';
 
 async function buildContext(userId: string): Promise<string> {
   const sections: string[] = ['DATOS ACTUALES DEL USUARIO (usados para recomendar):'];

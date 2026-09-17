@@ -307,8 +307,8 @@ export default function MusclePanelScreen() {
               </View>
               <Text style={styles.circuitMeta}>
                 {circuitCount} {circuitCount === 1 ? 'ejercicio' : 'ejercicios'} · {circuit.rounds}{' '}
-                {circuit.rounds === 1 ? 'ronda' : 'rondas'} · {circuit.work_seconds}s trabajo ·{' '}
-                {circuit.rest_seconds}s descanso
+                {circuit.rounds === 1 ? 'ronda' : 'rondas'} · {circuit.work_seconds}s de trabajo por
+                ejercicio · {circuit.rest_seconds}s de descanso entre rondas
               </Text>
             </View>
             <Ionicons name="play-circle" size={32} color={colors.primary} />

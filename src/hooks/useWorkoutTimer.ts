@@ -5,7 +5,7 @@ import { getItem, removeItem, setItem, StorageKeys } from '../services/storage';
 import {
   cancelScheduledWarnings,
   ensureNotificationPermission,
-  scheduleFiveSecondWarning,
+  scheduleWorkoutWarnings,
 } from '../services/notifications';
 
 type Phase = 'series' | 'rest' | 'work' | 'done';
@@ -129,6 +129,7 @@ function onExpire(state: TimerState, plan: WorkoutPlan, now: number): StepResult
         next: {
           ...state,
           phase: 'series',
+          currentSeries: state.currentSeries + 1,
           running: false,
           endsAt: null,
           pausedRemainingMs: 0,
@@ -144,32 +145,43 @@ function onExpire(state: TimerState, plan: WorkoutPlan, now: number): StepResult
 
   if (plan.mode === 'circuit') {
     const exerciseCount = plan.exercises.length;
+    const isLastExercise = state.exerciseIndex >= exerciseCount - 1;
+
     if (state.phase === 'work') {
       const isLastRound = state.roundIndex >= plan.rounds - 1;
-      const isLastExercise = state.exerciseIndex >= exerciseCount - 1;
       if (isLastRound && isLastExercise) {
         return {
           next: { ...state, phase: 'done', running: false, endsAt: null },
           shouldVibrate: true,
         };
       }
+      if (isLastExercise) {
+        // Terminó la ronda entera (suma del tiempo de trabajo de todos los
+        // ejercicios). Ahora sí va el descanso entre series/rondas.
+        return {
+          next: { ...state, phase: 'rest', endsAt: now + plan.restSeconds * 1000 },
+          shouldVibrate: true,
+        };
+      }
+      // Sigue directo con el siguiente ejercicio de la ronda, sin descanso.
       return {
-        next: { ...state, phase: 'rest', endsAt: now + plan.restSeconds * 1000 },
+        next: {
+          ...state,
+          phase: 'work',
+          exerciseIndex: state.exerciseIndex + 1,
+          endsAt: now + plan.workSeconds * 1000,
+        },
         shouldVibrate: true,
       };
     }
-    let nextExercise = state.exerciseIndex + 1;
-    let nextRound = state.roundIndex;
-    if (nextExercise >= exerciseCount) {
-      nextExercise = 0;
-      nextRound += 1;
-    }
+
+    // phase === 'rest': terminó el descanso de la ronda, arranca la siguiente.
     return {
       next: {
         ...state,
         phase: 'work',
-        exerciseIndex: nextExercise,
-        roundIndex: nextRound,
+        exerciseIndex: 0,
+        roundIndex: state.roundIndex + 1,
         endsAt: now + plan.workSeconds * 1000,
       },
       shouldVibrate: true,
@@ -387,7 +399,7 @@ export function useWorkoutTimer(options: UseWorkoutTimerOptions) {
     if (current.running && endsAt != null && endsAt > now) {
       void (async () => {
         await ensureNotificationPermission();
-        await scheduleFiveSecondWarning(endsAt);
+        await scheduleWorkoutWarnings(endsAt);
       })();
     } else {
       void cancelScheduledWarnings();
