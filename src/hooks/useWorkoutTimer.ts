@@ -7,6 +7,7 @@ import {
   ensureNotificationPermission,
   scheduleWorkoutWarnings,
 } from '../services/notifications';
+import { playRestWarningSound } from '../services/soundService';
 
 type Phase = 'series' | 'rest' | 'work' | 'done';
 
@@ -382,6 +383,14 @@ export function useWorkoutTimer(options: UseWorkoutTimerOptions) {
     }, 250);
     return () => clearInterval(interval);
   }, [handleExpiry, refreshSeconds]);
+
+  // Aviso sonoro: cuando quedan 7 segundos de descanso suena un tono breve
+  // para prepararse, sin interferir con el conteo.
+  useEffect(() => {
+    if (state.phase === 'rest' && seconds === 7) {
+      playRestWarningSound();
+    }
+  }, [state.phase, seconds]);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (appState) => {

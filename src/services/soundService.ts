@@ -20,3 +20,22 @@ export function playErrorSound(): void {
     // Sin sonido: la app sigue funcionando (modo silencioso/api error).
   }
 }
+
+let countdownPlayer: AudioPlayer | null = null;
+
+/**
+ * Reproduce un tono corto y suave que avisa al usuario que el descanso está
+ * por terminar (ej. faltan 7 segundos). Nunca lanza; usa el mismo patrón
+ * seguro que playErrorSound con un recurso sonoro más ligero.
+ */
+export function playRestWarningSound(): void {
+  try {
+    if (!countdownPlayer) {
+      countdownPlayer = createAudioPlayer(require('../../assets/sounds/error.beep.wav'));
+    }
+    countdownPlayer.seekTo(0);
+    countdownPlayer.play();
+  } catch {
+    // Sin sonido: la app sigue funcionando (modo silencioso/dispositivo).
+  }
+}

@@ -28,7 +28,7 @@ import {
   getEnergySummary,
   getLast7DaysCaloriesAvg,
 } from './nutritionService';
-import { isWearableAvailable } from './healthService';
+import { isWearableAvailable, readTodaySteps, readLastNightSleepHours } from './healthService';
 import { DAYS_ORDER } from '../types/workout';
 import type { DayOfWeek } from '../types/workout';
 import type {
@@ -131,6 +131,14 @@ function addDays(date: Date, days: number): Date {
 
 function getSpanishWeekday(date: Date): string {
   return ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'][date.getDay()];
+}
+
+function formatSleepHours(hours: number): string {
+  const totalMinutes = Math.round(hours * 60);
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  if (h === 0) return `${m} min`;
+  return m > 0 ? `${h} h ${m} min` : `${h} h`;
 }
 
 const DAY_TO_INDEX: Record<string, number> = {
@@ -380,6 +388,18 @@ async function buildContext(userId: string): Promise<string> {
         `- Calorías totales quemadas en las últimas ${burnedSessions.length} sesiones: ${Math.round(total)} kcal.`,
       );
     }
+    const steps = await readTodaySteps();
+    sections.push(
+      steps.steps > 0
+        ? `- Pasos de hoy: ${formatNumber(steps.steps)}${steps.caloriesBurned != null ? ` (≈ ${Math.round(steps.caloriesBurned)} kcal por desplazamiento)` : ''}.`
+        : '- Pasos de hoy: sin datos (wearable no vinculado o sin registro).',
+    );
+    const sleepHours = await readLastNightSleepHours();
+    sections.push(
+      sleepHours != null
+        ? `- Sueño del último periodo nocturno: ${formatSleepHours(sleepHours)} registrados en el dispositivo.`
+        : '- Sueño del último periodo nocturno: sin datos.',
+    );
   } catch {}
 
   // ------------------------------------------------------ RUTINA Y FUERZA

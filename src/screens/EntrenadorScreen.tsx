@@ -8,10 +8,9 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
-  Keyboard,
+  KeyboardAvoidingView,
   Platform,
   Alert,
-  type KeyboardEvent,
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -49,27 +48,8 @@ export default function EntrenadorScreen() {
   const [sending, setSending] = useState(false);
   const [hasApiKey, setHasApiKey] = useState<boolean | null>(null);
   const [chatLoaded, setChatLoaded] = useState(false);
-  const [keyboardScreenY, setKeyboardScreenY] = useState<number | null>(null);
-  const [composerBottom, setComposerBottom] = useState(0);
   const scrollRef = useRef<FlatList<ChatMessage>>(null);
   const userId = user?.id;
-
-  useEffect(() => {
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const onShow = (event: KeyboardEvent) => {
-      setKeyboardScreenY(event.endCoordinates.screenY);
-    };
-    const onHide = () => {
-      setKeyboardScreenY(null);
-    };
-    const show = Keyboard.addListener(showEvent, onShow);
-    const hide = Keyboard.addListener(hideEvent, onHide);
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, []);
 
   useEffect(() => {
     if (userId == null) return;
@@ -245,9 +225,6 @@ export default function EntrenadorScreen() {
     );
   };
 
-  const keyboardGap =
-    keyboardScreenY == null ? 0 : Math.max(composerBottom - keyboardScreenY, 0);
-
   return (
     <View style={styles.safe}>
       {hasApiKey === false ? (
@@ -259,63 +236,61 @@ export default function EntrenadorScreen() {
         </View>
       ) : null}
 
-      <FlatList
-        ref={scrollRef}
+      <KeyboardAvoidingView
         style={styles.flex}
-        contentContainerStyle={styles.listContent}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-        data={messages}
-        keyExtractor={(message) => message.id}
-        renderItem={({ item }) => (
-          <MessageBubble
-            key={item.id}
-            message={item}
-            onAccept={handleAccept}
-            onCancel={handleCancel}
-          />
-        )}
-        ListFooterComponent={
-          sending ? (
-            <View style={styles.typingRow}>
-              <View style={[styles.bubble, styles.typingBubble]}>
-                <Text style={styles.coachName}>Anjuroela</Text>
-                <ActivityIndicator size="small" color={colors.primary} />
-              </View>
-            </View>
-          ) : null
-        }
-      />
-
-      <View
-        style={[styles.composer, keyboardGap > 0 ? { marginBottom: keyboardGap } : null]}
-        onLayout={(event) => {
-          const { y, height } = event.nativeEvent.layout;
-          const absoluteY = (event.nativeEvent.layout as { screenY?: number }).screenY ?? y;
-          setComposerBottom(absoluteY + height);
-        }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        <TextInput
-          style={styles.input}
-          value={input}
-          onChangeText={setInput}
-          placeholder="Escribe tu mensaje..."
-          placeholderTextColor={colors.textSubtle}
-          multiline
-          maxLength={500}
-          onFocus={scrollToEnd}
-          onSubmitEditing={sendMessage}
+        <FlatList
+          ref={scrollRef}
+          style={styles.flex}
+          contentContainerStyle={styles.listContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          data={messages}
+          keyExtractor={(message) => message.id}
+          renderItem={({ item }) => (
+            <MessageBubble
+              key={item.id}
+              message={item}
+              onAccept={handleAccept}
+              onCancel={handleCancel}
+            />
+          )}
+          ListFooterComponent={
+            sending ? (
+              <View style={styles.typingRow}>
+                <View style={[styles.bubble, styles.typingBubble]}>
+                  <Text style={styles.coachName}>Anjuroela</Text>
+                  <ActivityIndicator size="small" color={colors.primary} />
+                </View>
+              </View>
+            ) : null
+          }
         />
-        <TouchableOpacity
-          style={[styles.sendBtn, (!input.trim() || sending) ? styles.sendBtnDisabled : null]}
-          onPress={sendMessage}
-          disabled={!input.trim() || sending}
-          accessibilityRole="button"
-          accessibilityLabel="Enviar mensaje"
-        >
-          <Ionicons name="send" size={20} color={colors.text} />
-        </TouchableOpacity>
-      </View>
+
+        <View style={styles.composer}>
+          <TextInput
+            style={styles.input}
+            value={input}
+            onChangeText={setInput}
+            placeholder="Escribe tu mensaje..."
+            placeholderTextColor={colors.textSubtle}
+            multiline
+            maxLength={500}
+            onFocus={scrollToEnd}
+            onSubmitEditing={sendMessage}
+          />
+          <TouchableOpacity
+            style={[styles.sendBtn, (!input.trim() || sending) ? styles.sendBtnDisabled : null]}
+            onPress={sendMessage}
+            disabled={!input.trim() || sending}
+            accessibilityRole="button"
+            accessibilityLabel="Enviar mensaje"
+          >
+            <Ionicons name="send" size={20} color={colors.text} />
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
 
       <ScreenTutorialModal
         screenId="entrenador"

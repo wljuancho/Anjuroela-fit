@@ -162,8 +162,17 @@ const IOS_READ_PERMISSIONS: HealthPermission[] = [
   'ActiveEnergyBurned' as HealthPermission,
 ];
 
+// Permisos adicionales (pasos y sueño): se incluyen en el init de HealthKit
+// para pedirlos en el mismo diálogo, pero NO forman parte de IOS_READ_PERMISSIONS
+// (que es la lista exigida para considerar el wearable "autorizado"), para no
+// romper el flujo existente de ritmo cardíaco y calorías.
+const IOS_EXTENDED_READ_PERMISSIONS: HealthPermission[] = [
+  'StepCount' as HealthPermission,
+  'SleepAnalysis' as HealthPermission,
+];
+
 const IOS_PERMISSIONS_CONFIG: HealthKitPermissions = {
-  permissions: { read: IOS_READ_PERMISSIONS, write: [] },
+  permissions: { read: [...IOS_READ_PERMISSIONS, ...IOS_EXTENDED_READ_PERMISSIONS], write: [] },
 };
 
 const IOS_HEART_RATE_OPTIONS: HealthInputOptions = {
@@ -201,6 +210,8 @@ async function iosAuthReadStatuses(): Promise<HealthStatusCode[] | null> {
 const ANDROID_READ_REQUESTS: Permission[] = [
   { accessType: 'read', recordType: 'HeartRate' },
   { accessType: 'read', recordType: 'ActiveCaloriesBurned' },
+  { accessType: 'read', recordType: 'Steps' },
+  { accessType: 'read', recordType: 'SleepSession' },
 ];
 
 async function androidRequestPermissions(): Promise<boolean> {
@@ -419,6 +430,147 @@ async function readHeartRate(
     return await androidReadHeartRate(startISO, endISO);
   }
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Pasos del día y horas de sueño (Health Connect / HealthKit)
+// ---------------------------------------------------------------------------
+
+function todayLocalDateStr(): string {
+  const now = new Date();
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  return `${now.getFullYear()}-${mm}-${dd}`;
+}
+
+async function androidReadTodaySteps(): Promise<number> {
+  const startISO = localDateToIsoStart(todayLocalDateStr());
+  const result = await readRecords<'Steps'>('Steps', {
+    timeRangeFilter: { operator: 'between', startTime: startISO, endTime: new Date().toISOString() },
+    ascendingOrder: true,
+  });
+  let total = 0;
+  for (const record of result.records) {
+    total += record.count ?? 0;
+  }
+  return Math.max(0, total);
+}
+
+async function iosReadTodaySteps(): Promise<number> {
+  const results = await iosCall<HealthValue>((cb) =>
+    appleHealthKit.getStepCount({ date: new Date().toISOString() }, (err, res) => cb(err, res)),
+  );
+  return Math.max(0, typeof results.value === 'number' ? results.value : 0);
+}
+
+// Recupera el periodo nocturno registrado en las últimas 24 h desde el último
+// registro de sueño (en Health Connect los registros SleepSession traen su
+// propio startTime/endTime; en HealthKit se suman las fases dormidas, sin la
+// ventana "acostado" — INBED).
+async function androidReadLastNightSleepHours(): Promise<number | null> {
+  const end = new Date();
+  const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
+  const result = await readRecords<'SleepSession'>('SleepSession', {
+    timeRangeFilter: { operator: 'between', startTime: start.toISOString(), endTime: end.toISOString() },
+  });
+  let totalMs = 0;
+  for (const record of result.records) {
+    const s = new Date(record.startTime).getTime();
+    const e = new Date(record.endTime).getTime();
+    if (Number.isFinite(s) && Number.isFinite(e) && e > s) totalMs += e - s;
+  }
+  return totalMs > 0 ? totalMs / (60 * 60 * 1000) : null;
+}
+
+async function iosReadLastNightSleepHours(): Promise<number | null> {
+  const end = new Date();
+  const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
+  const results = await iosCall<HealthValue[]>((cb) =>
+    appleHealthKit.getSleepSamples(
+      { startDate: start.toISOString(), endDate: end.toISOString(), ascending: true },
+      (err, res) => cb(err, res),
+    ),
+  );
+  let totalMs = 0;
+  for (const r of results) {
+    const raw = (r as unknown as { value?: string | number }).value ?? '';
+    if (typeof raw === 'string' && raw.toUpperCase() === 'INBED') continue;
+    const s = new Date(r.startDate).getTime();
+    const e = new Date(r.endDate).getTime();
+    if (Number.isFinite(s) && Number.isFinite(e) && e > s) totalMs += e - s;
+  }
+  return totalMs > 0 ? totalMs / (60 * 60 * 1000) : null;
+}
+
+export interface WearableStepsSummary {
+  steps: number;
+  caloriesBurned: number | null;
+}
+
+/**
+ * Pasos acumulados desde la medianoche de hoy y su gasto calórico aproximado.
+ * Las kcal se estiman con el peso registrado del perfil (≈50–90 kcal por 1000
+ * pasos según el peso) solo cuando el wearable está vinculado y autorizado; si
+ * algo falla devuelve un resumen vacío sin lanzar.
+ */
+export async function readTodaySteps(): Promise<WearableStepsSummary> {
+  try {
+    if (!(await hasWearablePermissions())) return { steps: 0, caloriesBurned: null };
+    const steps =
+      Platform.OS === 'ios'
+        ? await iosReadTodaySteps()
+        : Platform.OS === 'android'
+          ? await androidReadTodaySteps()
+          : 0;
+    if (steps <= 0) return { steps: 0, caloriesBurned: null };
+    const body = await getBodyStats();
+    return { steps, caloriesBurned: steps * (body.weightKg / 1400) };
+  } catch {
+    return { steps: 0, caloriesBurned: null };
+  }
+}
+
+/**
+ * Horas de sueño registradas en el último periodo nocturno (últimas 24 h).
+ * Devuelve null cuando no hay datos o el wearable no está autorizado.
+ */
+export async function readLastNightSleepHours(): Promise<number | null> {
+  try {
+    if (!(await hasWearablePermissions())) return null;
+    if (Platform.OS === 'ios') return await iosReadLastNightSleepHours();
+    if (Platform.OS === 'android') return await androidReadLastNightSleepHours();
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Solicita acceso adicional a pasos y sueño sin afectar los permisos ya
+ * concedidos de ritmo cardíaco/calorías. En iOS se re-inicializa HealthKit
+ * (pide lo faltante); en Android se solicitan los dos registros nuevos.
+ */
+export async function requestExtendedHealthPermissions(): Promise<boolean> {
+  try {
+    if (Platform.OS === 'ios') {
+      await iosInitHealth();
+      return true;
+    }
+    if (Platform.OS === 'android') {
+      if (!(await androidSdkAvailable())) return false;
+      await initialize();
+      const granted = await requestPermission([
+        { accessType: 'read', recordType: 'Steps' },
+        { accessType: 'read', recordType: 'SleepSession' },
+      ]);
+      return granted.some(
+        (p) => p.recordType === 'Steps' || p.recordType === 'SleepSession',
+      );
+    }
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------------------

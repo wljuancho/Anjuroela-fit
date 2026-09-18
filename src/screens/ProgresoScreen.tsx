@@ -208,7 +208,7 @@ export default function ProgresoScreen() {
           onEdit={openEditModal}
         />
 
-        <CardCaloriasQuemadas sessions={caloriesBurned} />
+        <CardCaloriasQuemadas sessions={caloriesBurned} userId={user?.id} />
 
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Progreso de Fuerza</Text>

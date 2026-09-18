@@ -2,7 +2,7 @@
   "expo": {
     "name": "Anjuroela Fit",
     "slug": "anjuroela-fit",
-    "version": "1.0.7",
+    "version": "1.0.8",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -21,12 +21,14 @@
         "backgroundColor": "#1a1a2e"
       },
       "package": "com.anjuroela.fit",
-      "versionCode": 8,
+      "versionCode": 9,
       "softwareKeyboardLayoutMode": "resize",
       "permissions": [
         "android.permission.health.READ_HEART_RATE",
         "android.permission.health.READ_ACTIVE_CALORIES_BURNED",
         "android.permission.health.READ_TOTAL_CALORIES_BURNED",
+        "android.permission.health.READ_STEPS",
+        "android.permission.health.READ_SLEEP",
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.FOREGROUND_SERVICE",
