@@ -251,7 +251,7 @@ async function buildContext(userId: string): Promise<string> {
         `Peso objetivo ${target}`,
       ];
       if (profile.height != null && profile.height > 0) {
-        const bmiWeight = (await getLatestWeightLog())?.weight_kg ?? profile.current_weight ?? null;
+        const bmiWeight = (await getLatestWeightLog(userId))?.weight_kg ?? profile.current_weight ?? null;
         if (bmiWeight != null && bmiWeight > 0) {
           const bmi = calculateBMI(bmiWeight, profile.height);
           const category = classifyBMI(bmi) ?? 'no clasificable';
@@ -278,7 +278,7 @@ async function buildContext(userId: string): Promise<string> {
   // ----------------------------------- TENDENCIA DE PESO (7, 14 Y 30 DÍAS)
   sections.push('[TENDENCIA DE PESO (7, 14 Y 30 DÍAS)]');
   try {
-    const logs = await getWeightHistory();
+    const logs = await getWeightHistory(userId);
     if (logs.length === 0) {
       sections.push('- Peso: sin registros todavía.');
     } else {

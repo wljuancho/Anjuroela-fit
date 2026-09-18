@@ -40,6 +40,7 @@ export interface MealLog {
   meal_name: string;
   calories: number;
   photo_uri?: string | null;
+  user_id?: string | null;
   created_at?: string;
 }
 

@@ -66,7 +66,7 @@ export function useProgressData(userId: string): ProgressData {
       try {
         const [goal, logs, records, parts, burned] = await Promise.all([
           getGoalSummary(userId),
-          getWeightHistory(),
+          getWeightHistory(userId),
           getStrengthExerciseRecords(),
           getAllBodyParts(),
           getCaloriesBurnedBySession(userId),
@@ -148,9 +148,9 @@ export function useProgressData(userId: string): ProgressData {
     async (data: NewWeightLog, id?: number) => {
       try {
         if (id) {
-          await updateWeightLog(id, data);
+          await updateWeightLog(userId, id, data);
         } else {
-          await addWeightLog(data);
+          await addWeightLog(userId, data);
         }
         await reload();
       } catch (e) {
@@ -158,20 +158,20 @@ export function useProgressData(userId: string): ProgressData {
         Alert.alert('Error', message);
       }
     },
-    [reload],
+    [reload, userId],
   );
 
   const removeWeight = useCallback(
     async (id: number) => {
       try {
-        await deleteWeightLog(id);
+        await deleteWeightLog(userId, id);
         await reload();
       } catch (e) {
         const message = e instanceof Error ? e.message : 'No se pudo eliminar el registro.';
         Alert.alert('Error', message);
       }
     },
-    [reload],
+    [reload, userId],
   );
 
   return {

@@ -3,6 +3,7 @@ export interface WeightLog {
   date: string;
   weight_kg: number;
   notes?: string | null;
+  user_id?: string | null;
   created_at?: string;
 }
 
@@ -62,6 +63,7 @@ export interface SessionCaloriesBurned {
   dayOfWeek: string;
   date: string;
   caloriesBurned: number;
+  caloriesSource?: 'wearable' | 'estimate';
   setCount: number;
 }
 

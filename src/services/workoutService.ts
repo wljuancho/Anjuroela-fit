@@ -381,14 +381,17 @@ function estimateSetRestSeconds(set: Pick<WorkoutSet, 'rest_seconds'>): number {
 
 async function getCurrentBodyWeightKg(): Promise<number> {
   const db = getDatabase();
+  const userId = await getActiveUserId();
   const rows = await db.getAllAsync<{ weight_kg: number }>(
-    'SELECT weight_kg FROM weight_logs ORDER BY date DESC, id DESC LIMIT 1',
+    'SELECT weight_kg FROM weight_logs WHERE user_id = ? OR user_id IS NULL ORDER BY date DESC, id DESC LIMIT 1',
+    [userId ?? ''],
   );
   if (rows[0] && rows[0].weight_kg > 0) {
     return rows[0].weight_kg;
   }
   const profiles = await db.getAllAsync<{ current_weight: number | null }>(
-    'SELECT current_weight FROM user_profiles LIMIT 1',
+    'SELECT current_weight FROM user_profiles WHERE user_id = ? OR user_id IS NULL LIMIT 1',
+    [userId ?? ''],
   );
   if (profiles[0] && profiles[0].current_weight != null && profiles[0].current_weight > 0) {
     return profiles[0].current_weight;
@@ -844,18 +847,50 @@ export async function addMusclesToDay(day: DayOfWeek, bodyPartIds: number[]): Pr
 export async function removeMuscleFromDay(muscleId: number): Promise<void> {
   const db = getDatabase();
   try {
-    const rows = await db.getAllAsync<{ day_of_week: DayOfWeek; body_part_id: number }>(
+    // Se localiza el músculo antes de borrarlo para poder limpiar en cascada
+    // sus ejercicios planificados (day_exercises) con la misma clave de día.
+    const muscle = await db.getAllAsync<{ day_of_week: DayOfWeek; body_part_id: number }>(
       'SELECT day_of_week, body_part_id FROM day_muscles WHERE id = ? LIMIT 1',
       [muscleId],
     );
-    await db.runAsync('DELETE FROM day_muscles WHERE id = ?', [muscleId]);
-    if (rows[0]) {
+
+    const orphans = muscle[0]
+      ? await db.getAllAsync<{ id: number; exercise_id: number }>(
+          'SELECT id, exercise_id FROM day_exercises WHERE day_of_week = ? AND body_part_id = ?',
+          [muscle[0].day_of_week, muscle[0].body_part_id],
+        )
+      : [];
+
+    await db.withTransactionAsync(async () => {
+      await db.runAsync('DELETE FROM day_muscles WHERE id = ?', [muscleId]);
+      if (muscle[0]) {
+        await db.runAsync(
+          'DELETE FROM day_exercises WHERE day_of_week = ? AND body_part_id = ?',
+          [muscle[0].day_of_week, muscle[0].body_part_id],
+        );
+      }
+    });
+
+    for (const orphan of orphans) {
+      await queueLocalDeletion({
+        table: 'day_exercises',
+        rowId: orphan.id,
+        key: {
+          day_of_week: muscle![0].day_of_week,
+          body_part_id: muscle![0].body_part_id,
+          exercise_id: orphan.exercise_id,
+        },
+      });
+    }
+    if (muscle[0]) {
       await queueLocalDeletion({
         table: 'day_muscles',
         rowId: muscleId,
-        key: { day_of_week: rows[0].day_of_week, body_part_id: rows[0].body_part_id },
+        key: { day_of_week: muscle[0].day_of_week, body_part_id: muscle[0].body_part_id },
       });
     }
+
+    void syncLocalToRemote('day_exercises');
     void syncLocalToRemote('day_muscles');
   } catch {
     throw new Error('No se pudo quitar el músculo del día.');

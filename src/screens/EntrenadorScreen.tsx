@@ -10,9 +10,10 @@ import {
   ActivityIndicator,
   Keyboard,
   Platform,
+  Alert,
   type KeyboardEvent,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { MessageBubble } from '../components/entrenador';
 import { ScreenTutorialModal } from '../components';
@@ -27,6 +28,7 @@ import {
   getStoredChat,
   storeChat,
   appendChatMessage,
+  clearStoredChat,
 } from '../services/chatStorage';
 import { useAuth } from '../context';
 import { uuid } from '../services/utils';
@@ -87,6 +89,8 @@ export default function EntrenadorScreen() {
     };
   }, [userId]);
 
+  const navigation = useNavigation();
+
   // Persistencia del historial (cada vez que cambian los mensajes se guarda)
   useEffect(() => {
     if (userId == null || !chatLoaded || messages.length === 0) return;
@@ -95,6 +99,41 @@ export default function EntrenadorScreen() {
     }, 250);
     return () => clearTimeout(timer);
   }, [messages, userId, chatLoaded]);
+
+  const handleClearChat = useCallback(async () => {
+    if (userId == null) return;
+    try {
+      await clearStoredChat(userId);
+    } finally {
+      setMessages([{ id: uuid(), role: 'coach', text: WELCOME_MESSAGE }]);
+    }
+  }, [userId]);
+
+  const confirmClearChat = useCallback(() => {
+    Alert.alert(
+      'Limpiar historial de conversación',
+      'Se vaciará todo el historial del chat con tu entrenador. Esta acción no se puede deshacer.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Limpiar', style: 'destructive', onPress: () => void handleClearChat() },
+      ],
+    );
+  }, [handleClearChat]);
+
+  useEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <TouchableOpacity
+          onPress={confirmClearChat}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          accessibilityRole="button"
+          accessibilityLabel="Limpiar historial de conversación"
+        >
+          <Ionicons name="trash-outline" size={20} color={colors.text} />
+        </TouchableOpacity>
+      ),
+    });
+  }, [navigation, confirmClearChat]);
 
   // Al enfocar la pestaña se re-verifica la API Key, así el banner desaparece
   // en cuanto el usuario guarda o borra la clave en Ajustes.

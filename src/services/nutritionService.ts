@@ -261,8 +261,8 @@ export async function subtractCaloriesFromDay(
 export async function addMealLog(userId: string, data: NewMealLog): Promise<MealLog> {
   const db = getDatabase();
   const result = await db.runAsync(
-    'INSERT INTO meal_logs (date, meal_name, calories, photo_uri) VALUES (?, ?, ?, ?)',
-    [data.date, data.meal_name.trim(), data.calories, data.photo_uri ?? null],
+    'INSERT INTO meal_logs (date, meal_name, calories, photo_uri, user_id) VALUES (?, ?, ?, ?, ?)',
+    [data.date, data.meal_name.trim(), data.calories, data.photo_uri ?? null, userId],
   );
   await addCaloriesToDay(userId, data.date, data.calories);
   void syncLocalToRemote('meal_logs');
@@ -272,29 +272,33 @@ export async function addMealLog(userId: string, data: NewMealLog): Promise<Meal
     meal_name: data.meal_name.trim(),
     calories: data.calories,
     photo_uri: data.photo_uri ?? null,
+    user_id: userId,
   };
 }
 
-export async function getMealLogsByDate(date: string): Promise<MealLog[]> {
+export async function getMealLogsByDate(userId: string, date: string): Promise<MealLog[]> {
   const db = getDatabase();
   return db.getAllAsync<MealLog>(
-    'SELECT * FROM meal_logs WHERE date = ? ORDER BY created_at DESC, id DESC',
-    [date],
+    'SELECT * FROM meal_logs WHERE (user_id = ? OR user_id IS NULL) AND date = ? ORDER BY created_at DESC, id DESC',
+    [userId, date],
   );
 }
 
 export async function deleteMealLog(userId: string, id: number): Promise<void> {
   const db = getDatabase();
   const rows = await db.getAllAsync<{ date: string; calories: number; photo_uri: string | null }>(
-    'SELECT date, calories, photo_uri FROM meal_logs WHERE id = ? LIMIT 1',
-    [id],
+    'SELECT date, calories, photo_uri FROM meal_logs WHERE id = ? AND (user_id = ? OR user_id IS NULL) LIMIT 1',
+    [id, userId],
   );
   if (rows[0]) {
     await subtractCaloriesFromDay(userId, rows[0].date, rows[0].calories);
+    await db.runAsync(
+      'DELETE FROM meal_logs WHERE id = ? AND (user_id = ? OR user_id IS NULL)',
+      [id, userId],
+    );
+    await queueLocalDeletion({ table: 'meal_logs', rowId: id });
+    void syncLocalToRemote('meal_logs');
   }
-  await db.runAsync('DELETE FROM meal_logs WHERE id = ?', [id]);
-  await queueLocalDeletion({ table: 'meal_logs', rowId: id });
-  void syncLocalToRemote('meal_logs');
   const photoUri = rows[0]?.photo_uri;
   if (photoUri) {
     try {
@@ -505,7 +509,7 @@ export async function getNutritionDayData(
   const [profile, caloriesConsumed, meals] = await Promise.all([
     getNutritionProfile(userId),
     getDailyCaloriesConsumed(userId, date),
-    getMealLogsByDate(date),
+    getMealLogsByDate(userId, date),
   ]);
   const goal = profile?.dailyCaloriesGoal ?? null;
   const remaining = goal !== null ? goal - caloriesConsumed : null;

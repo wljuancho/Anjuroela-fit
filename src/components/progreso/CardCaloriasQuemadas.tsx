@@ -52,6 +52,8 @@ export default function CardCaloriasQuemadas({ sessions }: CardCaloriasQuemadasP
                 </Text>
                 <Text style={styles.rowMeta}>
                   {s.setCount} {s.setCount === 1 ? 'serie' : 'series'}
+                  {' · '}
+                  {s.caloriesSource === 'wearable' ? 'Reloj/Salud' : 'Estimado (MET)'}
                 </Text>
               </View>
               <Text style={styles.rowValue}>{formatNumber(s.caloriesBurned)} kcal</Text>

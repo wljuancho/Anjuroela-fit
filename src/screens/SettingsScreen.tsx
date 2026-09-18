@@ -137,7 +137,7 @@ export default function SettingsScreen() {
   const handleSignOut = () => {
     Alert.alert(
       'Cerrar sesión',
-      '¿Seguro que deseas cerrar sesión? Tu historial permanece guardado en el dispositivo.',
+      '¿Seguro que deseas cerrar sesión? Tu historial permanece guardado en la nube y tu cuenta se purgará de forma segura del dispositivo. Al volver a iniciar sesión se descargará de nuevo.',
       [
         { text: 'Cancelar', style: 'cancel' },
         { text: 'Cerrar sesión', style: 'destructive', onPress: () => signOut() },
@@ -413,8 +413,10 @@ const handleTest = async () => {
             <Text style={styles.sectionTitle}>Sesión</Text>
           </View>
           <Text style={styles.sectionSubtitle}>
-            Tu sesión se mantiene activa al cerrar o reiniciar la app. Si cierras
-            sesión, tus datos de progreso permanecen guardados en el dispositivo.
+            Tu sesión se mantiene activa al cerrar o reiniciar la app. Al cerrar
+            sesión, tu cuenta se purga de forma segura de este dispositivo, pero tu
+            historial permanece intacto en la nube y se descarga de nuevo al volver
+            a iniciar sesión.
           </Text>
           <AppButton title="Cerrar Sesión" variant="outline" onPress={handleSignOut} />
         </View>

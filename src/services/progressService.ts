@@ -15,17 +15,17 @@ import type {
   SessionHealthMetrics,
 } from '../types/progress';
 
-export async function addWeightLog(data: NewWeightLog): Promise<WeightLog> {
+export async function addWeightLog(userId: string, data: NewWeightLog): Promise<WeightLog> {
   const db = getDatabase();
   try {
     const existing = await db.getAllAsync<{ id: number }>(
-      'SELECT id FROM weight_logs WHERE date = ? LIMIT 1',
-      [data.date],
+      'SELECT id FROM weight_logs WHERE (user_id = ? OR user_id IS NULL) AND date = ? LIMIT 1',
+      [userId, data.date],
     );
     if (existing[0]) {
       await db.runAsync(
-        'UPDATE weight_logs SET weight_kg = ?, notes = ? WHERE id = ?',
-        [data.weight_kg, data.notes?.trim() || null, existing[0].id],
+        'UPDATE weight_logs SET weight_kg = ?, notes = ?, user_id = ? WHERE id = ?',
+        [data.weight_kg, data.notes?.trim() || null, userId, existing[0].id],
       );
       void syncLocalToRemote('weight_logs');
       return {
@@ -33,11 +33,12 @@ export async function addWeightLog(data: NewWeightLog): Promise<WeightLog> {
         date: data.date,
         weight_kg: data.weight_kg,
         notes: data.notes?.trim() || null,
+        user_id: userId,
       };
     }
     const result = await db.runAsync(
-      'INSERT INTO weight_logs (date, weight_kg, notes) VALUES (?, ?, ?)',
-      [data.date, data.weight_kg, data.notes?.trim() || null],
+      'INSERT INTO weight_logs (date, weight_kg, notes, user_id) VALUES (?, ?, ?, ?)',
+      [data.date, data.weight_kg, data.notes?.trim() || null, userId],
     );
     void syncLocalToRemote('weight_logs');
     return {
@@ -45,28 +46,31 @@ export async function addWeightLog(data: NewWeightLog): Promise<WeightLog> {
       date: data.date,
       weight_kg: data.weight_kg,
       notes: data.notes?.trim() || null,
+      user_id: userId,
     };
   } catch {
     throw new Error('No se pudo registrar el peso.');
   }
 }
 
-export async function getWeightHistory(): Promise<WeightLog[]> {
+export async function getWeightHistory(userId: string): Promise<WeightLog[]> {
   const db = getDatabase();
   try {
     return await db.getAllAsync<WeightLog>(
-      'SELECT * FROM weight_logs ORDER BY date ASC, id ASC',
+      'SELECT * FROM weight_logs WHERE user_id = ? OR user_id IS NULL ORDER BY date ASC, id ASC',
+      [userId],
     );
   } catch {
     throw new Error('No se pudo cargar el historial de peso.');
   }
 }
 
-export async function getLatestWeightLog(): Promise<WeightLog | null> {
+export async function getLatestWeightLog(userId: string): Promise<WeightLog | null> {
   const db = getDatabase();
   try {
     const rows = await db.getAllAsync<WeightLog>(
-      'SELECT * FROM weight_logs ORDER BY date DESC, id DESC LIMIT 1',
+      'SELECT * FROM weight_logs WHERE user_id = ? OR user_id IS NULL ORDER BY date DESC, id DESC LIMIT 1',
+      [userId],
     );
     return rows[0] ?? null;
   } catch {
@@ -74,12 +78,16 @@ export async function getLatestWeightLog(): Promise<WeightLog | null> {
   }
 }
 
-export async function updateWeightLog(id: number, data: NewWeightLog): Promise<void> {
+export async function updateWeightLog(
+  userId: string,
+  id: number,
+  data: NewWeightLog,
+): Promise<void> {
   const db = getDatabase();
   try {
     await db.runAsync(
-      'UPDATE weight_logs SET date = ?, weight_kg = ?, notes = ? WHERE id = ?',
-      [data.date, data.weight_kg, data.notes?.trim() || null, id],
+      'UPDATE weight_logs SET date = ?, weight_kg = ?, notes = ?, user_id = ? WHERE id = ? AND (user_id = ? OR user_id IS NULL)',
+      [data.date, data.weight_kg, data.notes?.trim() || null, userId, id, userId],
     );
     void syncLocalToRemote('weight_logs');
   } catch {
@@ -87,10 +95,13 @@ export async function updateWeightLog(id: number, data: NewWeightLog): Promise<v
   }
 }
 
-export async function deleteWeightLog(id: number): Promise<void> {
+export async function deleteWeightLog(userId: string, id: number): Promise<void> {
   const db = getDatabase();
   try {
-    await db.runAsync('DELETE FROM weight_logs WHERE id = ?', [id]);
+    await db.runAsync(
+      'DELETE FROM weight_logs WHERE id = ? AND (user_id = ? OR user_id IS NULL)',
+      [id, userId],
+    );
     await queueLocalDeletion({ table: 'weight_logs', rowId: id });
     void syncLocalToRemote('weight_logs');
   } catch {
@@ -116,7 +127,7 @@ export async function evaluateGoalDeadline(userId: string): Promise<GoalDeadline
       return null;
     }
 
-    const latestLog = await getLatestWeightLog();
+    const latestLog = await getLatestWeightLog(userId);
     const currentWeight = latestLog?.weight_kg ?? profile.current_weight ?? null;
 
     if (currentWeight === null) {
@@ -177,7 +188,7 @@ export async function updateGoalMeta(userId: string, data: NuevoMetaData): Promi
 export async function getGoalSummary(userId: string): Promise<GoalSummary> {
   try {
     const profile = await getProfile(userId);
-    const latestLog = await getLatestWeightLog();
+    const latestLog = await getLatestWeightLog(userId);
 
     const initialWeight = profile?.current_weight ?? null;
     const targetWeight = profile?.target_weight ?? null;
@@ -238,9 +249,10 @@ export async function getCaloriesBurnedBySession(userId: string, limit = 30): Pr
       day_of_week: string;
       date: string;
       calories_burned: number | null;
+      calories_source: string | null;
       set_count: number;
     }>(
-      `SELECT s.id, s.day_of_week, s.date, s.calories_burned,
+      `SELECT s.id, s.day_of_week, s.date, s.calories_burned, s.calories_source,
               COUNT(w.id) AS set_count
        FROM workout_sessions s
        LEFT JOIN workout_sets w ON w.session_id = s.id
@@ -256,6 +268,7 @@ export async function getCaloriesBurnedBySession(userId: string, limit = 30): Pr
       dayOfWeek: r.day_of_week,
       date: r.date,
       caloriesBurned: Math.max(0, Math.round((r.calories_burned ?? 0) * 10) / 10),
+      caloriesSource: r.calories_source === 'wearable' ? 'wearable' : 'estimate',
       setCount: r.set_count,
     }));
   } catch {

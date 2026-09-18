@@ -2,6 +2,7 @@ import { getSupabase, isSupabaseConfigured } from './supabaseClient';
 import { getDatabase } from './database';
 import { getStoredCurrentUserId } from './sessionStorage';
 import { assertSafeIdentifier } from './utils';
+import { clearStoredChat } from './chatStorage';
 
 // Tablas locales que se replican a Supabase en segundo plano.
 // Coinciden 1:1 con las tablas activas del esquema (supabase_schema.sql).
@@ -102,12 +103,19 @@ const USER_SCOPED_TABLES: Record<string, string> = {
   nutrition_profile: 'user_id',
   workout_sessions: 'user_id',
   daily_calories: 'user_id',
+  meal_logs: 'user_id',
+  weight_logs: 'user_id',
 };
 
 // Tablas migradas a user_id que aún pueden contener filas legacy (user_id
 // NULL) en Supabase: al bajarlas se incluyen esas filas con .or(...) para no
 // perder historial de instalaciones antiguas.
 const LEGACY_NULL_USER_FALLBACK_TABLES = new Set(['workout_sessions', 'daily_calories']);
+
+// Tablas con columna user_id cuyos registros locales recién creados sin conexión
+// NO deben perderse al bajar de la nube: se restauran SOLO del usuario activo
+// (.eq user_id) pero con reemplazo por id (no el borrado masivo por usuario).
+const ID_PRESERVING_USER_SCOPED_TABLES = new Set(['meal_logs', 'weight_logs']);
 
 // Tabla auxiliar que guarda la relación (tabla, fila) -> usuario dueño.
 const OWNERSHIP_TABLE = 'user_row_owners';
@@ -147,14 +155,14 @@ interface PendingDeletionRow {
 }
 
 // Orden seguro para restaurar filas respetando FK (padres antes que hijos).
+// weight_logs y meal_logs ya se restauran por su columna user_id (viven en
+// USER_SCOPED_TABLES): al bajarlas de ahí no se duplican por propiedad.
 const PULL_ORDER = [
   'weekly_schedule',
   'day_muscles',
   'day_exercises',
   'workout_sets',
   'workout_circuits',
-  'weight_logs',
-  'meal_logs',
   'weekly_meal_plan',
 ] as const;
 
@@ -951,6 +959,20 @@ async function markOwnedRows(
     if (error) {
       console.warn(`syncLocalToRemote: propietario no registrado (${error.message})`);
     }
+
+    // Espejo LOCAL de la propiedad: purgeUserData lo usa para el borrado
+    // cruzado (filas sin user_id y legacy con user_id NULL) estando offline.
+    try {
+      const db = getDatabase();
+      for (const p of payload) {
+        await db.runAsync(
+          'INSERT OR REPLACE INTO user_row_owners (table_name, row_id, user_id) VALUES (?, ?, ?)',
+          [p.table_name, p.row_id, p.user_id],
+        );
+      }
+    } catch {
+      // El espejo local es opcional; la propiedad remota sigue siendo la fuente.
+    }
   } catch {
     // Fallo opcional; no bloquea la sincronización.
   }
@@ -1046,6 +1068,10 @@ export async function syncRemoteToLocal(): Promise<void> {
         // (user_id NULL) en la nube; se incluyen con .or(...) para no perder
         // historial de instalaciones antiguas.
         const needsLegacyFallback = LEGACY_NULL_USER_FALLBACK_TABLES.has(table);
+        // meal_logs y weight_logs se restauran SOLO del usuario activo (su
+        // columna user_id existe desde el arranque de la app) y conservando los
+        // registros locales recién creados sin conexión.
+        const keepsLocalOffline = ID_PRESERVING_USER_SCOPED_TABLES.has(table);
         const { data, error } = needsLegacyFallback
           ? await supabase
               .from(table)
@@ -1054,7 +1080,7 @@ export async function syncRemoteToLocal(): Promise<void> {
           : await supabase.from(table).select('*').eq(col, ownerId);
         if (error || !data || data.length === 0) continue;
         const rows = data as Record<string, unknown>[];
-        if (needsLegacyFallback) {
+        if (needsLegacyFallback || keepsLocalOffline) {
           // workout_sessions y daily_calories conservan ids estables locales:
           // se reemplazan por id (las filas creadas offline sin subir se
           // preservan), en vez del borrado masivo de mergeUserScopedRows que
@@ -1073,6 +1099,20 @@ export async function syncRemoteToLocal(): Promise<void> {
       .select('table_name, row_id')
       .eq('user_id', ownerId);
     if (ownersError || !owners) return;
+
+    // Espejo LOCAL de la propiedad del usuario (para el borrado cruzado en
+    // purgeUserData). Se re-sincroniza en cada restauración.
+    try {
+      const ownerRows = owners as { table_name: string; row_id: number }[];
+      for (const o of ownerRows) {
+        await getDatabase().runAsync(
+          'INSERT OR REPLACE INTO user_row_owners (table_name, row_id, user_id) VALUES (?, ?, ?)',
+          [o.table_name, o.row_id, ownerId],
+        );
+      }
+    } catch {
+      // El espejo local es opcional.
+    }
 
     const rowsByTable = new Map<string, number[]>();
     for (const o of owners as { table_name: string; row_id: number }[]) {
@@ -1102,19 +1142,86 @@ export async function syncRemoteToLocal(): Promise<void> {
  * peso, comidas y el resto de tablas de usuario) para que al cambiar de
  * cuenta no queden registros de la cuenta anterior en el dispositivo.
  * No borra el catálogo de ejercicios ni la propia cuenta de usuario.
+ *
+ * La purga es SEGURA: nunca ejecuta un borrado masivo por tabla. Cada tabla se
+ * limpia con condición de usuario:
+ *  - tablas con columna user_id (workout_sessions, daily_calories, meal_logs,
+ *    weight_logs y perfiles) → DELETE WHERE user_id = ?
+ *  - workout_sets (sin user_id, colgada de las sesiones) → DELETE por
+ *    session_id de las sesiones del usuario
+ *  - tablas de usuario SIN user_id (weekly_schedule, day_muscles,
+ *    day_exercises, workout_circuits, weekly_meal_plan) y filas legacy con
+ *    user_id NULL → borrado cruzado vía el registro de propiedad
+ *    user_row_owners (espejo local, re-sincronizado en cada restauración)
+ * También purga el historial de chat de la cuenta (AsyncStorage).
  */
 export async function purgeUserData(userId: string): Promise<void> {
   const db = getDatabase();
   try {
     await db.withTransactionAsync(async () => {
-      for (const table of OWNED_TABLES) {
+      // Sesiones del usuario: se capturan ANTES del borrado para limpiar las
+      // series (workout_sets) cuya FK apunta a su session_id.
+      const sessionRows = await db.getAllAsync<{ id: number }>(
+        'SELECT id FROM workout_sessions WHERE user_id = ?',
+        [userId],
+      );
+      const sessionIds = sessionRows.map((s) => s.id);
+
+      // 1) Tablas con columna user_id propia: borrado estricto por usuario.
+      for (const table of [
+        'workout_sessions',
+        'daily_calories',
+        'weight_logs',
+        'meal_logs',
+        'user_profiles',
+        'nutrition_profile',
+      ] as const) {
         assertSafeIdentifier(table);
-        await db.runAsync(`DELETE FROM "${table}"`);
+        await db.runAsync(`DELETE FROM "${table}" WHERE user_id = ?`, [userId]);
       }
-      await db.runAsync('DELETE FROM user_profiles WHERE user_id = ?', [userId]);
-      await db.runAsync('DELETE FROM nutrition_profile WHERE user_id = ?', [userId]);
+
+      // 2) workout_sets NO tiene user_id: se borran las series de las sesiones
+      //    del usuario y, además, las registradas como propias del usuario.
+      if (sessionIds.length > 0) {
+        const placeholders = sessionIds.map(() => '?').join(', ');
+        await db.runAsync(
+          `DELETE FROM workout_sets WHERE session_id IN (${placeholders})`,
+          sessionIds,
+        );
+      }
+
+      // 3) Borrado cruzado vía user_row_owners para el resto de tablas de
+      //    usuario (sin user_id) y las filas legacy con user_id NULL.
+      const owned = await db.getAllAsync<{ table_name: string; row_id: number }>(
+        'SELECT table_name, row_id FROM user_row_owners WHERE user_id = ?',
+        [userId],
+      );
+      const byTable = new Map<string, number[]>();
+      for (const o of owned) {
+        const arr = byTable.get(o.table_name) ?? [];
+        arr.push(o.row_id);
+        byTable.set(o.table_name, arr);
+      }
+      for (const table of OWNED_TABLES) {
+        const ids = byTable.get(table);
+        if (!ids || ids.length === 0) continue;
+        assertSafeIdentifier(table);
+        const placeholders = ids.map(() => '?').join(', ');
+        await db.runAsync(`DELETE FROM "${table}" WHERE id IN (${placeholders})`, ids);
+      }
+
+      // 4) Limpieza del espejo local de propiedad del usuario.
+      await db.runAsync('DELETE FROM user_row_owners WHERE user_id = ?', [userId]);
     });
   } catch {
     // Si el borrado falla, el aislamiento se garantiza en el pull siguiente.
+  }
+
+  // 5) Purga del historial de chat de la cuenta en AsyncStorage.
+  try {
+    await clearStoredChat(userId);
+  } catch {
+    // Fallo no letal: al reabrir la pantalla el chat se reinicia con el
+    // mensaje de bienvenida.
   }
 }

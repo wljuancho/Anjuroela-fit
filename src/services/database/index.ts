@@ -169,6 +169,7 @@ export async function initDatabase(): Promise<void> {
       date TEXT NOT NULL,
       weight_kg REAL NOT NULL,
       notes TEXT,
+      user_id TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -197,6 +198,7 @@ export async function initDatabase(): Promise<void> {
       meal_name TEXT NOT NULL,
       calories REAL NOT NULL DEFAULT 0,
       photo_uri TEXT,
+      user_id TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -216,6 +218,19 @@ export async function initDatabase(): Promise<void> {
     CREATE TABLE IF NOT EXISTS app_meta (
       key TEXT PRIMARY KEY,
       value TEXT
+    );
+
+    -- Espejo local de user_row_owners (Supabase): registra qué fila de cada
+    -- tabla pertenece a qué cuenta. La usa syncService para el borrado cruzado
+    -- de datos de un usuario en tablas que no tienen columna user_id (y para
+    -- registros legacy con user_id NULL). No se sincroniza como tabla propia:
+    -- solo alimenta purgeUserData y los borrados por propiedad.
+    CREATE TABLE IF NOT EXISTS user_row_owners (
+      table_name TEXT NOT NULL,
+      row_id INTEGER NOT NULL,
+      user_id TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (table_name, row_id)
     );
 
     -- Buffer local de borrados pendientes de propagar a Supabase: cada fila
@@ -249,6 +264,8 @@ export async function initDatabase(): Promise<void> {
   await migrateUsersEmailPk(database);
   await migrateDropUsersGoogleId(database);
   await migrateDailyCaloriesUserDate(database);
+  await migrateMealLogsUserId(database);
+  await migrateWeightLogsUserId(database);
 
   await database.execAsync(`
     CREATE INDEX IF NOT EXISTS idx_user_profiles_user ON user_profiles (user_id);
@@ -265,9 +282,12 @@ export async function initDatabase(): Promise<void> {
       ON workout_sets (session_id, exercise_id, set_number);
     CREATE INDEX IF NOT EXISTS idx_weight_logs_date ON weight_logs (date);
     CREATE INDEX IF NOT EXISTS idx_meal_logs_date ON meal_logs (date);
+    CREATE INDEX IF NOT EXISTS idx_weight_logs_user ON weight_logs (user_id);
+    CREATE INDEX IF NOT EXISTS idx_meal_logs_user ON meal_logs (user_id);
     CREATE INDEX IF NOT EXISTS idx_weekly_meal_plan_day ON weekly_meal_plan (day_of_week);
     CREATE INDEX IF NOT EXISTS idx_weekly_meal_plan_date ON weekly_meal_plan (date);
     CREATE INDEX IF NOT EXISTS idx_pending_deletions_user ON pending_deletions (user_id);
+    CREATE INDEX IF NOT EXISTS idx_user_row_owners_user ON user_row_owners (user_id);
   `);
 
   await migrateUserProfileGoalStatus(database);
@@ -554,6 +574,36 @@ async function migrateDailyCaloriesUserDate(db: SQLite.SQLiteDatabase): Promise<
     CREATE UNIQUE INDEX IF NOT EXISTS idx_daily_calories_user_date
       ON daily_calories (user_id, date);
   `);
+}
+
+// Añade meal_logs.user_id (email de la cuenta) para aislar los registros de
+// comida por usuario. En instalaciones legacy se hace backfill con el usuario
+// activo al migrar (un dispositivo = una cuenta).
+async function migrateMealLogsUserId(db: SQLite.SQLiteDatabase): Promise<void> {
+  const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(meal_logs)');
+  const names = columns.map((c) => c.name);
+  if (names.includes('user_id')) return;
+
+  const userId = await getStoredCurrentUserId();
+  await db.execAsync('ALTER TABLE meal_logs ADD COLUMN user_id TEXT');
+  if (userId) {
+    await db.runAsync('UPDATE meal_logs SET user_id = ?', [userId]);
+  }
+}
+
+// Añade weight_logs.user_id (email de la cuenta) para aislar el historial de
+// peso por usuario. En instalaciones legacy se hace backfill con el usuario
+// activo al migrar (un dispositivo = una cuenta).
+async function migrateWeightLogsUserId(db: SQLite.SQLiteDatabase): Promise<void> {
+  const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(weight_logs)');
+  const names = columns.map((c) => c.name);
+  if (names.includes('user_id')) return;
+
+  const userId = await getStoredCurrentUserId();
+  await db.execAsync('ALTER TABLE weight_logs ADD COLUMN user_id TEXT');
+  if (userId) {
+    await db.runAsync('UPDATE weight_logs SET user_id = ?', [userId]);
+  }
 }
 
 async function migrateBodyPartsIsActive(db: SQLite.SQLiteDatabase): Promise<void> {
