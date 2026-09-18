@@ -1,6 +1,8 @@
 import { getDatabase } from './database';
 import { formatDate, getCurrentWeekMonday } from './utils';
 import { syncLocalToRemote, queueLocalDeletion } from './syncService';
+import { applyWearableMetricsToSession } from './healthService';
+import { syncDailyCaloriesBurnedForDate } from './progressService';
 import type {
   DayOfWeek,
   DayMuscle,
@@ -329,7 +331,18 @@ export async function completeSession(sessionId: number): Promise<void> {
   const db = getDatabase();
   try {
     await db.runAsync('UPDATE workout_sessions SET completed = 1 WHERE id = ?', [sessionId]);
+    // Si el wearable está vinculado y midió latidos durante la sesión, se
+    // recalcula `calories_burned` combinando latidos + repeticiones/rondas +
+    // descanso; si no hay datos, se conserva la estimación local (MET).
+    await applyWearableMetricsToSession(sessionId);
+    const session = await getSessionById(sessionId);
+    if (session) {
+      // El conteo de calorías queda unificado con el módulo de Progreso: el
+      // total del día suma las kcal de todas las sesiones completadas.
+      await syncDailyCaloriesBurnedForDate(session.date);
+    }
     void syncLocalToRemote('workout_sessions');
+    void syncLocalToRemote('daily_calories');
   } catch {
     throw new Error('No se pudo completar la sesión.');
   }

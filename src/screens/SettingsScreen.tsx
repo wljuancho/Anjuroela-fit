@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -23,8 +24,18 @@ import {
   deleteVisionApiKey,
   testVisionApiKey,
 } from '../services/configService';
+import {
+  isHealthSyncEnabled,
+  setHealthSyncEnabled,
+  isWearableAvailable,
+  requestWearablePermissions,
+  hasWearablePermissions,
+  revokeWearableAccess,
+} from '../services/healthService';
 
 type Status = 'idle' | 'saved' | 'tested-ok' | 'tested-fail' | 'error';
+
+type WearableStatus = 'checking' | 'available' | 'unavailable';
 
 export default function SettingsScreen() {
   const [apiKey, setApiKey] = useState('');
@@ -34,10 +45,90 @@ export default function SettingsScreen() {
   const [testing, setTesting] = useState(false);
   const [status, setStatus] = useState<Status>('idle');
   const [testDetail, setTestDetail] = useState<string | null>(null);
-  const { signOut, deleteAccount } = useAuth();
+  const { signOut, deleteAccount, user } = useAuth();
 
   const [deletingAccount, setDeletingAccount] = useState(false);
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+
+  const [wearableStatus, setWearableStatus] = useState<WearableStatus>('checking');
+  const [wearableAuthed, setWearableAuthed] = useState(false);
+  const [wearableEnabled, setWearableEnabled] = useState(false);
+  const [linkingHealth, setLinkingHealth] = useState(false);
+  const [unlinkingHealth, setUnlinkingHealth] = useState(false);
+  const storageUserId = user?.id ?? user?.email ?? null;
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const enabled = await isHealthSyncEnabled(storageUserId);
+      const available = await isWearableAvailable();
+      const authed = enabled
+        ? await hasWearablePermissions().catch(() => false)
+        : false;
+      if (cancelled) return;
+      setWearableEnabled(enabled);
+      setWearableAuthed(authed);
+      setWearableStatus(available ? 'available' : 'unavailable');
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [storageUserId]);
+
+  const handleLinkWearable = async () => {
+    if (!storageUserId) return;
+    setLinkingHealth(true);
+    try {
+      await requestWearablePermissions();
+      const authed = await hasWearablePermissions().catch(() => false);
+      if (!authed) {
+        Alert.alert(
+          'Permiso no concedido',
+          'Para sincronizar latidos y calorías, concede el acceso al reloj, pulsera o anillo.',
+        );
+        return;
+      }
+      await setHealthSyncEnabled(storageUserId, true);
+      setWearableEnabled(true);
+      setWearableAuthed(true);
+      Alert.alert(
+        'Dispositivo vinculado',
+        'El ritmo cardíaco y las calorías de tus sesiones se combinarán con tus series, rondas y descansos, y se registrarán automáticamente en tu Progreso.',
+      );
+    } catch (e) {
+      const message =
+        e instanceof Error ? e.message : 'No se pudo vincular el dispositivo.';
+      Alert.alert('No se pudo vincular', message);
+    } finally {
+      setLinkingHealth(false);
+    }
+  };
+
+  const handleUnlinkWearable = async () => {
+    if (!storageUserId) return;
+    Alert.alert(
+      'Desvincular dispositivo',
+      'Se detendrá la sincronización de latidos y calorías del wearable. Tu historial permanece guardado.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Desvincular',
+          style: 'destructive',
+          onPress: async () => {
+            setUnlinkingHealth(true);
+            const result = await revokeWearableAccess().catch(
+              () => ({ message: undefined }) as { message?: string; requiresRestart?: boolean },
+            );
+            await setHealthSyncEnabled(storageUserId, false);
+            setWearableEnabled(false);
+            setWearableAuthed(false);
+            setUnlinkingHealth(false);
+            Alert.alert('Dispositivo desvinculado', result?.message ?? '');
+          },
+        },
+      ],
+    );
+  };
 
   const handleOpenProfile = () => {
     navigation.navigate('Perfil');
@@ -259,6 +350,65 @@ const handleTest = async () => {
 
 <View style={styles.section}>
           <View style={styles.sectionHeader}>
+            <Ionicons name="heart-outline" size={22} color={colors.primary} />
+            <Text style={styles.sectionTitle}>Dispositivos y Salud</Text>
+          </View>
+          <Text style={styles.sectionSubtitle}>
+            Vincula tu reloj, pulsera o anillo (Salud/HealthKit en iPhone, Health
+            Connect en Android) para que Anjuroela Fit registre el ritmo cardíaco
+            y las calorías de tus sesiones combinándolos con tus series, rondas y
+            descansos.
+          </Text>
+
+          {wearableStatus === 'checking' ? (
+            <View style={styles.statusRow}>
+              <ActivityIndicator size="small" color={colors.primary} />
+              <Text style={styles.statusText}>Revisando dispositivo…</Text>
+            </View>
+          ) : wearableStatus === 'unavailable' ? (
+            <View style={[styles.statusBox, styles.statusFail]}>
+              <Ionicons name="phone-portrait-outline" size={18} color={colors.primary} />
+              <Text style={[styles.statusText, styles.statusTextFail]}>
+                Tu dispositivo no admite la sincronización de salud.
+              </Text>
+            </View>
+          ) : wearableEnabled && wearableAuthed ? (
+            <>
+              <View style={[styles.statusBox, styles.statusOk]}>
+                <Ionicons name="checkmark-circle" size={18} color={colors.success} />
+                <Text style={[styles.statusText, styles.statusTextOk]}>
+                  Conectado · {Platform.OS === 'ios' ? 'Salud (HealthKit)' : 'Health Connect'}
+                </Text>
+              </View>
+              <AppButton
+                title="Desvincular dispositivo"
+                variant="outline"
+                onPress={handleUnlinkWearable}
+                loading={unlinkingHealth}
+                disabled={unlinkingHealth}
+              />
+            </>
+          ) : (
+            <>
+              <View style={[styles.statusBox, styles.statusFail]}>
+                <Ionicons name="heart-dislike-outline" size={18} color={colors.primary} />
+                <Text style={[styles.statusText, styles.statusTextFail]}>
+                  No vinculado. Las calorías se estiman localmente hasta que
+                  sincronices tu wearable.
+                </Text>
+              </View>
+              <AppButton
+                title="Vincular mi reloj / pulsera"
+                onPress={handleLinkWearable}
+                loading={linkingHealth}
+                disabled={linkingHealth}
+              />
+            </>
+          )}
+        </View>
+
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
             <Ionicons name="log-out-outline" size={22} color={colors.primary} />
             <Text style={styles.sectionTitle}>Sesión</Text>
           </View>
@@ -371,6 +521,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     marginTop: 16,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 4,
   },
   statusOk: {
     backgroundColor: colors.successSoft,

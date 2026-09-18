@@ -261,6 +261,37 @@ export async function getCaloriesBurnedBySession(limit = 30): Promise<SessionCal
   }
 }
 
+/**
+ * Recalcula de forma idempotente daily_calories.calories_burned del día: suma
+ * las calorías de las sesiones completadas de esa fecha (vengan del wearable o
+ * de la estimación local) y la guarda con un upsert sobre la UNIQUE(date).
+ * Mantiene el conteo unificado con el módulo de Progreso: los workouts siempre
+ * alimentan el mismo total diario.
+ */
+export async function syncDailyCaloriesBurnedForDate(date: string): Promise<void> {
+  const db = getDatabase();
+  try {
+    const rows = await db.getAllAsync<{ total: number }>(
+      `SELECT COALESCE(SUM(calories_burned), 0) AS total
+       FROM workout_sessions
+       WHERE date = ? AND completed = 1`,
+      [date],
+    );
+    const burned = Math.max(0, Math.round(rows[0]?.total ?? 0));
+    await db.runAsync(
+      `INSERT INTO daily_calories (date, calories_burned, logged_at)
+       VALUES (?, ?, ?)
+       ON CONFLICT(date) DO UPDATE SET
+         calories_burned = excluded.calories_burned,
+         logged_at = excluded.logged_at`,
+      [date, burned, new Date().toISOString()],
+    );
+    void syncLocalToRemote('daily_calories');
+  } catch {
+    // Fallo no letal: no bloquea el cierre de la sesión ni el conteo de calorías.
+  }
+}
+
 export async function getStrengthExerciseRecords(): Promise<ExerciseStrengthRecord[]> {
   const db = getDatabase();
   try {

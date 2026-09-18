@@ -100,6 +100,8 @@ export async function initDatabase(): Promise<void> {
       note TEXT,
       completed INTEGER DEFAULT 0,
       calories_burned REAL NOT NULL DEFAULT 0,
+      heart_rate_avg REAL,
+      calories_source TEXT DEFAULT 'estimate',
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -180,6 +182,7 @@ export async function initDatabase(): Promise<void> {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       date TEXT NOT NULL UNIQUE,
       calories_consumed REAL NOT NULL DEFAULT 0,
+      calories_burned REAL NOT NULL DEFAULT 0,
       logged_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -227,6 +230,8 @@ export async function initDatabase(): Promise<void> {
   await migrateWorkoutSets(database);
   await migrateWorkoutSetsRest(database);
   await migrateWorkoutSessionsCalories(database);
+  await migrateWorkoutSessionsHealth(database);
+  await migrateDailyCaloriesBurned(database);
   await migrateExercisesV2Mode(database);
   await migrateDayMuscles(database);
   await migrateDayExercisesWeekOf(database);
@@ -408,6 +413,40 @@ async function migrateWorkoutSessionsCalories(db: SQLite.SQLiteDatabase): Promis
   if (!names.includes('calories_burned')) {
     await db.execAsync(
       'ALTER TABLE workout_sessions ADD COLUMN calories_burned REAL NOT NULL DEFAULT 0',
+    );
+  }
+}
+
+// Añade a workout_sessions las métricas del wearable (HealthKit/Health Connect):
+// el promedio de ritmo cardíaco de la sesión y el origen de las calorías
+// ('estimate' si se estimaron localmente, 'wearable' si llegaron del dispositivo).
+// Idempotente para instalaciones nuevas y ya migradas.
+async function migrateWorkoutSessionsHealth(db: SQLite.SQLiteDatabase): Promise<void> {
+  const columns = await db.getAllAsync<{ name: string }>(
+    'PRAGMA table_info(workout_sessions)',
+  );
+  const names = columns.map((c) => c.name);
+  if (!names.includes('heart_rate_avg')) {
+    await db.execAsync('ALTER TABLE workout_sessions ADD COLUMN heart_rate_avg REAL');
+  }
+  if (!names.includes('calories_source')) {
+    await db.execAsync(
+      "ALTER TABLE workout_sessions ADD COLUMN calories_source TEXT DEFAULT 'estimate'",
+    );
+  }
+}
+
+// Añade daily_calories.calories_burned: el total quemado en las sesiones
+// completadas de ese día (robusto aunque el wearable no esté vinculado, porque
+// se suma la estimación local registrada al cerrar la sesión). Idempotente.
+async function migrateDailyCaloriesBurned(db: SQLite.SQLiteDatabase): Promise<void> {
+  const columns = await db.getAllAsync<{ name: string }>(
+    'PRAGMA table_info(daily_calories)',
+  );
+  const names = columns.map((c) => c.name);
+  if (!names.includes('calories_burned')) {
+    await db.execAsync(
+      'ALTER TABLE daily_calories ADD COLUMN calories_burned REAL NOT NULL DEFAULT 0',
     );
   }
 }
