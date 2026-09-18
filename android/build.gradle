@@ -20,5 +20,11 @@ allprojects {
   }
 }
 
+// minSdkVersion 26 requerido por los módulos nativos (HealthKit/Health Connect
+// y expo-build-properties); el plugin de React Native baja al 24 por defecto.
+ext {
+  minSdkVersion = 26
+}
+
 apply plugin: "expo-root-project"
 apply plugin: "com.facebook.react.rootproject"

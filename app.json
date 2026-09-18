@@ -2,7 +2,7 @@
   "expo": {
     "name": "Anjuroela Fit",
     "slug": "anjuroela-fit",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -21,7 +21,7 @@
         "backgroundColor": "#1a1a2e"
       },
       "package": "com.anjuroela.fit",
-      "versionCode": 6,
+      "versionCode": 7,
       "softwareKeyboardLayoutMode": "resize",
       "permissions": [
         "android.permission.health.READ_HEART_RATE",
