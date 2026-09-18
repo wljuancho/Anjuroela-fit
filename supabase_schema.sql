@@ -195,6 +195,7 @@ create table if not exists public.day_exercises (
   body_part_id bigint not null,
   exercise_id bigint not null,
   position integer not null default 0,
+  week_of text,
   created_at text default (now()::text),
   constraint day_exercises_body_part_fk
     foreign key (body_part_id) references public.body_parts (id) on delete cascade,
@@ -219,6 +220,13 @@ begin
         unique (day_of_week, body_part_id, exercise_id);
   end if;
 end $$;
+
+-- week_of: etiqueta cada planificación con el LUNES de la semana en que se
+-- eligió para aplicarle el RESET VISUAL POR DÍA (el día termina o cambia la
+-- semana -> el plan se oculta sin borrarse de la BD; el historial y el
+-- Progreso se conservan). ADD COLUMN IF NOT EXISTS: idempotente.
+alter table public.day_exercises
+  add column if not exists week_of text;
 
 -- ---------------- entrenamiento ----------------
 create table if not exists public.workout_sessions (

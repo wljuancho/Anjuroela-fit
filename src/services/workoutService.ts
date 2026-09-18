@@ -1,5 +1,5 @@
 import { getDatabase } from './database';
-import { formatDate } from './utils';
+import { formatDate, getCurrentWeekMonday } from './utils';
 import { syncLocalToRemote, queueLocalDeletion } from './syncService';
 import type {
   DayOfWeek,
@@ -505,17 +505,31 @@ export async function getExercisesForBodyPart(bodyPartId: number): Promise<{ id:
   }
 }
 
+/**
+ * Devuelve los ejercicios planificados de un día y músculo para la planificación
+ * de la semana en curso con RESET VISUAL POR DÍA: la planificación de un día
+ * solo se muestra mientras ese día de la semana (en la semana en curso) no
+ * haya pasado. Cuando el día termina, o cuando la semana cambia, los planes
+ * quedan ocultos, pero sus filas permanecen en la BD (is_active y week_of solo
+ * la ocultan) para no perder el historial ni el progreso. El usuario vuelve a
+ * elegir sus ejercicios al llegar el día.
+ */
 export async function getDayExercises(day: DayOfWeek, bodyPartId: number): Promise<DayExercise[]> {
   const db = getDatabase();
   try {
+    const todayIdx = DAYS_ORDER.indexOf(todayDayOfWeek());
+    const dayIdx = DAYS_ORDER.indexOf(day);
+    if (dayIdx < todayIdx) return [];
+    const week = getCurrentWeekMonday();
     return await db.getAllAsync<DayExercise>(
       `SELECT de.id, de.day_of_week, de.body_part_id, de.exercise_id,
               e.name as exercise_name, e.equipment, e.mode, de.position
        FROM day_exercises de
        INNER JOIN exercises_v2 e ON e.id = de.exercise_id
-       WHERE de.day_of_week = ? AND de.body_part_id = ?
+       WHERE de.day_of_week = ? AND de.body_part_id = ? AND de.week_of = ?
+         AND e.is_active = 1
        ORDER BY de.position, de.id`,
-      [day, bodyPartId],
+      [day, bodyPartId, week],
     );
   } catch {
     throw new Error('No se pudieron cargar los ejercicios de la rutina.');
@@ -609,18 +623,33 @@ export async function addExercisesToDay(
 ): Promise<number> {
   const db = getDatabase();
   try {
+    const week = getCurrentWeekMonday();
     let added = 0;
     await db.withTransactionAsync(async () => {
       for (const exerciseId of exerciseIds) {
-        const pos = await db.getAllAsync<{ mx: number }>(
-          'SELECT COALESCE(MAX(position), -1) + 1 as mx FROM day_exercises WHERE day_of_week = ?',
-          [day],
+        const existing = await db.getAllAsync<{ id: number }>(
+          'SELECT id FROM day_exercises WHERE day_of_week = ? AND body_part_id = ? AND exercise_id = ? LIMIT 1',
+          [day, bodyPartId, exerciseId],
         );
-        const result = await db.runAsync(
-          'INSERT OR IGNORE INTO day_exercises (day_of_week, body_part_id, exercise_id, position) VALUES (?, ?, ?, ?)',
-          [day, bodyPartId, exerciseId, pos[0]?.mx ?? 0],
-        );
-        added += result.changes;
+        if (existing[0]) {
+          // Re-planificación de la semana en curso: se reactiva la fila
+          // existente (que quedó oculta por el reset visual) sin duplicarla
+          // ni borrar su historial.
+          await db.runAsync('UPDATE day_exercises SET week_of = ? WHERE id = ?', [
+            week,
+            existing[0].id,
+          ]);
+        } else {
+          const pos = await db.getAllAsync<{ mx: number }>(
+            'SELECT COALESCE(MAX(position), -1) + 1 as mx FROM day_exercises WHERE day_of_week = ?',
+            [day],
+          );
+          await db.runAsync(
+            'INSERT INTO day_exercises (day_of_week, body_part_id, exercise_id, position, week_of) VALUES (?, ?, ?, ?, ?)',
+            [day, bodyPartId, exerciseId, pos[0]?.mx ?? 0, week],
+          );
+        }
+        added += 1;
       }
     });
     if (added > 0) {
@@ -639,19 +668,13 @@ export async function removeExerciseFromDay(
 ): Promise<void> {
   const db = getDatabase();
   try {
-    const rows = await db.getAllAsync<{ id: number }>(
-      'SELECT id FROM day_exercises WHERE day_of_week = ? AND body_part_id = ? AND exercise_id = ? LIMIT 1',
-      [day, bodyPartId, exerciseId],
-    );
+    // Borrado SUAVE: la fila se conserva en la BD pero se oculta (week_of NULL
+    // no coincide con la semana en curso). Si el usuario vuelve a agregar el
+    // ejercicio, addExercisesToDay reactiva la misma fila.
     await db.runAsync(
-      'DELETE FROM day_exercises WHERE day_of_week = ? AND body_part_id = ? AND exercise_id = ?',
+      'UPDATE day_exercises SET week_of = NULL WHERE day_of_week = ? AND body_part_id = ? AND exercise_id = ?',
       [day, bodyPartId, exerciseId],
     );
-    await queueLocalDeletion({
-      table: 'day_exercises',
-      rowId: rows[0]?.id,
-      key: { day_of_week: day, body_part_id: bodyPartId, exercise_id: exerciseId },
-    });
     void syncLocalToRemote('day_exercises');
   } catch {
     throw new Error('No se pudo quitar el ejercicio de la rutina.');
@@ -682,8 +705,8 @@ export async function addRandomExercisesToDay(
   try {
     const random = await getRandomExercises(bodyPartId, limit);
     const existing = await db.getAllAsync<{ exercise_id: number }>(
-      'SELECT exercise_id FROM day_exercises WHERE day_of_week = ? AND body_part_id = ?',
-      [day, bodyPartId],
+      'SELECT exercise_id FROM day_exercises WHERE day_of_week = ? AND body_part_id = ? AND week_of = ?',
+      [day, bodyPartId, getCurrentWeekMonday()],
     );
     const addedIds = new Set(existing.map((r) => r.exercise_id));
     const toAdd = random.map((e) => e.id).filter((id) => !addedIds.has(id));
@@ -728,6 +751,7 @@ export async function getDayMuscles(day: DayOfWeek): Promise<DayMuscle[]> {
        FROM day_muscles dm
        INNER JOIN body_parts bp ON bp.id = dm.body_part_id
        WHERE dm.day_of_week = ?
+         AND bp.is_active = 1
        ORDER BY dm.position, dm.id`,
       [day],
     );
@@ -753,9 +777,10 @@ export async function getAllDayMuscles(): Promise<DayMuscle[]> {
       completed_date: string | null;
     }>(
       `SELECT dm.id, dm.day_of_week, dm.body_part_id, bp.name as body_part_name,
-              dm.position, dm.completed, dm.completed_date
+               dm.position, dm.completed, dm.completed_date
        FROM day_muscles dm
        INNER JOIN body_parts bp ON bp.id = dm.body_part_id
+       WHERE bp.is_active = 1
        ORDER BY dm.day_of_week, dm.position, dm.id`,
     );
     return rows.map((r) => ({

@@ -85,6 +85,7 @@ export async function initDatabase(): Promise<void> {
       body_part_id INTEGER NOT NULL,
       exercise_id INTEGER NOT NULL,
       position INTEGER DEFAULT 0,
+      week_of TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (body_part_id) REFERENCES body_parts (id) ON DELETE CASCADE,
       FOREIGN KEY (exercise_id) REFERENCES exercises_v2 (id) ON DELETE CASCADE,
@@ -226,6 +227,7 @@ export async function initDatabase(): Promise<void> {
   await migrateWorkoutSessionsCalories(database);
   await migrateExercisesV2Mode(database);
   await migrateDayMuscles(database);
+  await migrateDayExercisesWeekOf(database);
   await migrateUniqueSessionIndex(database);
   await migrateWorkoutSessionType(database);
   await migrateBodyPartsIsActive(database);
@@ -359,6 +361,18 @@ async function migrateDayMuscles(db: SQLite.SQLiteDatabase): Promise<void> {
       'INSERT OR IGNORE INTO day_muscles (day_of_week, body_part_id, position, completed) VALUES (?, ?, ?, 0)',
       [item.day_of_week, item.body_part_id, 0],
     );
+  }
+}
+
+// Añade day_exercises.week_of: etiqueta cada planificación con el lunes de la
+// semana en que se eligió, para ocultarla (reset visual) cuando la semana o el
+// día pase sin borrarla de la BD (el historial de series y peso se conserva).
+// Idempotente para instalaciones nuevas y ya migradas.
+async function migrateDayExercisesWeekOf(db: SQLite.SQLiteDatabase): Promise<void> {
+  const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(day_exercises)');
+  const names = columns.map((c) => c.name);
+  if (!names.includes('week_of')) {
+    await db.execAsync('ALTER TABLE day_exercises ADD COLUMN week_of TEXT');
   }
 }
 

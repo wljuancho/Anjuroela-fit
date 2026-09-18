@@ -1,5 +1,5 @@
 import { getDatabase } from './database';
-import { syncLocalToRemote, queueLocalDeletion } from './syncService';
+import { syncLocalToRemote } from './syncService';
 import type {
   BodyPart,
   ExerciseWithBodyPart,
@@ -45,48 +45,21 @@ export async function addBodyPart(data: NewBodyPart): Promise<BodyPart> {
 export async function deleteBodyPart(bodyPartId: number): Promise<void> {
   const db = getDatabase();
   try {
-    // Se capturan las filas afectadas ANTES de borrarlas para que su borrado
-    // también se propague a Supabase (cascada de la categoría en la rutina).
-    const dayExercises = await db.getAllAsync<{
-      id: number;
-      day_of_week: string;
-      exercise_id: number;
-    }>('SELECT id, day_of_week, exercise_id FROM day_exercises WHERE body_part_id = ?', [
-      bodyPartId,
-    ]);
-    const dayMuscles = await db.getAllAsync<{ id: number; day_of_week: string }>(
-      'SELECT id, day_of_week FROM day_muscles WHERE body_part_id = ?',
-      [bodyPartId],
-    );
+    // Borrado SOLO VISUAL (reset visual): el músculo y sus ejercicios se
+    // ocultan (is_active = 0) pero sus filas PERMANECEN en la BD — ejercicio y
+    // rutina incluidos (day_exercises/day_muscles intactos). Así el histórico
+    // de series y peso sigue contando en Progreso y, si el usuario vuelve a
+    // crear el músculo con el mismo nombre, reaparece con su rutina. Solo la
+    // eliminación de la cuenta (users) borra todo lo relacionado con él.
     await db.withTransactionAsync(async () => {
-      await db.runAsync(
-        'UPDATE exercises_v2 SET is_active = 0 WHERE body_part_id = ?',
-        [bodyPartId],
-      );
-      await db.runAsync('DELETE FROM day_exercises WHERE body_part_id = ?', [bodyPartId]);
-      await db.runAsync('DELETE FROM day_muscles WHERE body_part_id = ?', [bodyPartId]);
-      await db.runAsync(
-        'UPDATE weekly_schedule SET body_part_id = NULL WHERE body_part_id = ?',
-        [bodyPartId],
-      );
+      await db.runAsync('UPDATE exercises_v2 SET is_active = 0 WHERE body_part_id = ?', [
+        bodyPartId,
+      ]);
+      await db.runAsync('UPDATE weekly_schedule SET body_part_id = NULL WHERE body_part_id = ?', [
+        bodyPartId,
+      ]);
       await db.runAsync('UPDATE body_parts SET is_active = 0 WHERE id = ?', [bodyPartId]);
     });
-    for (const row of dayExercises) {
-      await queueLocalDeletion({
-        table: 'day_exercises',
-        rowId: row.id,
-        key: { day_of_week: row.day_of_week, body_part_id: bodyPartId, exercise_id: row.exercise_id },
-      });
-    }
-    for (const row of dayMuscles) {
-      await queueLocalDeletion({
-        table: 'day_muscles',
-        rowId: row.id,
-        key: { day_of_week: row.day_of_week, body_part_id: bodyPartId },
-      });
-    }
-    // La operación modifica también rutina y ejercicios asociados; una pasada
-    // completa conserva esos cambios si se hizo sin conexión.
     void syncLocalToRemote();
   } catch {
     throw new Error('No se pudo eliminar la categoría.');
@@ -213,28 +186,11 @@ export async function updateExercise(data: UpdateExercise): Promise<ExerciseWith
 export async function deleteExercise(exerciseId: number): Promise<void> {
   const db = getDatabase();
   try {
-    // Se capturan las asignaciones del ejercicio ANTES de borrarlas para que
-    // su borrado también se propague a Supabase.
-    const dayExercises = await db.getAllAsync<{
-      id: number;
-      day_of_week: string;
-      body_part_id: number;
-    }>('SELECT id, day_of_week, body_part_id FROM day_exercises WHERE exercise_id = ?', [
-      exerciseId,
-    ]);
-    await db.withTransactionAsync(async () => {
-      await db.runAsync('UPDATE exercises_v2 SET is_active = 0 WHERE id = ?', [exerciseId]);
-      await db.runAsync('DELETE FROM day_exercises WHERE exercise_id = ?', [exerciseId]);
-    });
-    for (const row of dayExercises) {
-      await queueLocalDeletion({
-        table: 'day_exercises',
-        rowId: row.id,
-        key: { day_of_week: row.day_of_week, body_part_id: row.body_part_id, exercise_id: exerciseId },
-      });
-    }
-    // La eliminación también quitó asignaciones en day_exercises.
-    void syncLocalToRemote();
+    // Borrado SOLO VISUAL: el ejercicio se oculta (is_active = 0) en el
+    // catálogo y en la rutina del día, pero sus filas (day_exercises) y su
+    // histórico de series y peso PERMANECEN en la BD para no perder Progreso.
+    await db.runAsync('UPDATE exercises_v2 SET is_active = 0 WHERE id = ?', [exerciseId]);
+    void syncLocalToRemote('exercises_v2');
   } catch {
     throw new Error('No se pudo eliminar el ejercicio.');
   }

@@ -17,7 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import AppButton from '../components/AppButton';
 import { ModalAgregarEjercicioRutina } from '../components/rutina';
 import type { RutinaStackParamList } from '../navigation/types';
-import { DAY_LABELS, type MuscleExercise, type WorkoutCircuit } from '../types/workout';
+import { DAY_LABELS, DAYS_ORDER, type MuscleExercise, type WorkoutCircuit } from '../types/workout';
 import { addExercise } from '../services/exerciseService';
 import {
   getOrCreateSession,
@@ -55,6 +55,11 @@ export default function MusclePanelScreen() {
   const [circuit, setCircuit] = useState<WorkoutCircuit | null>(null);
   const [loading, setLoading] = useState(true);
   const [showAddExercise, setShowAddExercise] = useState(false);
+
+  const todayDay = DAYS_ORDER[
+    new Date().getDay() === 0 ? 6 : new Date().getDay() - 1
+  ];
+  const isPastDay = DAYS_ORDER.indexOf(day) < DAYS_ORDER.indexOf(todayDay);
 
   const load = useCallback(async () => {
     try {
@@ -274,10 +279,24 @@ export default function MusclePanelScreen() {
           <Text style={styles.headerTitle}>{bodyPartName}</Text>
           <Text style={styles.headerSubtitle}>{DAY_LABELS[day]}</Text>
         </View>
-        <TouchableOpacity onPress={() => setShowAddExercise(true)} style={styles.addBtn}>
-          <Ionicons name="add" size={24} color={colors.text} />
-        </TouchableOpacity>
+        {isPastDay ? (
+          <View style={styles.addBtnHidden} />
+        ) : (
+          <TouchableOpacity onPress={() => setShowAddExercise(true)} style={styles.addBtn}>
+            <Ionicons name="add" size={24} color={colors.text} />
+          </TouchableOpacity>
+        )}
       </View>
+
+      {isPastDay ? (
+        <View style={styles.resetBanner}>
+          <Ionicons name="refresh" size={16} color={colors.textMuted} />
+          <Text style={styles.resetBannerText}>
+            Día finalizado: su planificación se ocultó (reset visual por día). Puedes revisar tus
+            series; el Progreso se conserva.
+          </Text>
+        </View>
+      ) : null}
 
       {completed ? (
         <View style={styles.completedBanner}>
@@ -439,6 +458,10 @@ const styles = StyleSheet.create({
     fontSize: 13,
     textTransform: 'capitalize',
   },
+  addBtnHidden: {
+    width: 40,
+    height: 40,
+  },
   addBtn: {
     width: 40,
     height: 40,
@@ -467,6 +490,24 @@ const styles = StyleSheet.create({
     color: colors.success,
     fontSize: 13,
     fontWeight: '600',
+    flex: 1,
+  },
+  resetBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    backgroundColor: colors.cardAlt,
+    borderColor: colors.cardAlt,
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 12,
+  },
+  resetBannerText: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: '500',
     flex: 1,
   },
   list: {

@@ -123,11 +123,11 @@ export default function EjerciciosScreen() {
     (exercise: ExerciseWithBodyPart) => {
       Alert.alert(
         'Eliminar ejercicio',
-        `¿Deseas eliminar "${exercise.name}" del catálogo?`,
+        `¿Ocultar "${exercise.name}" del catálogo? Se conserva en tu historial y Progreso; puedes volver a crearlo cuando quieras.`,
         [
           { text: 'Cancelar', style: 'cancel' },
           {
-            text: 'Eliminar',
+            text: 'Ocultar',
             style: 'destructive',
             onPress: async () => {
               try {
@@ -178,11 +178,11 @@ export default function EjerciciosScreen() {
             count === 1 ? '1 ejercicio asociado' : `${count} ejercicios asociados`;
           Alert.alert(
             '¿Eliminar categoría?',
-            `Se eliminará la categoría "${bodyPart.name}" y ${exercisesLabel}. Esta acción no se puede deshacer.`,
+            `Se ocultará la categoría "${bodyPart.name}" y ${exercisesLabel}. Tu Progreso se conserva y puedes volver a crearla con su rutina cuando quieras.`,
             [
               { text: 'Cancelar', style: 'cancel' },
               {
-                text: 'Eliminar',
+                text: 'Ocultar',
                 style: 'destructive',
                 onPress: async () => {
                   try {

@@ -5,6 +5,18 @@ export function formatDate(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
+// Devuelve la fecha (YYYY-MM-DD) del LUNES de la semana en la que cae `date`.
+// Se usa para etiquetar la planificación semanal de la rutina
+// (day_exercises.week_of): al cambiar de semana o terminar el día, los planes
+// anteriores quedan ocultos (reset visual) sin borrarse de la BD.
+export function getCurrentWeekMonday(date: Date = new Date()): string {
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const jsDay = d.getDay(); // 0 = domingo .. 6 = sábado
+  const daysSinceMonday = jsDay === 0 ? 6 : jsDay - 1;
+  d.setDate(d.getDate() - daysSinceMonday);
+  return formatDate(d);
+}
+
 export function formatNumber(value: number, decimals = 0): string {
   return value.toLocaleString('es-ES', {
     minimumFractionDigits: decimals,
