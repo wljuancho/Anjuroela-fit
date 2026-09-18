@@ -268,6 +268,13 @@ export default function ComidaScreen() {
           activityLevel: nutritionProfile?.activityLevel,
           goalType: nutritionProfile?.goalType,
           dailyCaloriesGoal: nutritionProfile?.dailyCaloriesGoal,
+          sexForFormula:
+            profile?.sexForFormula ??
+            (profile?.gender === 'hombre'
+              ? 'male'
+              : profile?.gender === 'mujer'
+                ? 'female'
+                : 'not_specified'),
         }}
         onClose={() => setNutriVisible(false)}
         onSave={async (tdeeInput) => {

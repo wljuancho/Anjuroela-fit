@@ -1,7 +1,7 @@
 import { getDatabase } from './database';
 import { formatDate } from './utils';
 import { getProfile, updateGoalStatus } from './authService';
-import { syncLocalToRemote, queueLocalDeletion } from './syncService';
+import { getActiveUserId, syncLocalToRemote, queueLocalDeletion } from './syncService';
 import type {
   WeightLog,
   NewWeightLog,
@@ -12,6 +12,7 @@ import type {
   MuscleSessionPoint,
   GoalDeadlineEvaluation,
   SessionCaloriesBurned,
+  SessionHealthMetrics,
 } from '../types/progress';
 
 export async function addWeightLog(data: NewWeightLog): Promise<WeightLog> {
@@ -229,7 +230,7 @@ export async function getGoalSummary(userId: string): Promise<GoalSummary> {
   }
 }
 
-export async function getCaloriesBurnedBySession(limit = 30): Promise<SessionCaloriesBurned[]> {
+export async function getCaloriesBurnedBySession(userId: string, limit = 30): Promise<SessionCaloriesBurned[]> {
   const db = getDatabase();
   try {
     const rows = await db.getAllAsync<{
@@ -244,10 +245,11 @@ export async function getCaloriesBurnedBySession(limit = 30): Promise<SessionCal
        FROM workout_sessions s
        LEFT JOIN workout_sets w ON w.session_id = s.id
        WHERE s.completed = 1 AND s.calories_burned IS NOT NULL AND s.calories_burned > 0
+         AND (s.user_id = ? OR s.user_id IS NULL)
        GROUP BY s.id
        ORDER BY s.date DESC, s.id DESC
        LIMIT ?`,
-      [limit],
+      [userId, limit],
     );
     return rows.map((r) => ({
       sessionId: r.id,
@@ -261,30 +263,75 @@ export async function getCaloriesBurnedBySession(limit = 30): Promise<SessionCal
   }
 }
 
+// Métricas de salud de las sesiones completadas más recientes (wearable/local)
+// para enriquecer el contexto del coach: kcal y frecuencia cardíaca promedio.
+export async function getRecentSessionHealthMetrics(
+  userId: string,
+  limit = 10,
+): Promise<SessionHealthMetrics[]> {
+  const db = getDatabase();
+  try {
+    const rows = await db.getAllAsync<{
+      id: number;
+      date: string;
+      calories_burned: number | null;
+      heart_rate_avg: number | null;
+      session_type: string | null;
+      set_count: number;
+    }>(
+      `SELECT s.id, s.date, s.calories_burned, s.heart_rate_avg, s.session_type,
+              (SELECT COUNT(*) FROM workout_sets w WHERE w.session_id = s.id) AS set_count
+       FROM workout_sessions s
+       WHERE s.completed = 1 AND (s.user_id = ? OR s.user_id IS NULL)
+       ORDER BY s.date DESC, s.id DESC
+       LIMIT ?`,
+      [userId, limit],
+    );
+    return rows.map((r) => ({
+      sessionId: r.id,
+      date: r.date,
+      caloriesBurned: r.calories_burned ?? 0,
+      heartRateAvg: r.heart_rate_avg ?? null,
+      sessionType: r.session_type ?? 'routine',
+      setCount: r.set_count,
+    }));
+  } catch {
+    throw new Error('No se pudieron cargar las métricas de salud.');
+  }
+}
+
 /**
  * Recalcula de forma idempotente daily_calories.calories_burned del día: suma
  * las calorías de las sesiones completadas de esa fecha (vengan del wearable o
- * de la estimación local) y la guarda con un upsert sobre la UNIQUE(date).
+ * de la estimación local) y la guarda con un upsert sobre la UNIQUE(user_id, date).
  * Mantiene el conteo unificado con el módulo de Progreso: los workouts siempre
  * alimentan el mismo total diario.
  */
-export async function syncDailyCaloriesBurnedForDate(date: string): Promise<void> {
+export async function syncDailyCaloriesBurnedForDate(
+  userId: string | null,
+  date: string,
+): Promise<void> {
   const db = getDatabase();
+  if (!userId) {
+    // Sin usuario activo (p. ej. instalación aún anónima) no se registra el
+    // total diario: las kcal se siguen guardando en workout_sessions.
+    return;
+  }
   try {
     const rows = await db.getAllAsync<{ total: number }>(
       `SELECT COALESCE(SUM(calories_burned), 0) AS total
        FROM workout_sessions
-       WHERE date = ? AND completed = 1`,
-      [date],
+       WHERE date = ? AND completed = 1 AND (user_id = ? OR user_id IS NULL)`,
+      [date, userId],
     );
     const burned = Math.max(0, Math.round(rows[0]?.total ?? 0));
     await db.runAsync(
-      `INSERT INTO daily_calories (date, calories_burned, logged_at)
-       VALUES (?, ?, ?)
-       ON CONFLICT(date) DO UPDATE SET
+      `INSERT INTO daily_calories (user_id, date, calories_burned, logged_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(user_id, date) DO UPDATE SET
          calories_burned = excluded.calories_burned,
          logged_at = excluded.logged_at`,
-      [date, burned, new Date().toISOString()],
+      [userId, date, burned, new Date().toISOString()],
     );
     void syncLocalToRemote('daily_calories');
   } catch {

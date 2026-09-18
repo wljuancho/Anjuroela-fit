@@ -35,6 +35,7 @@ import {
   discardPendingDeletionsForUser,
 } from '../services/syncService';
 import { setSupabaseAppUser } from '../services/supabaseClient';
+import type { SexForFormula } from '../types/nutrition';
 
 export interface AuthUser {
   id: string;
@@ -52,6 +53,7 @@ export interface UserProfile {
   heightCm?: number;
   age?: number;
   gender?: GenderValue;
+  sexForFormula?: SexForFormula;
 }
 
 export interface HealthProfileData {
@@ -187,6 +189,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         gender:
           profileRow.gender === 'mujer' || profileRow.gender === 'hombre'
             ? profileRow.gender
+            : undefined,
+        sexForFormula:
+          profileRow.sex_for_calorie_formula === 'male' ||
+          profileRow.sex_for_calorie_formula === 'female' ||
+          profileRow.sex_for_calorie_formula === 'not_specified'
+            ? profileRow.sex_for_calorie_formula
             : undefined,
       };
     }

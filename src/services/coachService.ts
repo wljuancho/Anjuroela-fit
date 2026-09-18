@@ -19,12 +19,16 @@ import {
   getGoalSummary,
   getStrengthExerciseRecords,
   getLatestWeightLog,
+  getCaloriesBurnedBySession,
+  getRecentSessionHealthMetrics,
 } from './progressService';
 import {
-  getNutritionProfile,
   getNutritionDayData,
   replaceWeeklyMealPlan,
+  getEnergySummary,
+  getLast7DaysCaloriesAvg,
 } from './nutritionService';
+import { isWearableAvailable } from './healthService';
 import { DAYS_ORDER } from '../types/workout';
 import type { DayOfWeek } from '../types/workout';
 import type {
@@ -76,6 +80,7 @@ const MEAL_MAP: Record<string, string> = {
 
 const ACTIVITY_LABELS: Record<string, string> = {
   sedentario: 'sedentaria',
+  ligero: 'ligera',
   moderado: 'moderada',
   activo: 'activa',
 };
@@ -220,8 +225,11 @@ const SYSTEM_PROMPT =
 async function buildContext(userId: string): Promise<string> {
   const sections: string[] = ['DATOS ACTUALES DEL USUARIO (usados para recomendar):'];
   const now = new Date();
-  sections.push(`- Fecha de hoy: ${formatDate(now)} (${getSpanishWeekday(now)}).`);
+  const todayStr = formatDate(now);
+  sections.push(`- Fecha de hoy: ${todayStr} (${getSpanishWeekday(now)}).`);
 
+  // ------------------------------------------------------------------ PERFIL
+  sections.push('[PERFIL]');
   try {
     const profile = await getProfile(userId);
     if (profile) {
@@ -229,26 +237,34 @@ async function buildContext(userId: string): Promise<string> {
         profile.current_weight != null ? `${formatNumber(profile.current_weight, 1)} kg` : '—';
       const target =
         profile.target_weight != null ? `${formatNumber(profile.target_weight, 1)} kg` : '—';
-      sections.push(`- Peso actual: ${weight}. Peso objetivo: ${target}.`);
+      const sexRaw = profile.sex_for_calorie_formula ?? profile.gender ?? null;
+      const sexLabel =
+        sexRaw === 'male' || sexRaw === 'hombre'
+          ? 'varón'
+          : sexRaw === 'female' || sexRaw === 'mujer'
+            ? 'mujer'
+            : sexRaw ?? 'no especificado';
+      const physical: string[] = [
+        `Edad ${profile.age != null ? `${profile.age} años` : '—'}`,
+        `Sexo ${sexLabel}`,
+        `Peso actual ${weight}`,
+        `Peso objetivo ${target}`,
+      ];
+      if (profile.height != null && profile.height > 0) {
+        const bmiWeight = (await getLatestWeightLog())?.weight_kg ?? profile.current_weight ?? null;
+        if (bmiWeight != null && bmiWeight > 0) {
+          const bmi = calculateBMI(bmiWeight, profile.height);
+          const category = classifyBMI(bmi) ?? 'no clasificable';
+          physical.push(
+            `Altura ${formatNumber(profile.height, 0)} cm, IMC ${formatNumber(bmi, 1)} (${category})`,
+          );
+        } else {
+          physical.push(`Altura ${formatNumber(profile.height, 0)} cm`);
+        }
+      }
+      sections.push(`- ${physical.join(', ')}.`);
       if (profile.goal_weeks != null) sections.push(`- Meta planteada para ${profile.goal_weeks} semanas.`);
       if (profile.goal_status) sections.push(`- Estado de la meta: ${profile.goal_status}.`);
-    }
-  } catch {}
-
-  try {
-    const profile = await getProfile(userId);
-    const latest = await getLatestWeightLog();
-    if (profile?.height != null && profile.height > 0) {
-      const bmiWeight = latest?.weight_kg ?? profile.current_weight ?? null;
-      if (bmiWeight != null && bmiWeight > 0) {
-        const bmi = calculateBMI(bmiWeight, profile.height);
-        const category = classifyBMI(bmi) ?? 'no clasificable';
-        sections.push(
-          `- Altura: ${formatNumber(profile.height, 0)} cm. IMC: ${formatNumber(bmi, 1)} (${category}).`,
-        );
-      } else {
-        sections.push(`- Altura: ${formatNumber(profile.height, 0)} cm.`);
-      }
     }
   } catch {}
 
@@ -259,19 +275,115 @@ async function buildContext(userId: string): Promise<string> {
     }
   } catch {}
 
+  // ----------------------------------- TENDENCIA DE PESO (7, 14 Y 30 DÍAS)
+  sections.push('[TENDENCIA DE PESO (7, 14 Y 30 DÍAS)]');
   try {
     const logs = await getWeightHistory();
-    const cutoff = formatDate(addDays(new Date(), -30));
-    const recent = logs.filter((log) => log.date >= cutoff);
-    if (recent.length === 0) {
-      sections.push('- Historial de peso (últimos 30 días): sin registros.');
+    if (logs.length === 0) {
+      sections.push('- Peso: sin registros todavía.');
     } else {
-      const lines = recent
-        .map((log) => `${log.date}: ${formatNumber(log.weight_kg, 1)} kg`)
-        .join('; ');
-      sections.push(`- Historial de peso (últimos 30 días): ${lines}.`);
+      const rollingAvg = (days: number): number | null => {
+        const from = formatDate(addDays(now, -(days - 1)));
+        const window = logs.filter((l) => l.date >= from);
+        if (window.length === 0) return null;
+        return Math.round((window.reduce((s, l) => s + l.weight_kg, 0) / window.length) * 10) / 10;
+      };
+      const trendVsPrevious = (days: number): string => {
+        const from = formatDate(addDays(now, -(days - 1)));
+        const prevFrom = formatDate(addDays(now, -(2 * days - 1)));
+        const recent = logs.filter((l) => l.date >= from);
+        const prior = logs.filter((l) => l.date >= prevFrom && l.date < from);
+        if (recent.length === 0 || prior.length === 0) return 'sin datos suficientes';
+        const rAvg = recent.reduce((s, l) => s + l.weight_kg, 0) / recent.length;
+        const pAvg = prior.reduce((s, l) => s + l.weight_kg, 0) / prior.length;
+        const delta = rAvg - pAvg;
+        if (Math.abs(delta) < 0.3) return 'estancado (±0.3 kg)';
+        return delta < 0
+          ? `bajando (−${formatNumber(Math.abs(delta), 1)} kg)`
+          : `aumentando (+${formatNumber(delta, 1)} kg)`;
+      };
+      const last = logs[logs.length - 1];
+      sections.push(`- Último peso: ${formatNumber(last.weight_kg, 1)} kg (${last.date}).`);
+      sections.push(
+        `- Promedios: 7 días ${rollingAvg(7) ?? '—'} kg | 14 días ${rollingAvg(14) ?? '—'} kg | 30 días ${rollingAvg(30) ?? '—'} kg.`,
+      );
+      sections.push(
+        `- Tendencia vs período previo: 7d → ${trendVsPrevious(7)}; 14d → ${trendVsPrevious(14)}; 30d → ${trendVsPrevious(30)}.`,
+      );
     }
   } catch {}
+
+  // ------------------------------------------------- ENERGÍA Y NUTRICIÓN
+  sections.push('[ENERGÍA Y NUTRICIÓN]');
+  try {
+    const [energy, today, burned7] = await Promise.all([
+      getEnergySummary(userId),
+      getNutritionDayData(userId, todayStr),
+      getLast7DaysCaloriesAvg(userId),
+    ]);
+    if (energy) {
+      sections.push(
+        `- Metabolismo: BMR ${energy.bmr != null ? `${Math.round(energy.bmr)} kcal` : '—'} (Mifflin-St Jeor), ` +
+          `TDEE ${energy.tdee != null ? `${Math.round(energy.tdee)} kcal` : '—'} ` +
+          `(actividad ${ACTIVITY_LABELS[energy.activityLevel ?? ''] ?? energy.activityLevel ?? '—'}).`,
+        `- Meta diaria de calorías: ${energy.dailyCaloriesGoal != null ? `${Math.round(energy.dailyCaloriesGoal)} kcal` : 'sin meta configurada'}.`,
+      );
+      if (energy.goalType) {
+        sections.push(
+          `- Estrategia calórica: ${describeNutritionStrategy(energy.goalType, energy.dailyCaloriesGoal)}` +
+            ` (objetivo ${GOAL_LABELS[energy.goalType] ?? energy.goalType}).`,
+        );
+      }
+      if (energy.last7DaysCaloriesAvg != null) {
+        sections.push(`- Consumo promedio último 7 días: ${Math.round(energy.last7DaysCaloriesAvg)} kcal.`);
+      }
+      if (energy.last30DaysCaloriesAvg != null) {
+        sections.push(`- Consumo promedio último 30 días: ${Math.round(energy.last30DaysCaloriesAvg)} kcal.`);
+      }
+    }
+    sections.push(
+      `- Calorías de hoy: ${today.caloriesConsumed != null ? Math.round(today.caloriesConsumed) : 0} kcal consumidas` +
+        (today.goal != null ? ` de ${today.goal} kcal de meta` : '.'),
+    );
+    if (burned7.avgBurned != null) {
+      sections.push(`- Calorías quemadas promedio último 7 días: ${Math.round(burned7.avgBurned)} kcal.`);
+    }
+  } catch {}
+
+  // ------------------------------------------------- WEARABLES Y EJERCICIO
+  sections.push('[WEARABLES Y EJERCICIO]');
+  try {
+    let wearable = 'no vinculado';
+    try {
+      if (await isWearableAvailable()) wearable = 'disponible';
+    } catch {}
+    sections.push(`- Dispositivo wearable (HealthKit/Google Fit): ${wearable}.`);
+    const [metrics, burnedSessions] = await Promise.all([
+      getRecentSessionHealthMetrics(userId, 10),
+      getCaloriesBurnedBySession(userId, 30),
+    ]);
+    if (metrics.length === 0) {
+      sections.push('- Sesiones recientes con métricas: sin datos todavía.');
+    } else {
+      const lines = metrics
+        .map((m) => {
+          const kcal = m.caloriesBurned > 0 ? `${Math.round(m.caloriesBurned)} kcal` : 'sin kcal';
+          const hr = m.heartRateAvg != null ? `, FC media ${Math.round(m.heartRateAvg)} bpm` : '';
+          return `${m.date} (${m.sessionType}): ${kcal}${hr}`;
+        })
+        .join('; ');
+      sections.push(`- Últimas sesiones completadas (máx 10): ${lines}.`);
+    }
+    if (burnedSessions.length > 0) {
+      const total = burnedSessions.reduce((s, b) => s + b.caloriesBurned, 0);
+      sections.push(
+        `- Calorías totales quemadas en las últimas ${burnedSessions.length} sesiones: ${Math.round(total)} kcal.`,
+      );
+    }
+  } catch {}
+
+  // ------------------------------------------------------ RUTINA Y FUERZA
+  sections.push('[RUTINA Y FUERZA]');
 
   try {
     const records = await getStrengthExerciseRecords();
@@ -314,24 +426,6 @@ async function buildContext(userId: string): Promise<string> {
     } else {
       const lines = entries.map((s) => `${s.day_of_week}: ${s.body_part_name}`).join(' | ');
       sections.push(`- Rutina semanal actual: ${lines}.`);
-    }
-  } catch {}
-
-  try {
-    const nutritionProfile = await getNutritionProfile(userId);
-    const today = await getNutritionDayData(userId, formatDate(new Date()));
-    const goalTxt = today.goal != null ? `${today.goal} kcal` : 'sin meta configurada';
-    const current = today.caloriesConsumed != null ? `${Math.round(today.caloriesConsumed)} kcal` : '0 kcal';
-    sections.push(`- Calorías de hoy: ${current} de ${goalTxt} consumidas.`);
-    if (nutritionProfile) {
-      const act = ACTIVITY_LABELS[nutritionProfile.activityLevel] ?? nutritionProfile.activityLevel;
-      const goal = GOAL_LABELS[nutritionProfile.goalType] ?? nutritionProfile.goalType;
-      sections.push(
-        `- Estrategia calórica: ${describeNutritionStrategy(
-          nutritionProfile.goalType,
-          today.goal != null ? today.goal : null,
-        )} (actividad ${act}, objetivo ${goal}).`,
-      );
     }
   } catch {}
 

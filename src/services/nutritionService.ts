@@ -11,12 +11,14 @@ import type {
   NutritionGoalType,
   NutritionProfile,
   NutritionProfileInput,
+  SexForFormula,
   WeeklyMealPlanItem,
 } from '../types/nutrition';
 import { formatDate, formatNumber } from './utils';
 
 const ACTIVITY_FACTORS: Record<ActivityLevel, number> = {
   sedentario: 1.2,
+  ligero: 1.375,
   moderado: 1.55,
   activo: 1.725,
 };
@@ -34,13 +36,24 @@ export interface TDEECalculationInput {
   heightCm: number;
   activityLevel: ActivityLevel;
   goalType: NutritionGoalType;
+  sexForFormula?: SexForFormula | null;
 }
+
+// Termino por sexo de la fórmula Mifflin-St Jeor: +5 kcal para hombres,
+// -161 kcal para mujeres y el promedio (-78) cuando el sexo no está definido.
+const MIFFLIN_SEX_TERM: Record<SexForFormula, number> = {
+  male: 5,
+  female: -161,
+  not_specified: -78,
+};
 
 export function calculateTDEE(input: TDEECalculationInput): number {
   // La edad es opcional: si el usuario aún no la registró (NULL/ausente) se
   // usa 30 años como valor por defecto para no bloquear la estimación de TDEE.
   const age = input.age ?? 30;
-  const bmr = 10 * input.weightKg + 6.25 * input.heightCm - 5 * age - 78;
+  const sex = input.sexForFormula ?? 'not_specified';
+  const base = 10 * input.weightKg + 6.25 * input.heightCm - 5 * age;
+  const bmr = base + MIFFLIN_SEX_TERM[sex];
   const tdee = bmr * ACTIVITY_FACTORS[input.activityLevel];
   const goal = tdee + GOAL_ADJUSTMENTS[input.goalType];
   return Math.round(Math.min(3500, Math.max(1200, goal)));
@@ -53,7 +66,8 @@ export async function getNutritionProfile(userId: string): Promise<NutritionProf
     daily_calories_goal: number;
     activity_level: ActivityLevel;
     goal_type: NutritionGoalType;
-    updated_at: string;
+    sex_for_calorie_formula: string | null;
+    updated_at: string | null;
   }>(
     'SELECT * FROM nutrition_profile WHERE user_id = ? LIMIT 1',
     [userId],
@@ -66,8 +80,50 @@ export async function getNutritionProfile(userId: string): Promise<NutritionProf
     dailyCaloriesGoal: rows[0].daily_calories_goal,
     activityLevel: rows[0].activity_level,
     goalType: rows[0].goal_type,
-    updatedAt: rows[0].updated_at,
+    sexForFormula: isSexForFormula(rows[0].sex_for_calorie_formula)
+      ? rows[0].sex_for_calorie_formula
+      : 'not_specified',
+    updatedAt: rows[0].updated_at ?? undefined,
   };
+}
+
+function isSexForFormula(value: string | null | undefined): value is SexForFormula {
+  return value === 'male' || value === 'female' || value === 'not_specified';
+}
+
+// Resuelve el sexo biológico para la fórmula Mifflin-St Jeor. Prioridad:
+// 1) nutrition_profile.sex_for_calorie_formula (lo guarda el contador de
+// calorías), 2) user_profiles.sex_for_calorie_formula, 3) user_profiles.gender
+// ('hombre'/'mujer' del perfil). Solo 'male'/'female' explícitos se usan; si
+// no hay ninguno se devuelve 'not_specified' (promedio en el BMR).
+export async function resolveSexForFormula(userId: string): Promise<SexForFormula> {
+  const db = getDatabase();
+  const [nutritionRows, profileRows] = await Promise.all([
+    db.getAllAsync<{ sex_for_calorie_formula: string | null }>(
+      'SELECT sex_for_calorie_formula FROM nutrition_profile WHERE user_id = ? LIMIT 1',
+      [userId],
+    ),
+    db.getAllAsync<{ sex_for_calorie_formula: string | null; gender: string | null }>(
+      'SELECT sex_for_calorie_formula, gender FROM user_profiles WHERE user_id = ? LIMIT 1',
+      [userId],
+    ),
+  ]);
+
+  const nutritionSex = nutritionRows[0]?.sex_for_calorie_formula;
+  if (nutritionSex === 'male' || nutritionSex === 'female') {
+    return nutritionSex;
+  }
+
+  const profileSex = profileRows[0]?.sex_for_calorie_formula;
+  if (profileSex === 'male' || profileSex === 'female') {
+    return profileSex;
+  }
+
+  const gender = profileRows[0]?.gender;
+  if (gender === 'hombre') return 'male';
+  if (gender === 'mujer') return 'female';
+
+  return 'not_specified';
 }
 
 export async function saveNutritionProfile(
@@ -75,46 +131,57 @@ export async function saveNutritionProfile(
   data: NutritionProfileInput,
 ): Promise<void> {
   const db = getDatabase();
+  const sexForFormula = data.sexForFormula ?? 'not_specified';
   await db.runAsync(
     `INSERT INTO nutrition_profile
-       (user_id, daily_calories_goal, activity_level, goal_type, updated_at)
-     VALUES (?, ?, ?, ?, ?)
+       (user_id, daily_calories_goal, activity_level, goal_type, sex_for_calorie_formula, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT(user_id) DO UPDATE SET
        daily_calories_goal = excluded.daily_calories_goal,
        activity_level = excluded.activity_level,
        goal_type = excluded.goal_type,
+       sex_for_calorie_formula = excluded.sex_for_calorie_formula,
        updated_at = excluded.updated_at`,
-    [userId, data.dailyCaloriesGoal, data.activityLevel, data.goalType, new Date().toISOString()],
+    [
+      userId,
+      data.dailyCaloriesGoal,
+      data.activityLevel,
+      data.goalType,
+      sexForFormula,
+      new Date().toISOString(),
+    ],
   );
 
   const hasHeight = data.heightCm != null && data.heightCm > 0;
   const hasAge = data.age != null && data.age > 0;
-  if (hasHeight || hasAge) {
+  if (hasHeight || hasAge || data.sexForFormula) {
     await db.runAsync(
-      `INSERT INTO user_profiles (user_id, height, age)
-       VALUES (?, ?, ?)
+      `INSERT INTO user_profiles (user_id, height, age, sex_for_calorie_formula)
+       VALUES (?, ?, ?, ?)
        ON CONFLICT(user_id) DO UPDATE SET
          height = COALESCE(excluded.height, user_profiles.height),
-         age = COALESCE(excluded.age, user_profiles.age)`,
+         age = COALESCE(excluded.age, user_profiles.age),
+         sex_for_calorie_formula = COALESCE(excluded.sex_for_calorie_formula, user_profiles.sex_for_calorie_formula)`,
       [
         userId,
         hasHeight ? (data.heightCm as number) : null,
         hasAge ? (data.age as number) : null,
+        data.sexForFormula ? sexForFormula : null,
       ],
     );
   }
 
   void syncLocalToRemote('nutrition_profile');
-  if (hasHeight || hasAge) {
+  if (hasHeight || hasAge || data.sexForFormula) {
     void syncLocalToRemote('user_profiles');
   }
 }
 
-export async function getDailyCaloriesConsumed(date: string): Promise<number> {
+export async function getDailyCaloriesConsumed(userId: string, date: string): Promise<number> {
   const db = getDatabase();
   const rows = await db.getAllAsync<{ calories_consumed: number }>(
-    'SELECT calories_consumed FROM daily_calories WHERE date = ? LIMIT 1',
-    [date],
+    'SELECT calories_consumed FROM daily_calories WHERE user_id = ? AND date = ? LIMIT 1',
+    [userId, date],
   );
   return rows[0]?.calories_consumed ?? 0;
 }
@@ -143,13 +210,13 @@ export async function getCaloriasPeriodoResumen(
     getNutritionProfile(userId),
     db.getAllAsync<{ total: number; days: number }>(
       `SELECT COALESCE(SUM(calories_consumed), 0) AS total, COUNT(*) AS days
-       FROM daily_calories WHERE date >= ? AND date <= ?`,
-      [weekStart, date],
+       FROM daily_calories WHERE user_id = ? AND date >= ? AND date <= ?`,
+      [userId, weekStart, date],
     ),
     db.getAllAsync<{ total: number; days: number }>(
       `SELECT COALESCE(SUM(calories_consumed), 0) AS total, COUNT(*) AS days
-       FROM daily_calories WHERE date >= ? AND date <= ?`,
-      [monthStart, date],
+       FROM daily_calories WHERE user_id = ? AND date >= ? AND date <= ?`,
+      [userId, monthStart, date],
     ),
   ]);
   return {
@@ -161,35 +228,43 @@ export async function getCaloriasPeriodoResumen(
   };
 }
 
-export async function addCaloriesToDay(date: string, calories: number): Promise<void> {
+export async function addCaloriesToDay(
+  userId: string,
+  date: string,
+  calories: number,
+): Promise<void> {
   const db = getDatabase();
   await db.runAsync(
-    `INSERT INTO daily_calories (date, calories_consumed, logged_at)
-     VALUES (?, ?, ?)
-     ON CONFLICT(date) DO UPDATE SET
+    `INSERT INTO daily_calories (user_id, date, calories_consumed, logged_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(user_id, date) DO UPDATE SET
        calories_consumed = calories_consumed + excluded.calories_consumed,
        logged_at = excluded.logged_at`,
-    [date, calories, new Date().toISOString()],
+    [userId, date, calories, new Date().toISOString()],
   );
   void syncLocalToRemote('daily_calories');
 }
 
-export async function subtractCaloriesFromDay(date: string, calories: number): Promise<void> {
+export async function subtractCaloriesFromDay(
+  userId: string,
+  date: string,
+  calories: number,
+): Promise<void> {
   const db = getDatabase();
   await db.runAsync(
-    'UPDATE daily_calories SET calories_consumed = MAX(0, calories_consumed - ?) WHERE date = ?',
-    [calories, date],
+    'UPDATE daily_calories SET calories_consumed = MAX(0, calories_consumed - ?) WHERE user_id = ? AND date = ?',
+    [calories, userId, date],
   );
   void syncLocalToRemote('daily_calories');
 }
 
-export async function addMealLog(data: NewMealLog): Promise<MealLog> {
+export async function addMealLog(userId: string, data: NewMealLog): Promise<MealLog> {
   const db = getDatabase();
   const result = await db.runAsync(
     'INSERT INTO meal_logs (date, meal_name, calories, photo_uri) VALUES (?, ?, ?, ?)',
     [data.date, data.meal_name.trim(), data.calories, data.photo_uri ?? null],
   );
-  await addCaloriesToDay(data.date, data.calories);
+  await addCaloriesToDay(userId, data.date, data.calories);
   void syncLocalToRemote('meal_logs');
   return {
     id: result.lastInsertRowId,
@@ -208,14 +283,14 @@ export async function getMealLogsByDate(date: string): Promise<MealLog[]> {
   );
 }
 
-export async function deleteMealLog(id: number): Promise<void> {
+export async function deleteMealLog(userId: string, id: number): Promise<void> {
   const db = getDatabase();
   const rows = await db.getAllAsync<{ date: string; calories: number; photo_uri: string | null }>(
     'SELECT date, calories, photo_uri FROM meal_logs WHERE id = ? LIMIT 1',
     [id],
   );
   if (rows[0]) {
-    await subtractCaloriesFromDay(rows[0].date, rows[0].calories);
+    await subtractCaloriesFromDay(userId, rows[0].date, rows[0].calories);
   }
   await db.runAsync('DELETE FROM meal_logs WHERE id = ?', [id]);
   await queueLocalDeletion({ table: 'meal_logs', rowId: id });
@@ -429,7 +504,7 @@ export async function getNutritionDayData(
 ): Promise<NutritionDayData> {
   const [profile, caloriesConsumed, meals] = await Promise.all([
     getNutritionProfile(userId),
-    getDailyCaloriesConsumed(date),
+    getDailyCaloriesConsumed(userId, date),
     getMealLogsByDate(date),
   ]);
   const goal = profile?.dailyCaloriesGoal ?? null;
@@ -443,5 +518,124 @@ export async function getNutritionDayData(
     remaining,
     percentage,
     meals,
+  };
+}
+
+export interface CaloriesWindowAvg {
+  avgConsumed: number | null;
+  avgBurned: number | null;
+  days: number;
+}
+
+// Promedio de calorías (consumidas y quemadas) en los últimos N días de
+// calendario, incluyendo hoy. AVG ignora los días sin registro, así que el
+// resultado es la media de los días en los que el usuario tiene datos.
+async function getLastNDaysCaloriesAvg(
+  userId: string,
+  days: number,
+): Promise<CaloriesWindowAvg> {
+  const db = getDatabase();
+  const today = new Date();
+  const past = new Date(today);
+  past.setDate(past.getDate() - (days - 1));
+  const rows = await db.getAllAsync<{
+    avg_consumed: number | null;
+    avg_burned: number | null;
+    days: number;
+  }>(
+    `SELECT AVG(calories_consumed) AS avg_consumed,
+            AVG(calories_burned) AS avg_burned,
+            COUNT(*) AS days
+     FROM daily_calories
+     WHERE user_id = ? AND date >= ? AND date <= ?`,
+    [userId, formatDate(past), formatDate(today)],
+  );
+  return {
+    avgConsumed: rows[0]?.avg_consumed ?? null,
+    avgBurned: rows[0]?.avg_burned ?? null,
+    days: rows[0]?.days ?? 0,
+  };
+}
+
+export async function getLast7DaysCaloriesAvg(userId: string): Promise<CaloriesWindowAvg> {
+  return getLastNDaysCaloriesAvg(userId, 7);
+}
+
+export interface EnergySummary {
+  weightKg: number | null;
+  heightCm: number | null;
+  age: number | null;
+  sexForFormula: SexForFormula;
+  activityLevel: ActivityLevel | null;
+  bmr: number | null;
+  tdee: number | null;
+  dailyCaloriesGoal: number | null;
+  goalType: NutritionGoalType | null;
+  last7DaysCaloriesAvg: number | null;
+  last30DaysCaloriesAvg: number | null;
+}
+
+// Resumen energético para enriquecer el contexto del coach: datos físicos del
+// perfil, BMR/TDEE calculados con Mifflin-St Jeor + factor de actividad, la
+// meta diaria guardada y los promedios recientes de consumo.
+export async function getEnergySummary(userId: string): Promise<EnergySummary | null> {
+  const db = getDatabase();
+  const [profileRows, nutritionRows] = await Promise.all([
+    db.getAllAsync<{ age: number | null; height: number | null; current_weight: number | null }>(
+      'SELECT age, height, current_weight FROM user_profiles WHERE user_id = ? LIMIT 1',
+      [userId],
+    ),
+    db.getAllAsync<{
+      daily_calories_goal: number;
+      activity_level: ActivityLevel;
+      goal_type: NutritionGoalType;
+    }>(
+      'SELECT daily_calories_goal, activity_level, goal_type FROM nutrition_profile WHERE user_id = ? LIMIT 1',
+      [userId],
+    ),
+  ]);
+  const profileRow = profileRows[0];
+  const nutritionRow = nutritionRows[0];
+  if (!profileRow && !nutritionRow) return null;
+
+  const weightKg = profileRow?.current_weight ?? null;
+  const heightCm = profileRow?.height ?? null;
+  const age = profileRow?.age ?? null;
+  const sexForFormula = await resolveSexForFormula(userId);
+  const activityLevel = nutritionRow?.activity_level ?? null;
+
+  let bmr: number | null = null;
+  if (weightKg != null && heightCm != null && weightKg > 0 && heightCm > 0) {
+    const effectiveAge = age ?? 30;
+    bmr = Math.round(
+      10 * weightKg +
+        6.25 * heightCm -
+        5 * effectiveAge +
+        MIFFLIN_SEX_TERM[sexForFormula],
+    );
+  }
+
+  let tdee: number | null = null;
+  if (bmr != null && activityLevel) {
+    tdee = Math.round(bmr * ACTIVITY_FACTORS[activityLevel]);
+  }
+
+  const [avg7, avg30] = await Promise.all([
+    getLastNDaysCaloriesAvg(userId, 7),
+    getLastNDaysCaloriesAvg(userId, 30),
+  ]);
+
+  return {
+    weightKg,
+    heightCm,
+    age,
+    sexForFormula,
+    activityLevel,
+    bmr,
+    tdee,
+    dailyCaloriesGoal: nutritionRow?.daily_calories_goal ?? null,
+    goalType: nutritionRow?.goal_type ?? null,
+    last7DaysCaloriesAvg: avg7.avgConsumed,
+    last30DaysCaloriesAvg: avg30.avgConsumed,
   };
 }

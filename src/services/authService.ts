@@ -26,6 +26,7 @@ export interface UserProfileRecord {
   goal_date?: string | null;
   goal_status?: string | null;
   gender?: string | null;
+  sex_for_calorie_formula?: string | null;
 }
 
 export type GenderValue = 'mujer' | 'hombre';

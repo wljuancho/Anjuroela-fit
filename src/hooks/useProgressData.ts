@@ -69,7 +69,7 @@ export function useProgressData(userId: string): ProgressData {
           getWeightHistory(),
           getStrengthExerciseRecords(),
           getAllBodyParts(),
-          getCaloriesBurnedBySession(),
+          getCaloriesBurnedBySession(userId),
         ]);
         if (!mounted.current) {
           return;

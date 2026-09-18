@@ -64,3 +64,12 @@ export interface SessionCaloriesBurned {
   caloriesBurned: number;
   setCount: number;
 }
+
+export interface SessionHealthMetrics {
+  sessionId: number;
+  date: string;
+  caloriesBurned: number;
+  heartRateAvg: number | null;
+  sessionType: string;
+  setCount: number;
+}

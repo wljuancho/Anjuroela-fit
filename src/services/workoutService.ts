@@ -1,6 +1,6 @@
 import { getDatabase } from './database';
 import { formatDate, getCurrentWeekMonday } from './utils';
-import { syncLocalToRemote, queueLocalDeletion } from './syncService';
+import { getActiveUserId, syncLocalToRemote, queueLocalDeletion } from './syncService';
 import { applyWearableMetricsToSession } from './healthService';
 import { syncDailyCaloriesBurnedForDate } from './progressService';
 import type {
@@ -120,16 +120,17 @@ export async function updateScheduleDay(dayOfWeek: DayOfWeek, bodyPartId: number
 export async function getOrCreateSession(dayOfWeek: DayOfWeek): Promise<WorkoutSession> {
   const db = getDatabase();
   const today = formatDate(new Date());
+  const userId = await getActiveUserId();
   try {
     let session: WorkoutSession | null = null;
     await db.withTransactionAsync(async () => {
       await db.runAsync(
-        'INSERT OR IGNORE INTO workout_sessions (day_of_week, date, session_type, completed) VALUES (?, ?, ?, 0)',
-        [dayOfWeek, today, 'routine'],
+        'INSERT OR IGNORE INTO workout_sessions (user_id, day_of_week, date, session_type, completed) VALUES (?, ?, ?, ?, 0)',
+        [userId, dayOfWeek, today, 'routine'],
       );
       const rows = await db.getAllAsync<WorkoutSession>(
-        'SELECT * FROM workout_sessions WHERE day_of_week = ? AND date = ? AND session_type = ? LIMIT 1',
-        [dayOfWeek, today, 'routine'],
+        'SELECT * FROM workout_sessions WHERE day_of_week = ? AND date = ? AND session_type = ? AND (user_id = ? OR user_id IS NULL) ORDER BY (user_id IS NULL) LIMIT 1',
+        [dayOfWeek, today, 'routine', userId],
       );
       session = rows[0] ?? null;
     });
@@ -159,16 +160,17 @@ export async function getOrCreateCasualSession(): Promise<WorkoutSession> {
   const db = getDatabase();
   const today = formatDate(new Date());
   const day = todayDayOfWeek();
+  const userId = await getActiveUserId();
   try {
     let session: WorkoutSession | null = null;
     await db.withTransactionAsync(async () => {
       await db.runAsync(
-        'INSERT OR IGNORE INTO workout_sessions (day_of_week, date, session_type, completed) VALUES (?, ?, ?, 0)',
-        [day, today, 'casual'],
+        'INSERT OR IGNORE INTO workout_sessions (user_id, day_of_week, date, session_type, completed) VALUES (?, ?, ?, ?, 0)',
+        [userId, day, today, 'casual'],
       );
       const rows = await db.getAllAsync<WorkoutSession>(
-        'SELECT * FROM workout_sessions WHERE day_of_week = ? AND date = ? AND session_type = ? LIMIT 1',
-        [day, today, 'casual'],
+        'SELECT * FROM workout_sessions WHERE day_of_week = ? AND date = ? AND session_type = ? AND (user_id = ? OR user_id IS NULL) ORDER BY (user_id IS NULL) LIMIT 1',
+        [day, today, 'casual', userId],
       );
       session = rows[0] ?? null;
     });
@@ -307,6 +309,7 @@ export async function deleteCasualSession(sessionId: number): Promise<void> {
         day_of_week: session.day_of_week,
         date: session.date,
         session_type: session.session_type ?? 'casual',
+        user_id: session.user_id ?? null,
       },
     });
   }
@@ -339,7 +342,8 @@ export async function completeSession(sessionId: number): Promise<void> {
     if (session) {
       // El conteo de calorías queda unificado con el módulo de Progreso: el
       // total del día suma las kcal de todas las sesiones completadas.
-      await syncDailyCaloriesBurnedForDate(session.date);
+      const userId = await getActiveUserId();
+      await syncDailyCaloriesBurnedForDate(userId, session.date);
     }
     void syncLocalToRemote('workout_sessions');
     void syncLocalToRemote('daily_calories');

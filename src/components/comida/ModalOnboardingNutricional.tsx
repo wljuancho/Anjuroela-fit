@@ -13,7 +13,12 @@ import { Ionicons } from '@expo/vector-icons';
 import AppTextInput from '../AppTextInput';
 import AppButton from '../AppButton';
 import { calculateTDEE } from '../../services/nutritionService';
-import type { ActivityLevel, NutritionGoalType, NutritionProfileInput } from '../../types/nutrition';
+import type {
+  ActivityLevel,
+  NutritionGoalType,
+  NutritionProfileInput,
+  SexForFormula,
+} from '../../types/nutrition';
 import { formatNumber } from '../../services/utils';
 
 interface ModalOnboardingNutricionalProps {
@@ -26,6 +31,7 @@ interface ModalOnboardingNutricionalProps {
     activityLevel?: ActivityLevel;
     goalType?: NutritionGoalType;
     dailyCaloriesGoal?: number;
+    sexForFormula?: SexForFormula;
   };
   onClose: () => void;
   onSave: (profile: NutritionProfileInput) => Promise<void>;
@@ -33,6 +39,7 @@ interface ModalOnboardingNutricionalProps {
 
 const ACTIVITY_OPTIONS: { value: ActivityLevel; label: string; hint: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { value: 'sedentario', label: 'Sedentario', hint: 'Poco o nada de ejercicio', icon: 'bed-outline' },
+  { value: 'ligero', label: 'Ligero', hint: 'Ejercicio ligero 1-3 días/semana', icon: 'footsteps-outline' },
   { value: 'moderado', label: 'Moderado', hint: 'Ejercicio 3-5 días/semana', icon: 'walk-outline' },
   { value: 'activo', label: 'Activo', hint: 'Entrenamiento intenso frecuente', icon: 'barbell-outline' },
 ];
@@ -93,6 +100,7 @@ export default function ModalOnboardingNutricional({
       heightCm: heightNum,
       activityLevel: activity!,
       goalType: goalType!,
+      sexForFormula: prefill?.sexForFormula,
     });
     if (goalType === 'libre' && manualGoalNum > 0) return manualGoalNum;
     return base;
@@ -124,6 +132,7 @@ export default function ModalOnboardingNutricional({
         heightCm: heightNum,
         activityLevel: activity,
         goalType,
+        sexForFormula: prefill?.sexForFormula,
       });
       await onSave({
         dailyCaloriesGoal: goalType === 'libre' && manualGoalNum > 0 ? manualGoalNum : baseTdee,

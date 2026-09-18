@@ -53,27 +53,27 @@ export function useNutritionData(userId: string, date: string): NutritionDataApi
   const saveMeal = useCallback(
     async (meal: NewMealLog) => {
       try {
-        await addMealLog(meal);
+        await addMealLog(userId, meal);
         await refresh();
       } catch (e) {
         const message = e instanceof Error ? e.message : 'No se pudo registrar la comida.';
         Alert.alert('Error', message);
       }
     },
-    [refresh],
+    [userId, refresh],
   );
 
   const removeMeal = useCallback(
     async (id: number) => {
       try {
-        await deleteMealLog(id);
+        await deleteMealLog(userId, id);
         await refresh();
       } catch (e) {
         const message = e instanceof Error ? e.message : 'No se pudo eliminar la comida.';
         Alert.alert('Error', message);
       }
     },
-    [refresh],
+    [userId, refresh],
   );
 
   const saveProfile = useCallback(

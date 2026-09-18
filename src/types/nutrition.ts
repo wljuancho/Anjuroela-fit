@@ -1,4 +1,7 @@
-export type ActivityLevel = 'sedentario' | 'moderado' | 'activo';
+export type ActivityLevel = 'sedentario' | 'ligero' | 'moderado' | 'activo';
+
+// Sexo biológico usado por la fórmula Mifflin-St Jeor para el BMR.
+export type SexForFormula = 'male' | 'female' | 'not_specified';
 
 export type NutritionGoalType = 'perder' | 'ganar' | 'mantener' | 'libre';
 
@@ -9,6 +12,7 @@ export interface NutritionProfile {
   dailyCaloriesGoal: number;
   activityLevel: ActivityLevel;
   goalType: NutritionGoalType;
+  sexForFormula?: SexForFormula;
   updatedAt?: string;
 }
 
@@ -18,12 +22,15 @@ export interface NutritionProfileInput {
   goalType: NutritionGoalType;
   age?: number;
   heightCm?: number;
+  sexForFormula?: SexForFormula;
 }
 
 export interface DailyCalories {
   id: number;
   date: string;
   calories_consumed: number;
+  calories_burned?: number;
+  user_id?: string | null;
   logged_at?: string;
 }
 

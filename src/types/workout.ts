@@ -62,6 +62,7 @@ export interface WorkoutSession {
   calories_burned?: number;
   heart_rate_avg?: number | null;
   calories_source?: 'estimate' | 'wearable';
+  user_id?: string | null;
   created_at?: string;
 }
 

@@ -67,18 +67,20 @@ const UPSERT_ON_CONFLICT: Record<string, string> = {
   weekly_schedule: 'day_of_week',
   day_muscles: 'day_of_week,body_part_id',
   day_exercises: 'day_of_week,body_part_id,exercise_id',
-  workout_sessions: 'day_of_week,date,session_type',
+  workout_sessions: 'user_id,day_of_week,date,session_type',
   workout_circuits: 'day_of_week,body_part_id',
-  daily_calories: 'date',
+  daily_calories: 'user_id,date',
   // En una instalación limpia el id local se conserva también en Supabase.
   // Así las FK de exercises_v2, sesiones y series son estables entre
   // dispositivos del mismo usuario.
 };
 
-// Tablas cuyo contenido es POR USUARIO pero NO tienen columna user_id.
-// Para aislarlas sin modificar las tablas existentes se registra su dueño en
-// la tabla auxiliar user_row_owners (aditiva) al subirlas; al bajar solo se
-// restauran las filas del usuario activo.
+// Tablas cuyo contenido es POR USUARIO pero sin columna de usuario propia:
+// para aislarlas sin modificar sus tablas se registra su dueño en la tabla
+// auxiliar user_row_owners (aditiva) al subirlas; al bajar solo se restauran
+// las filas del usuario activo. workout_sessions y daily_calories SÍ tienen
+// columna user_id (viven en USER_SCOPED_TABLES) y se conservan aquí solo para
+// el registro de propiedad y el borrado en cascada al eliminar la cuenta.
 const OWNED_TABLES = [
   'weekly_schedule',
   'day_muscles',
@@ -93,11 +95,19 @@ const OWNED_TABLES = [
 ] as const;
 
 // Tablas que YA tienen columna user_id: se filtran directamente por el
-// usuario activo, tanto al subir como al bajar.
+// usuario activo (o las filas legacy con user_id NULL), tanto al subir como
+// al bajar.
 const USER_SCOPED_TABLES: Record<string, string> = {
   user_profiles: 'user_id',
   nutrition_profile: 'user_id',
+  workout_sessions: 'user_id',
+  daily_calories: 'user_id',
 };
+
+// Tablas migradas a user_id que aún pueden contener filas legacy (user_id
+// NULL) en Supabase: al bajarlas se incluyen esas filas con .or(...) para no
+// perder historial de instalaciones antiguas.
+const LEGACY_NULL_USER_FALLBACK_TABLES = new Set(['workout_sessions', 'daily_calories']);
 
 // Tabla auxiliar que guarda la relación (tabla, fila) -> usuario dueño.
 const OWNERSHIP_TABLE = 'user_row_owners';
@@ -115,8 +125,8 @@ const DELETION_COMPOSITE_KEYS: Record<string, readonly string[]> = {
   day_muscles: ['day_of_week', 'body_part_id'],
   day_exercises: ['day_of_week', 'body_part_id', 'exercise_id'],
   workout_circuits: ['day_of_week', 'body_part_id'],
-  workout_sessions: ['day_of_week', 'date', 'session_type'],
-  daily_calories: ['date'],
+  workout_sessions: ['user_id', 'day_of_week', 'date', 'session_type'],
+  daily_calories: ['user_id', 'date'],
 };
 
 // Identidad de una fila eliminada localmente: id local (si lo había) y/o el
@@ -139,14 +149,12 @@ interface PendingDeletionRow {
 // Orden seguro para restaurar filas respetando FK (padres antes que hijos).
 const PULL_ORDER = [
   'weekly_schedule',
-  'workout_sessions',
   'day_muscles',
   'day_exercises',
   'workout_sets',
   'workout_circuits',
   'weight_logs',
   'meal_logs',
-  'daily_calories',
   'weekly_meal_plan',
 ] as const;
 
@@ -214,7 +222,7 @@ export async function setActiveUserId(userId: string | null): Promise<void> {
   }
 }
 
-async function getActiveUserId(): Promise<string | null> {
+export async function getActiveUserId(): Promise<string | null> {
   if (activeUserId === undefined) {
     activeUserId = await getStoredCurrentUserId();
   }
@@ -653,6 +661,12 @@ async function executePendingSync(): Promise<void> {
             );
           } else {
             pendingSyncTables.delete(table);
+            // workout_sessions y daily_calories combinan columna user_id y
+            // registro de propietario: se conserva la propiedad para que el
+            // borrado en cascada al eliminar la cuenta siga funcionando.
+            if ((OWNED_TABLES as readonly string[]).includes(table)) {
+              await markOwnedRows(table, rows);
+            }
           }
           continue;
         }
@@ -767,6 +781,7 @@ const VALID_USER_PROFILES_COLUMNS = [
   'goal_date',
   'goal_status',
   'username',
+  'sex_for_calorie_formula',
   'created_at',
 ] as const;
 
@@ -788,6 +803,7 @@ const VALID_NUTRITION_PROFILE_COLUMNS = [
   'user_id',
   'daily_calories_goal',
   'activity_level',
+  'sex_for_calorie_formula',
   'goal_type',
   'updated_at',
 ] as const;
@@ -815,9 +831,9 @@ const IDENTITY_REGENERATED_TABLES = [] as const;
 const REMOTE_ID_KEYS: Record<string, string[]> = {
   day_exercises: ['day_of_week', 'body_part_id', 'exercise_id'],
   day_muscles: ['day_of_week', 'body_part_id'],
-  workout_sessions: ['day_of_week', 'date', 'session_type'],
+  workout_sessions: ['user_id', 'day_of_week', 'date', 'session_type'],
   weekly_schedule: ['day_of_week'],
-  daily_calories: ['date'],
+  daily_calories: ['user_id', 'date'],
   body_parts: ['name'],
 };
 
@@ -839,6 +855,9 @@ async function mapWorkoutSetsToRemoteSessions(
   supabase: NonNullable<ReturnType<typeof getSupabase>>,
   rows: Record<string, unknown>[],
 ): Promise<Record<string, unknown>[]> {
+  const userId = await getActiveUserId();
+  if (userId === null) return rows;
+
   const localSessionIds = [...new Set(rows.map((row) => Number(row.session_id)))].filter(
     (id) => Number.isFinite(id) && id > 0,
   );
@@ -851,14 +870,18 @@ async function mapWorkoutSetsToRemoteSessions(
     date: string;
     session_type: string;
   }>(
-    `SELECT id, day_of_week, date, session_type FROM workout_sessions WHERE id IN (${placeholders})`,
-    localSessionIds,
+    `SELECT id, day_of_week, date, session_type FROM workout_sessions ` +
+      `WHERE id IN (${placeholders}) AND (user_id = ? OR user_id IS NULL)`,
+    [...localSessionIds, userId],
   );
   const remoteByLocalId = new Map<number, number>();
   for (const session of localSessions) {
+    // La sesión remota se localiza por la UNIQUE compuesta del usuario activo,
+    // tolerando filas legacy sin user_id.
     const { data, error } = await supabase
       .from('workout_sessions')
       .select('id')
+      .or(`user_id.eq.${userId},user_id.is.null`)
       .eq('day_of_week', session.day_of_week)
       .eq('date', session.date)
       .eq('session_type', session.session_type)
@@ -1019,14 +1042,27 @@ export async function syncRemoteToLocal(): Promise<void> {
 
     for (const [table, col] of Object.entries(USER_SCOPED_TABLES)) {
       try {
-        const { data, error } = await supabase.from(table).select('*').eq(col, ownerId);
+        // Las tablas migradas a user_id aún pueden conservar filas legacy
+        // (user_id NULL) en la nube; se incluyen con .or(...) para no perder
+        // historial de instalaciones antiguas.
+        const needsLegacyFallback = LEGACY_NULL_USER_FALLBACK_TABLES.has(table);
+        const { data, error } = needsLegacyFallback
+          ? await supabase
+              .from(table)
+              .select('*')
+              .or(`user_id.eq.${ownerId},user_id.is.null`)
+          : await supabase.from(table).select('*').eq(col, ownerId);
         if (error || !data || data.length === 0) continue;
-        await mergeUserScopedRows(
-          table,
-          col,
-          ownerId,
-          data as Record<string, unknown>[],
-        );
+        const rows = data as Record<string, unknown>[];
+        if (needsLegacyFallback) {
+          // workout_sessions y daily_calories conservan ids estables locales:
+          // se reemplazan por id (las filas creadas offline sin subir se
+          // preservan), en vez del borrado masivo de mergeUserScopedRows que
+          // perdería el historial recién creado sin conexión.
+          await replaceLocalRows(table, rows);
+        } else {
+          await mergeUserScopedRows(table, col, ownerId, rows);
+        }
       } catch {
         // Tabla ausente en la nube o divergencias de esquema: se ignora.
       }
