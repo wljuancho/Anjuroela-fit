@@ -11,9 +11,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import AppButton from '../components/AppButton';
 import AppTextInput from '../components/AppTextInput';
 import { useAuth } from '../context';
+import type { RootStackParamList } from '../navigation/types';
 import {
   getVisionApiKey,
   saveVisionApiKey,
@@ -34,6 +37,11 @@ export default function SettingsScreen() {
   const { signOut, deleteAccount } = useAuth();
 
   const [deletingAccount, setDeletingAccount] = useState(false);
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+
+  const handleOpenProfile = () => {
+    navigation.navigate('Perfil');
+  };
 
   const handleSignOut = () => {
     Alert.alert(
@@ -133,6 +141,25 @@ const handleTest = async () => {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Ionicons name="person-circle-outline" size={22} color={colors.primary} />
+            <Text style={styles.sectionTitle}>Perfil</Text>
+          </View>
+          <TouchableOpacity style={styles.profileRow} onPress={handleOpenProfile}>
+            <View style={styles.profileRowIcon}>
+              <Ionicons name="person" size={20} color={colors.text} />
+            </View>
+            <View style={styles.profileRowTextWrap}>
+              <Text style={styles.profileRowTitle}>Mi Perfil</Text>
+              <Text style={styles.profileRowSubtitle}>
+                Completa tu información y cambia tu contraseña
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+          </TouchableOpacity>
+        </View>
+
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Ionicons name="sparkles-outline" size={22} color={colors.primary} />
@@ -379,6 +406,33 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginBottom: 6,
     lineHeight: 19,
+  },
+  profileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 10,
+  },
+  profileRowIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: colors.primarySofter,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  profileRowTextWrap: {
+    flex: 1,
+  },
+  profileRowTitle: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  profileRowSubtitle: {
+    color: colors.textMuted,
+    fontSize: 12,
+    marginTop: 2,
   },
   mono: {
     color: colors.text,

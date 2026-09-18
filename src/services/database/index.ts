@@ -36,6 +36,7 @@ export async function initDatabase(): Promise<void> {
       goal_date TEXT,
       goal_status TEXT DEFAULT 'active',
       username TEXT,
+      gender TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES users (email) ON DELETE CASCADE
     );
@@ -253,6 +254,7 @@ export async function initDatabase(): Promise<void> {
 
   await migrateUserProfileGoalStatus(database);
   await migrateUserProfilesUnique(database);
+  await migrateUserProfileGender(database);
   await dropLegacyTables(database);
   await resetExerciseCatalogOnce(database);
 }
@@ -584,6 +586,19 @@ async function migrateUserProfileGoalStatus(db: SQLite.SQLiteDatabase): Promise<
   const names = columns.map((c) => c.name);
   if (!names.includes('goal_status')) {
     await db.execAsync("ALTER TABLE user_profiles ADD COLUMN goal_status TEXT DEFAULT 'active'");
+  }
+}
+
+// Añade la columna 'gender' ('mujer' | 'hombre') a user_profiles para los
+// usuarios que crearon su cuenta antes de que existiera este campo. Idempotente
+// para instalaciones nuevas y ya migradas.
+async function migrateUserProfileGender(db: SQLite.SQLiteDatabase): Promise<void> {
+  const columns = await db.getAllAsync<{ name: string }>(
+    'PRAGMA table_info(user_profiles)',
+  );
+  const names = columns.map((c) => c.name);
+  if (!names.includes('gender')) {
+    await db.execAsync('ALTER TABLE user_profiles ADD COLUMN gender TEXT');
   }
 }
 

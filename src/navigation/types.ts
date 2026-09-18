@@ -6,6 +6,7 @@ export type RootStackParamList = {
   Onboarding: undefined;
   Tutorial: undefined;
   MainTabs: NavigatorScreenParams<MainTabParamList> | undefined;
+  Perfil: undefined;
 };
 
 export type MainTabParamList = {

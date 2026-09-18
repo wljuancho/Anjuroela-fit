@@ -760,6 +760,7 @@ const VALID_USER_PROFILES_COLUMNS = [
   'user_id',
   'age',
   'height',
+  'gender',
   'current_weight',
   'target_weight',
   'goal_weeks',

@@ -15,10 +15,14 @@ import {
   findUserByEmail,
   getProfile,
   saveProfile as saveProfileForUser,
+  updateUserProfile,
+  updateUserName,
+  changePassword,
   getUserSession,
   hasProfile,
   deleteRemoteUserAccount,
   type UserRecord,
+  type GenderValue,
 } from '../services/authService';
 import {
   setActiveUserId,
@@ -47,6 +51,7 @@ export interface UserProfile {
   goalStatus?: string;
   heightCm?: number;
   age?: number;
+  gender?: GenderValue;
 }
 
 export interface HealthProfileData {
@@ -56,6 +61,18 @@ export interface HealthProfileData {
   goalDate: string;
   age?: number;
   heightCm?: number;
+  gender?: GenderValue;
+}
+
+export interface ProfileEditableFields {
+  name?: string;
+  gender?: GenderValue;
+  age?: number;
+  heightCm?: number;
+  currentWeight?: number;
+  targetWeight?: number;
+  goalWeeks?: number;
+  goalDate?: string;
 }
 
 interface AuthContextValue {
@@ -67,6 +84,8 @@ interface AuthContextValue {
   signUp: (name: string, email: string, password: string) => Promise<void>;
   signIn: (email: string, password: string) => Promise<boolean>;
   saveHealthProfile: (data: HealthProfileData) => Promise<void>;
+  updateProfile: (fields: ProfileEditableFields) => Promise<void>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   reloadProfile: () => Promise<void>;
   clearProfile: () => Promise<void>;
   signOut: () => Promise<void>;
@@ -165,6 +184,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         goalStatus: profileRow.goal_status ?? undefined,
         heightCm: profileRow.height ?? undefined,
         age: profileRow.age ?? undefined,
+        gender:
+          profileRow.gender === 'mujer' || profileRow.gender === 'hombre'
+            ? profileRow.gender
+            : undefined,
       };
     }
     return null;
@@ -258,6 +281,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await saveProfileForUser(user.id, {
           age: data.age ?? profile?.age,
           height: data.heightCm ?? profile?.heightCm,
+          gender: (data.gender ?? profile?.gender) as GenderValue | undefined,
           currentWeight: data.currentWeight,
           targetWeight: data.targetWeight,
           goalWeeks: data.goalWeeks,
@@ -271,9 +295,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           goalStatus: 'active',
           heightCm: data.heightCm ?? profile?.heightCm,
           age: data.age ?? profile?.age,
+          gender: (data.gender ?? profile?.gender) as GenderValue | undefined,
         };
         setProfile(nextProfile);
         await persistSession(user, nextProfile);
+      },
+
+      async updateProfile(fields: ProfileEditableFields) {
+        if (!user) throw new Error('No hay sesión activa.');
+
+        if (fields.name !== undefined) {
+          await updateUserName(user.id, fields.name);
+        }
+
+        const profileFields: Parameters<typeof updateUserProfile>[1] = {
+          ...(fields.gender !== undefined ? { gender: fields.gender as GenderValue } : {}),
+          ...(fields.age !== undefined ? { age: fields.age } : {}),
+          ...(fields.heightCm !== undefined ? { height: fields.heightCm } : {}),
+          ...(fields.currentWeight !== undefined ? { currentWeight: fields.currentWeight } : {}),
+          ...(fields.targetWeight !== undefined ? { targetWeight: fields.targetWeight } : {}),
+          ...(fields.goalWeeks !== undefined ? { goalWeeks: fields.goalWeeks } : {}),
+          ...(fields.goalDate !== undefined ? { goalDate: fields.goalDate } : {}),
+        };
+        if (Object.keys(profileFields).length > 0) {
+          await updateUserProfile(user.id, profileFields);
+        }
+
+        const nextProfile = await refreshProfile(user.id);
+        setProfile(nextProfile);
+        let nextUser = user;
+        if (fields.name !== undefined && fields.name.trim()) {
+          nextUser = { ...user, name: fields.name.trim() };
+          setUser(nextUser);
+        }
+        await persistSession(nextUser, nextProfile);
+      },
+
+      async changePassword(currentPassword: string, newPassword: string) {
+        if (!user) throw new Error('No hay sesión activa.');
+        await changePassword(user.id, currentPassword, newPassword);
       },
 
       async reloadProfile() {

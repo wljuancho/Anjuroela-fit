@@ -25,7 +25,10 @@ export interface UserProfileRecord {
   goal_weeks?: number | null;
   goal_date?: string | null;
   goal_status?: string | null;
+  gender?: string | null;
 }
+
+export type GenderValue = 'mujer' | 'hombre';
 
 const HASH_PREFIX = 'v1';
 const LEGACY_SALT = '-anjuroela-fix-salt';
@@ -197,13 +200,14 @@ export interface UserSession {
     goalDate?: string;
     heightCm?: number;
     age?: number;
+    gender?: GenderValue;
   } | null;
 }
 
 export async function getProfile(userId: string): Promise<UserProfileRecord | null> {
   const db = getDatabase();
   const result = await db.getAllAsync<UserProfileRecord>(
-    'SELECT user_id, age, height, current_weight, target_weight, goal_weeks, goal_date, goal_status FROM user_profiles WHERE user_id = ? LIMIT 1',
+    'SELECT user_id, age, height, current_weight, target_weight, goal_weeks, goal_date, goal_status, gender FROM user_profiles WHERE user_id = ? LIMIT 1',
     [userId],
   );
   return result[0] ?? null;
@@ -226,6 +230,7 @@ export async function hasProfile(userId: string): Promise<boolean> {
 export async function saveProfile(userId: string, data: {
   age?: number;
   height?: number;
+  gender?: GenderValue;
   currentWeight: number;
   targetWeight: number;
   goalWeeks: number;
@@ -233,13 +238,22 @@ export async function saveProfile(userId: string, data: {
 }): Promise<void> {
   const db = getDatabase();
   await db.runAsync(
-    `INSERT OR REPLACE INTO user_profiles
-      (user_id, age, height, current_weight, target_weight, goal_weeks, goal_date)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO user_profiles
+       (user_id, age, height, gender, current_weight, target_weight, goal_weeks, goal_date)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(user_id) DO UPDATE SET
+       age = COALESCE(excluded.age, user_profiles.age),
+       height = COALESCE(excluded.height, user_profiles.height),
+       gender = COALESCE(excluded.gender, user_profiles.gender),
+       current_weight = excluded.current_weight,
+       target_weight = excluded.target_weight,
+       goal_weeks = excluded.goal_weeks,
+       goal_date = excluded.goal_date`,
     [
       userId,
       data.age ?? null,
       data.height ?? null,
+      data.gender ?? null,
       data.currentWeight,
       data.targetWeight,
       data.goalWeeks,
@@ -258,6 +272,96 @@ export async function saveProfile(userId: string, data: {
 
   void syncLocalToRemote('user_profiles');
   void syncLocalToRemote('weight_logs');
+}
+
+// Actualización PARCIAL del perfil: solo cambia las columnas enviadas y
+// conserva las del resto. Se usa desde el módulo de Perfil al completar campos
+// que quedaron vacíos (p. ej. 'gender' en cuentas antiguas) sin borrar el resto.
+export async function updateUserProfile(
+  userId: string,
+  data: {
+    age?: number;
+    height?: number;
+    gender?: GenderValue;
+    currentWeight?: number;
+    targetWeight?: number;
+    goalWeeks?: number;
+    goalDate?: string;
+  },
+): Promise<void> {
+  const db = getDatabase();
+  const fields: { column: string; value: number | string | null }[] = [];
+  if (data.age !== undefined) fields.push({ column: 'age', value: data.age });
+  if (data.height !== undefined) fields.push({ column: 'height', value: data.height });
+  if (data.gender !== undefined) fields.push({ column: 'gender', value: data.gender });
+  if (data.currentWeight !== undefined) {
+    fields.push({ column: 'current_weight', value: data.currentWeight });
+  }
+  if (data.targetWeight !== undefined) {
+    fields.push({ column: 'target_weight', value: data.targetWeight });
+  }
+  if (data.goalWeeks !== undefined) fields.push({ column: 'goal_weeks', value: data.goalWeeks });
+  if (data.goalDate !== undefined) fields.push({ column: 'goal_date', value: data.goalDate });
+  if (!fields.length) return;
+
+  const setClause = fields.map((f) => `${f.column} = ?`).join(', ');
+  const result = await db.runAsync(
+    `UPDATE user_profiles SET ${setClause} WHERE user_id = ?`,
+    [...fields.map((f) => f.value ?? null), userId],
+  );
+  if (result.changes === 0) {
+    // Sin fila previa (caso extremo): se siembra el perfil con los campos dados.
+    const row: Record<string, string | number | null> = { user_id: userId };
+    for (const f of fields) row[f.column] = f.value;
+    const keys = Object.keys(row);
+    const quoted = keys.map((k) => `"${k}"`).join(', ');
+    const placeholders = keys.map(() => '?').join(', ');
+    await db.runAsync(
+      `INSERT INTO user_profiles (${quoted}) VALUES (${placeholders})`,
+      keys.map((k) => row[k] ?? null),
+    );
+  }
+  void syncLocalToRemote('user_profiles');
+}
+
+// Cambia el nombre visible de la cuenta (tabla `users`; se replica a Supabase).
+export async function updateUserName(userId: string, name: string): Promise<void> {
+  const db = getDatabase();
+  const cleanName = name.trim();
+  if (!cleanName) {
+    throw new Error('El nombre no puede quedar vacío.');
+  }
+  await db.runAsync('UPDATE users SET name = ? WHERE email = ?', [cleanName, userId]);
+  void syncLocalToRemote('users');
+}
+
+// Cambia la contraseña local verificando primero la actual. El hash nuevo se
+// persiste en SQLite y se sube a Supabase para validar en otros dispositivos.
+export async function changePassword(
+  userId: string,
+  currentPassword: string,
+  newPassword: string,
+): Promise<void> {
+  const db = getDatabase();
+  const result = await db.getAllAsync<{ password_hash: string }>(
+    'SELECT password_hash FROM users WHERE email = ? LIMIT 1',
+    [userId],
+  );
+  const storedHash = result[0]?.password_hash;
+  if (!storedHash) {
+    throw new Error('No existe una contraseña local para esta cuenta.');
+  }
+  const valid = await verifyPassword(currentPassword, storedHash);
+  if (!valid) {
+    throw new Error('La contraseña actual es incorrecta.');
+  }
+  if (newPassword.length < 6) {
+    throw new Error('La nueva contraseña debe tener al menos 6 caracteres.');
+  }
+  const salt = await generateSalt();
+  const nextHash = await hashPassword(newPassword, salt);
+  await db.runAsync('UPDATE users SET password_hash = ? WHERE email = ?', [nextHash, userId]);
+  void syncLocalToRemote('users');
 }
 
 export async function getUserSession(userId: string): Promise<UserSession> {
@@ -289,6 +393,10 @@ export async function getUserSession(userId: string): Promise<UserSession> {
           goalDate: profile.goal_date ?? undefined,
           heightCm: profile.height ?? undefined,
           age: profile.age ?? undefined,
+          gender:
+            profile.gender === 'mujer' || profile.gender === 'hombre'
+              ? profile.gender
+              : undefined,
         }
       : null,
   };

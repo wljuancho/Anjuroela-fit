@@ -5,6 +5,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import OnboardingScreen from '../screens/OnboardingScreen';
 import LoginScreen from '../screens/LoginScreen';
 import TutorialScreen from '../screens/TutorialScreen';
+import ProfileScreen from '../screens/ProfileScreen';
 import MainTabs from './MainTabs';
 import { useAuth, useTutorial } from '../context';
 import type { RootStackParamList } from './types';
@@ -58,6 +59,7 @@ export default function RootNavigator() {
             <Stack.Screen name="Tutorial" component={TutorialScreen} />
           ) : null}
           <Stack.Screen name="MainTabs" component={MainTabs} />
+          <Stack.Screen name="Perfil" component={ProfileScreen} />
         </>
       )}
     </Stack.Navigator>

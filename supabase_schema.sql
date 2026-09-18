@@ -60,6 +60,7 @@ create table if not exists public.user_profiles (
   goal_date text,
   goal_status text default 'active',
   username text,
+  gender text,
   created_at text default (now()::text),
   constraint user_profiles_user_fk
     foreign key (user_id) references public.users (email) on delete cascade
@@ -94,6 +95,7 @@ begin
   alter table public.user_profiles add column if not exists goal_date text;
   alter table public.user_profiles add column if not exists goal_status text default 'active';
   alter table public.user_profiles add column if not exists username text;
+  alter table public.user_profiles add column if not exists gender text;
   alter table public.user_profiles add column if not exists created_at text default (now()::text);
 end $$;
 

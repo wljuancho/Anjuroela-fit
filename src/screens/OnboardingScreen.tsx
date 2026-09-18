@@ -19,6 +19,7 @@ import {
   MAX_WEEKLY_LOSS_KG,
   MAX_WEEKLY_GAIN_KG,
 } from '../services/utils/goalValidator';
+import type { GenderValue } from '../services/authService';
 
 interface FormWarnings {
   weight?: string;
@@ -26,6 +27,11 @@ interface FormWarnings {
   weeks?: string;
   goal?: string;
 }
+
+const GENDER_OPTIONS: { value: GenderValue; label: string; icon: 'female' | 'male' }[] = [
+  { value: 'mujer', label: 'Mujer', icon: 'female' },
+  { value: 'hombre', label: 'Hombre', icon: 'male' },
+];
 
 function toISODate(date: Date): string {
   const year = date.getFullYear();
@@ -46,6 +52,7 @@ export default function OnboardingScreen() {
   const [currentWeight, setCurrentWeight] = useState('');
   const [targetWeight, setTargetWeight] = useState('');
   const [weeks, setWeeks] = useState('');
+  const [gender, setGender] = useState<GenderValue | null>(null);
   const [goalDate, setGoalDate] = useState('');
   const [goalDateLabel, setGoalDateLabel] = useState('');
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -114,6 +121,9 @@ export default function OnboardingScreen() {
   function validateInputs(): boolean {
     const next: Record<string, string | undefined> = {};
 
+    if (!gender) {
+      next.gender = 'Selecciona tu género.';
+    }
     if (!currentWeightNum || currentWeightNum <= 0) {
       next.currentWeight = 'Ingresa tu peso actual.';
     }
@@ -166,6 +176,7 @@ export default function OnboardingScreen() {
       const finalDate = goalDate.trim() || dateStr;
 
       await saveHealthProfile({
+        gender: gender ?? undefined,
         currentWeight: currentWeightNum,
         targetWeight: targetWeightNum,
         goalWeeks: weeksNum,
@@ -208,6 +219,53 @@ export default function OnboardingScreen() {
           </View>
 
           {errors.form ? <Text style={styles.formError}>{errors.form}</Text> : null}
+
+          <View style={styles.fieldContainer}>
+            <Text style={styles.fieldLabel}>Género</Text>
+            <View style={styles.genderRow}>
+              {GENDER_OPTIONS.map((option) => {
+                const selected = gender === option.value;
+                return (
+                  <Pressable
+                    key={option.value}
+                    style={({ pressed }) => [
+                      styles.genderOption,
+                      selected ? styles.genderOptionActive : null,
+                      errors.gender ? styles.genderOptionError : null,
+                      pressed ? styles.genderOptionPressed : null,
+                    ]}
+                    onPress={() => {
+                      setGender(option.value);
+                      setErrors((prev) => ({ ...prev, gender: undefined }));
+                    }}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected }}
+                    accessibilityLabel={`Género ${option.label}`}
+                  >
+                    <Ionicons
+                      name={option.icon}
+                      size={20}
+                      color={selected ? colors.text : colors.textMuted}
+                    />
+                    <Text
+                      style={[
+                        styles.genderOptionText,
+                        selected ? styles.genderOptionTextActive : null,
+                      ]}
+                    >
+                      {option.label}
+                    </Text>
+                    <Ionicons
+                      name={selected ? 'radio-button-on' : 'radio-button-off'}
+                      size={18}
+                      color={selected ? colors.primary : colors.textSubtle}
+                    />
+                  </Pressable>
+                );
+              })}
+            </View>
+            {errors.gender ? <Text style={styles.genderErrorText}>{errors.gender}</Text> : null}
+          </View>
 
           <AppTextInput
             label="Peso actual (kg)"
@@ -385,6 +443,48 @@ const styles = StyleSheet.create({
   fieldContainer: {
     marginBottom: 16,
     width: '100%',
+  },
+  genderRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  genderOption: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.cardAlt,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    gap: 8,
+  },
+  genderOptionActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySofter,
+  },
+  genderOptionError: {
+    borderColor: colors.primary,
+  },
+  genderOptionPressed: {
+    opacity: 0.7,
+  },
+  genderOptionText: {
+    flex: 1,
+    color: colors.textMuted,
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  genderOptionTextActive: {
+    color: colors.text,
+    fontWeight: '600',
+  },
+  genderErrorText: {
+    color: colors.primary,
+    fontSize: 12,
+    marginTop: 4,
   },
   fieldLabel: {
     color: colors.textMuted,
