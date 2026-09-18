@@ -26,7 +26,11 @@
       "permissions": [
         "android.permission.health.READ_HEART_RATE",
         "android.permission.health.READ_ACTIVE_CALORIES_BURNED",
-        "android.permission.health.READ_TOTAL_CALORIES_BURNED"
+        "android.permission.health.READ_TOTAL_CALORIES_BURNED",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
       ]
     },
     "web": {
@@ -72,8 +76,9 @@
     },
     "extra": {
       "eas": {
-        "projectId": "9e5836b5-5a45-4619-a2fe-222ba8f8cdaf"
+        "projectId": "2ec5a470-b873-49f2-b8f5-584140e8ca81"
       }
-    }
+    },
+    "owner": "juanangelquintero"
   }
 }
