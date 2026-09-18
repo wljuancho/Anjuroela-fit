@@ -8,8 +8,9 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
-  KeyboardAvoidingView,
+  Keyboard,
   Platform,
+  type KeyboardEvent,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -46,8 +47,27 @@ export default function EntrenadorScreen() {
   const [sending, setSending] = useState(false);
   const [hasApiKey, setHasApiKey] = useState<boolean | null>(null);
   const [chatLoaded, setChatLoaded] = useState(false);
+  const [keyboardScreenY, setKeyboardScreenY] = useState<number | null>(null);
+  const [composerBottom, setComposerBottom] = useState(0);
   const scrollRef = useRef<FlatList<ChatMessage>>(null);
   const userId = user?.id;
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const onShow = (event: KeyboardEvent) => {
+      setKeyboardScreenY(event.endCoordinates.screenY);
+    };
+    const onHide = () => {
+      setKeyboardScreenY(null);
+    };
+    const show = Keyboard.addListener(showEvent, onShow);
+    const hide = Keyboard.addListener(hideEvent, onHide);
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
 
   useEffect(() => {
     if (userId == null) return;
@@ -186,12 +206,11 @@ export default function EntrenadorScreen() {
     );
   };
 
+  const keyboardGap =
+    keyboardScreenY == null ? 0 : Math.max(composerBottom - keyboardScreenY, 0);
+
   return (
-    <KeyboardAvoidingView
-      style={styles.safe}
-      behavior="padding"
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-    >
+    <View style={styles.safe}>
       {hasApiKey === false ? (
         <View style={styles.keyBanner}>
           <Ionicons name="key-outline" size={16} color={colors.warning} />
@@ -229,7 +248,14 @@ export default function EntrenadorScreen() {
         }
       />
 
-      <View style={styles.composer}>
+      <View
+        style={[styles.composer, keyboardGap > 0 ? { marginBottom: keyboardGap } : null]}
+        onLayout={(event) => {
+          const { y, height } = event.nativeEvent.layout;
+          const absoluteY = (event.nativeEvent.layout as { screenY?: number }).screenY ?? y;
+          setComposerBottom(absoluteY + height);
+        }}
+      >
         <TextInput
           style={styles.input}
           value={input}
@@ -257,7 +283,7 @@ export default function EntrenadorScreen() {
         title="¿Cómo funciona el Entrenador?"
         points={ENTRENADOR_TUTORIAL_POINTS}
       />
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 

@@ -17,6 +17,7 @@ import { ScreenTutorialModal } from '../components';
 import type { ScreenTutorialPoint } from '../components/ScreenTutorialModal';
 import {
   CardCaloriasDiarias,
+  CardCaloriasPeriodo,
   CardComidaItem,
   CardListaMercado,
   ModalEscanearComida,
@@ -40,7 +41,7 @@ import type { NewMealLog, NutritionProfile, NutritionProfileInput, WeeklyMealPla
 export default function ComidaScreen() {
   const { user, profile, reloadProfile } = useAuth();
   const [date, setDate] = useState(() => formatDate(new Date()));
-  const { data, loading, error, reload, saveMeal, removeMeal, saveProfile } = useNutritionData(
+  const { data, period, loading, error, reload, saveMeal, removeMeal, saveProfile } = useNutritionData(
     user?.id ?? '',
     date,
   );
@@ -191,6 +192,8 @@ export default function ComidaScreen() {
         {data ? (
           <CardCaloriasDiarias data={data} onEditStrategy={() => setNutriVisible(true)} />
         ) : null}
+
+        {period ? <CardCaloriasPeriodo period={period} /> : null}
 
         <TouchableOpacity
           style={styles.scanCard}

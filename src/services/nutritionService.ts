@@ -3,6 +3,7 @@ import { getDatabase } from './database';
 import { syncLocalToRemote, queueLocalDeletion } from './syncService';
 import type {
   ActivityLevel,
+  CaloriasPeriodoResumen,
   MealIngredient,
   MealLog,
   NewMealLog,
@@ -116,6 +117,48 @@ export async function getDailyCaloriesConsumed(date: string): Promise<number> {
     [date],
   );
   return rows[0]?.calories_consumed ?? 0;
+}
+
+function startOfWeek(date: string): string {
+  const [y, m, d] = date.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  const jsDay = dt.getDay();
+  const daysSinceMonday = jsDay === 0 ? 6 : jsDay - 1;
+  dt.setDate(dt.getDate() - daysSinceMonday);
+  return formatDate(dt);
+}
+
+function startOfMonth(date: string): string {
+  return `${date.slice(0, 7)}-01`;
+}
+
+export async function getCaloriasPeriodoResumen(
+  userId: string,
+  date: string,
+): Promise<CaloriasPeriodoResumen> {
+  const db = getDatabase();
+  const weekStart = startOfWeek(date);
+  const monthStart = startOfMonth(date);
+  const [profile, weekRows, monthRows] = await Promise.all([
+    getNutritionProfile(userId),
+    db.getAllAsync<{ total: number; days: number }>(
+      `SELECT COALESCE(SUM(calories_consumed), 0) AS total, COUNT(*) AS days
+       FROM daily_calories WHERE date >= ? AND date <= ?`,
+      [weekStart, date],
+    ),
+    db.getAllAsync<{ total: number; days: number }>(
+      `SELECT COALESCE(SUM(calories_consumed), 0) AS total, COUNT(*) AS days
+       FROM daily_calories WHERE date >= ? AND date <= ?`,
+      [monthStart, date],
+    ),
+  ]);
+  return {
+    weekConsumed: Math.round(weekRows[0]?.total ?? 0),
+    weekDays: weekRows[0]?.days ?? 0,
+    monthConsumed: Math.round(monthRows[0]?.total ?? 0),
+    monthDays: monthRows[0]?.days ?? 0,
+    goal: profile?.dailyCaloriesGoal ?? null,
+  };
 }
 
 export async function addCaloriesToDay(date: string, calories: number): Promise<void> {

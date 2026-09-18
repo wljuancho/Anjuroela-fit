@@ -112,6 +112,7 @@ export async function initDatabase(): Promise<void> {
       reps INTEGER,
       set_type TEXT DEFAULT 'reps',
       time_seconds REAL,
+      rest_seconds REAL,
       FOREIGN KEY (session_id) REFERENCES workout_sessions (id) ON DELETE CASCADE,
       FOREIGN KEY (exercise_id) REFERENCES exercises_v2 (id) ON DELETE CASCADE
     );
@@ -224,6 +225,7 @@ export async function initDatabase(): Promise<void> {
   `);
 
   await migrateWorkoutSets(database);
+  await migrateWorkoutSetsRest(database);
   await migrateWorkoutSessionsCalories(database);
   await migrateExercisesV2Mode(database);
   await migrateDayMuscles(database);
@@ -386,6 +388,15 @@ async function migrateWorkoutSets(db: SQLite.SQLiteDatabase): Promise<void> {
   }
 if (!names.includes('time_seconds')) {
     await db.execAsync('ALTER TABLE workout_sets ADD COLUMN time_seconds REAL');
+  }
+}
+
+async function migrateWorkoutSetsRest(db: SQLite.SQLiteDatabase): Promise<void> {
+  const columns = await db.getAllAsync<{ name: string }>(
+    'PRAGMA table_info(workout_sets)',
+  );
+  if (!columns.some((c) => c.name === 'rest_seconds')) {
+    await db.execAsync('ALTER TABLE workout_sets ADD COLUMN rest_seconds REAL');
   }
 }
 

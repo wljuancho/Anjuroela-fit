@@ -292,11 +292,17 @@ create table if not exists public.workout_sets (
   reps integer,
   set_type text default 'reps',
   time_seconds double precision,
+  rest_seconds double precision,
   constraint workout_sets_session_fk
     foreign key (session_id) references public.workout_sessions (id) on delete cascade,
   constraint workout_sets_exercise_fk
     foreign key (exercise_id) references public.exercises_v2 (id) on delete cascade
 );
+
+-- rest_seconds: descanso tras cada serie registrado por el flujo activo y usado
+-- por la estimación de kcal quemadas. ADITIVO: las filas legacy quedan en NULL.
+alter table public.workout_sets
+  add column if not exists rest_seconds double precision;
 
 -- ---------------- progreso y nutricion ----------------
 create table if not exists public.weight_logs (

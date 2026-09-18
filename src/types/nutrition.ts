@@ -63,6 +63,14 @@ export interface NutritionDayData {
   meals: MealLog[];
 }
 
+export interface CaloriasPeriodoResumen {
+  weekConsumed: number;
+  weekDays: number;
+  monthConsumed: number;
+  monthDays: number;
+  goal: number | null;
+}
+
 export interface MealIngredient {
   name: string;
   amount: string;

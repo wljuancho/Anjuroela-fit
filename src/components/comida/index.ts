@@ -1,4 +1,5 @@
 export { default as CardCaloriasDiarias } from './CardCaloriasDiarias';
+export { default as CardCaloriasPeriodo } from './CardCaloriasPeriodo';
 export { default as CardComidaItem } from './CardComidaItem';
 export { default as CardListaMercado } from './CardListaMercado';
 export { default as ModalEscanearComida } from './ModalEscanearComida';

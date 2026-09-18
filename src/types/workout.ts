@@ -116,6 +116,7 @@ export interface WorkoutSet {
   reps: number | null;
   set_type?: SetType;
   time_seconds?: number | null;
+  rest_seconds?: number | null;
 }
 
 export interface WorkoutSetInput {
@@ -125,6 +126,7 @@ export interface WorkoutSetInput {
   reps: number | null;
   set_type?: SetType;
   time_seconds?: number | null;
+  rest_seconds?: number | null;
 }
 
 export interface ExerciseWithSets {

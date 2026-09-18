@@ -339,7 +339,7 @@ export async function completeSession(sessionId: number): Promise<void> {
 // usuario registra en cada sesión. MET=5 es el valor representativo del
 // compendio de actividades para entrenamiento de fuerza moderado-vigoroso.
 const RESISTANCE_TRAINING_MET = 5;
-// Cadencia media por repetición (fase concéntrica + excéntrica) en segundos.
+const REST_MET = 1.5;
 const SECONDS_PER_REP = 2;
 const FALLBACK_BODY_WEIGHT_KG = 70;
 
@@ -351,6 +351,13 @@ function estimateSetDuration(
   }
   if (set.reps && set.reps > 0) {
     return set.reps * SECONDS_PER_REP;
+  }
+  return 0;
+}
+
+function estimateSetRestSeconds(set: Pick<WorkoutSet, 'rest_seconds'>): number {
+  if (set.rest_seconds && set.rest_seconds > 0) {
+    return set.rest_seconds;
   }
   return 0;
 }
@@ -377,8 +384,12 @@ async function recalculateSessionCalories(sessionId: number): Promise<void> {
   try {
     const sets = await getSetsForSession(sessionId);
     const bodyWeightKg = await getCurrentBodyWeightKg();
-    const totalSeconds = sets.reduce((acc, set) => acc + estimateSetDuration(set), 0);
-    const calories = Math.round((RESISTANCE_TRAINING_MET * bodyWeightKg * totalSeconds) / 3600);
+    const workSeconds = sets.reduce((acc, set) => acc + estimateSetDuration(set), 0);
+    const restSeconds = sets.reduce((acc, set) => acc + estimateSetRestSeconds(set), 0);
+    const calories = Math.round(
+      (RESISTANCE_TRAINING_MET * bodyWeightKg * workSeconds) / 3600 +
+        (REST_MET * bodyWeightKg * restSeconds) / 3600,
+    );
     await db.runAsync('UPDATE workout_sessions SET calories_burned = ? WHERE id = ?', [
       Math.max(0, calories),
       sessionId,
@@ -401,13 +412,13 @@ export async function upsertSets(sessionId: number, sets: WorkoutSetInput[]): Pr
         );
         if (existing[0]) {
           await db.runAsync(
-            'UPDATE workout_sets SET weight_kg = ?, reps = ?, set_type = ?, time_seconds = ? WHERE id = ?',
-            [s.weight_kg, s.reps, setType, timeSeconds, existing[0].id],
+            'UPDATE workout_sets SET weight_kg = ?, reps = ?, set_type = ?, time_seconds = ?, rest_seconds = ? WHERE id = ?',
+            [s.weight_kg, s.reps, setType, timeSeconds, s.rest_seconds ?? null, existing[0].id],
           );
         } else {
           await db.runAsync(
-            'INSERT INTO workout_sets (session_id, exercise_id, set_number, weight_kg, reps, set_type, time_seconds) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            [sessionId, s.exercise_id, s.set_number, s.weight_kg, s.reps, setType, timeSeconds],
+            'INSERT INTO workout_sets (session_id, exercise_id, set_number, weight_kg, reps, set_type, time_seconds, rest_seconds) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [sessionId, s.exercise_id, s.set_number, s.weight_kg, s.reps, setType, timeSeconds, s.rest_seconds ?? null],
           );
         }
       }
@@ -425,7 +436,7 @@ export async function getSetsForSession(sessionId: number): Promise<WorkoutSet[]
   try {
     return await db.getAllAsync<WorkoutSet>(
       `SELECT ws.id, ws.session_id, ws.exercise_id, e.name as exercise_name,
-              ws.set_number, ws.weight_kg, ws.reps, ws.set_type, ws.time_seconds
+              ws.set_number, ws.weight_kg, ws.reps, ws.set_type, ws.time_seconds, ws.rest_seconds
        FROM workout_sets ws
        INNER JOIN exercises_v2 e ON e.id = ws.exercise_id
        WHERE ws.session_id = ?

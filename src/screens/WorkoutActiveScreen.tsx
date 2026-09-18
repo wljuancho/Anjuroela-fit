@@ -79,6 +79,8 @@ export default function WorkoutActiveScreen() {
     if (plan.mode === 'circuit') {
       for (const ex of plan.exercises) {
         for (let r = 1; r <= plan.rounds; r += 1) {
+          const isLastExercise = ex === plan.exercises[plan.exercises.length - 1];
+          const isLastRound = r === plan.rounds;
           sets.push({
             exercise_id: ex.exerciseId,
             set_number: r,
@@ -86,12 +88,14 @@ export default function WorkoutActiveScreen() {
             reps: null,
             set_type: 'time',
             time_seconds: plan.workSeconds,
+            rest_seconds: isLastExercise && !isLastRound ? plan.restSeconds : null,
           });
         }
       }
     } else {
       const totalSeries = plan.mode === 'reps' ? plan.series : Math.max(plan.series, workDone);
       for (let i = 1; i <= totalSeries; i += 1) {
+        const restSeconds = i < totalSeries ? plan.restSeconds : null;
         if (plan.mode === 'reps') {
           sets.push({
             exercise_id: exercise.id,
@@ -100,6 +104,7 @@ export default function WorkoutActiveScreen() {
             reps: plan.reps,
             set_type: 'reps',
             time_seconds: null,
+            rest_seconds: restSeconds,
           });
         } else {
           sets.push({
@@ -109,6 +114,7 @@ export default function WorkoutActiveScreen() {
             reps: null,
             set_type: 'time',
             time_seconds: plan.workSeconds,
+            rest_seconds: restSeconds,
           });
         }
       }
