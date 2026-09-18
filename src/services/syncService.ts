@@ -67,7 +67,7 @@ const UPSERT_ON_CONFLICT: Record<string, string> = {
   weekly_schedule: 'day_of_week',
   day_muscles: 'day_of_week,body_part_id',
   day_exercises: 'day_of_week,body_part_id,exercise_id',
-  workout_sessions: 'day_of_week,date',
+  workout_sessions: 'day_of_week,date,session_type',
   workout_circuits: 'day_of_week,body_part_id',
   daily_calories: 'date',
   // En una instalación limpia el id local se conserva también en Supabase.
@@ -115,7 +115,7 @@ const DELETION_COMPOSITE_KEYS: Record<string, readonly string[]> = {
   day_muscles: ['day_of_week', 'body_part_id'],
   day_exercises: ['day_of_week', 'body_part_id', 'exercise_id'],
   workout_circuits: ['day_of_week', 'body_part_id'],
-  workout_sessions: ['day_of_week', 'date'],
+  workout_sessions: ['day_of_week', 'date', 'session_type'],
   daily_calories: ['date'],
 };
 
@@ -814,7 +814,7 @@ const IDENTITY_REGENERATED_TABLES = [] as const;
 const REMOTE_ID_KEYS: Record<string, string[]> = {
   day_exercises: ['day_of_week', 'body_part_id', 'exercise_id'],
   day_muscles: ['day_of_week', 'body_part_id'],
-  workout_sessions: ['day_of_week', 'date'],
+  workout_sessions: ['day_of_week', 'date', 'session_type'],
   weekly_schedule: ['day_of_week'],
   daily_calories: ['date'],
   body_parts: ['name'],
@@ -848,8 +848,9 @@ async function mapWorkoutSetsToRemoteSessions(
     id: number;
     day_of_week: string;
     date: string;
+    session_type: string;
   }>(
-    `SELECT id, day_of_week, date FROM workout_sessions WHERE id IN (${placeholders})`,
+    `SELECT id, day_of_week, date, session_type FROM workout_sessions WHERE id IN (${placeholders})`,
     localSessionIds,
   );
   const remoteByLocalId = new Map<number, number>();
@@ -859,6 +860,7 @@ async function mapWorkoutSetsToRemoteSessions(
       .select('id')
       .eq('day_of_week', session.day_of_week)
       .eq('date', session.date)
+      .eq('session_type', session.session_type)
       .limit(1);
     const remoteId = data?.[0]?.id;
     if (error || !Number.isFinite(Number(remoteId))) {

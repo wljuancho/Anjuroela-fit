@@ -11,6 +11,7 @@ import type {
   WorkoutSetInput,
   ExerciseWithSets,
   WorkoutCircuit,
+  MuscleExercise,
 } from '../types/workout';
 import { DAYS_ORDER } from '../types/workout';
 
@@ -121,12 +122,12 @@ export async function getOrCreateSession(dayOfWeek: DayOfWeek): Promise<WorkoutS
     let session: WorkoutSession | null = null;
     await db.withTransactionAsync(async () => {
       await db.runAsync(
-        'INSERT OR IGNORE INTO workout_sessions (day_of_week, date, completed) VALUES (?, ?, 0)',
-        [dayOfWeek, today],
+        'INSERT OR IGNORE INTO workout_sessions (day_of_week, date, session_type, completed) VALUES (?, ?, ?, 0)',
+        [dayOfWeek, today, 'routine'],
       );
       const rows = await db.getAllAsync<WorkoutSession>(
-        'SELECT * FROM workout_sessions WHERE day_of_week = ? AND date = ? LIMIT 1',
-        [dayOfWeek, today],
+        'SELECT * FROM workout_sessions WHERE day_of_week = ? AND date = ? AND session_type = ? LIMIT 1',
+        [dayOfWeek, today, 'routine'],
       );
       session = rows[0] ?? null;
     });
@@ -137,6 +138,190 @@ export async function getOrCreateSession(dayOfWeek: DayOfWeek): Promise<WorkoutS
     return session;
   } catch {
     throw new Error('No se pudo iniciar la sesión de entrenamiento.');
+  }
+}
+
+function todayDayOfWeek(): DayOfWeek {
+  const jsDay = new Date().getDay();
+  return DAYS_ORDER[jsDay === 0 ? 6 : jsDay - 1];
+}
+
+/**
+ * Sesión de entrenamiento OCASIONAL del día (por ejemplo, hacer cardio un día
+ * que la rutina marcaba abdomen+piernas). No toca la plantilla semanal
+ * (weekly_schedule/day_muscles/day_exercises), por lo que no reaparece la
+ * semana siguiente; pero al guardarse en workout_sessions/workout_sets sí
+ * cuenta en Progreso (marcas de fuerza, músculos y kcal).
+ */
+export async function getOrCreateCasualSession(): Promise<WorkoutSession> {
+  const db = getDatabase();
+  const today = formatDate(new Date());
+  const day = todayDayOfWeek();
+  try {
+    let session: WorkoutSession | null = null;
+    await db.withTransactionAsync(async () => {
+      await db.runAsync(
+        'INSERT OR IGNORE INTO workout_sessions (day_of_week, date, session_type, completed) VALUES (?, ?, ?, 0)',
+        [day, today, 'casual'],
+      );
+      const rows = await db.getAllAsync<WorkoutSession>(
+        'SELECT * FROM workout_sessions WHERE day_of_week = ? AND date = ? AND session_type = ? LIMIT 1',
+        [day, today, 'casual'],
+      );
+      session = rows[0] ?? null;
+    });
+    if (!session) {
+      throw new Error('No se pudo iniciar el entrenamiento ocasional.');
+    }
+    void syncLocalToRemote('workout_sessions');
+    return session;
+  } catch {
+    throw new Error('No se pudo iniciar el entrenamiento ocasional.');
+  }
+}
+
+export async function getSessionById(sessionId: number): Promise<WorkoutSession | null> {
+  const db = getDatabase();
+  try {
+    const rows = await db.getAllAsync<WorkoutSession>(
+      'SELECT * FROM workout_sessions WHERE id = ? LIMIT 1',
+      [sessionId],
+    );
+    return rows[0] ?? null;
+  } catch {
+    throw new Error('No se pudo cargar la sesión.');
+  }
+}
+
+export interface CasualSessionSummary {
+  id: number;
+  day_of_week: DayOfWeek;
+  date: string;
+  session_type: string;
+  note: string | null;
+  completed: number;
+  calories_burned: number;
+  set_count: number;
+  exercise_count: number;
+}
+
+export async function listCasualSessions(): Promise<CasualSessionSummary[]> {
+  const db = getDatabase();
+  try {
+    return await db.getAllAsync<CasualSessionSummary>(
+      `SELECT * FROM (
+         SELECT s.id, s.day_of_week, s.date, s.session_type, s.note, s.completed, s.calories_burned,
+                (SELECT COUNT(*) FROM workout_sets ws WHERE ws.session_id = s.id) AS set_count,
+                (SELECT COUNT(DISTINCT ws.exercise_id) FROM workout_sets ws WHERE ws.session_id = s.id) AS exercise_count
+         FROM workout_sessions s
+         WHERE s.session_type = 'casual'
+       )
+       WHERE set_count > 0
+       ORDER BY date DESC, id DESC`,
+    );
+  } catch {
+    throw new Error('No se pudieron cargar los entrenamientos ocasionales.');
+  }
+}
+
+export async function getCasualBodyPartExercises(
+  bodyPartId: number,
+): Promise<MuscleExercise[]> {
+  const db = getDatabase();
+  const rows = await db.getAllAsync<{
+    id: number;
+    name: string;
+    equipment: string | null;
+    mode: string | null;
+  }>(
+    'SELECT id, name, equipment, mode FROM exercises_v2 WHERE body_part_id = ? AND is_active = 1 ORDER BY name',
+    [bodyPartId],
+  );
+  return Promise.all(
+    rows.map(async (r) => ({
+      id: r.id,
+      name: r.name,
+      equipment: r.equipment,
+      mode: (r.mode === 'time' ? 'time' : null) as MuscleExercise['mode'],
+      lastWeightKg: await getLastWeightForExercise(r.id),
+      avgWeightKg: await getAverageWeightForExercise(r.id),
+    })),
+  );
+}
+
+export async function deleteExerciseSetsFromSession(
+  sessionId: number,
+  exerciseId: number,
+): Promise<void> {
+  const db = getDatabase();
+  const sets = await db.getAllAsync<{ id: number }>(
+    'SELECT id FROM workout_sets WHERE session_id = ? AND exercise_id = ?',
+    [sessionId, exerciseId],
+  );
+  await db.withTransactionAsync(async () => {
+    for (const set of sets) {
+      await db.runAsync('DELETE FROM workout_sets WHERE id = ?', [set.id]);
+    }
+  });
+  for (const set of sets) {
+    queueLocalDeletion({ table: 'workout_sets', rowId: set.id });
+  }
+  await recalculateSessionCalories(sessionId);
+  void syncLocalToRemote('workout_sets');
+}
+
+export async function deleteSetFromSession(sessionId: number, setId: number): Promise<void> {
+  const db = getDatabase();
+  await db.runAsync('DELETE FROM workout_sets WHERE id = ? AND session_id = ?', [
+    setId,
+    sessionId,
+  ]);
+  queueLocalDeletion({ table: 'workout_sets', rowId: setId });
+  await recalculateSessionCalories(sessionId);
+  void syncLocalToRemote('workout_sets');
+}
+
+export async function deleteCasualSession(sessionId: number): Promise<void> {
+  const db = getDatabase();
+  const session = await getSessionById(sessionId);
+  const sets = await db.getAllAsync<{ id: number }>(
+    'SELECT id FROM workout_sets WHERE session_id = ?',
+    [sessionId],
+  );
+  await db.withTransactionAsync(async () => {
+    for (const set of sets) {
+      await db.runAsync('DELETE FROM workout_sets WHERE id = ?', [set.id]);
+    }
+    await db.runAsync('DELETE FROM workout_sessions WHERE id = ?', [sessionId]);
+  });
+  for (const set of sets) {
+    queueLocalDeletion({ table: 'workout_sets', rowId: set.id });
+  }
+  if (session) {
+    queueLocalDeletion({
+      table: 'workout_sessions',
+      rowId: session.id,
+      key: {
+        day_of_week: session.day_of_week,
+        date: session.date,
+        session_type: session.session_type ?? 'casual',
+      },
+    });
+  }
+  void syncLocalToRemote('workout_sets');
+  void syncLocalToRemote('workout_sessions');
+}
+
+export async function updateCasualSessionNote(sessionId: number, note: string): Promise<void> {
+  const db = getDatabase();
+  try {
+    await db.runAsync('UPDATE workout_sessions SET note = ? WHERE id = ?', [
+      note.trim() ? note.trim() : null,
+      sessionId,
+    ]);
+    void syncLocalToRemote('workout_sessions');
+  } catch {
+    throw new Error('No se pudo actualizar la nota.');
   }
 }
 
@@ -258,6 +443,7 @@ export async function getExercisesWithSets(sessionId: number): Promise<ExerciseW
     const rows = await db.getAllAsync<{
       exercise_id: number;
       exercise_name: string;
+      body_part_id: number;
       body_part_name: string;
       equipment: string | null;
       id: number;
@@ -267,7 +453,7 @@ export async function getExercisesWithSets(sessionId: number): Promise<ExerciseW
       set_type: 'reps' | 'time' | null;
       time_seconds: number | null;
     }>(
-      `SELECT e.id as exercise_id, e.name as exercise_name, bp.name as body_part_name,
+      `SELECT e.id as exercise_id, e.name as exercise_name, e.body_part_id, bp.name as body_part_name,
               e.equipment, ws.id, ws.set_number, ws.weight_kg, ws.reps, ws.set_type, ws.time_seconds
        FROM workout_sets ws
        INNER JOIN exercises_v2 e ON e.id = ws.exercise_id
@@ -283,6 +469,7 @@ export async function getExercisesWithSets(sessionId: number): Promise<ExerciseW
         grouped.set(row.exercise_id, {
           exercise_id: row.exercise_id,
           exercise_name: row.exercise_name,
+          body_part_id: row.body_part_id,
           body_part_name: row.body_part_name,
           equipment: row.equipment,
           sets: [],

@@ -56,6 +56,8 @@ export interface WorkoutSession {
   id: number;
   day_of_week: DayOfWeek;
   date: string;
+  session_type?: 'routine' | 'casual';
+  note?: string | null;
   completed: number;
   calories_burned?: number;
   created_at?: string;
@@ -128,6 +130,7 @@ export interface WorkoutSetInput {
 export interface ExerciseWithSets {
   exercise_id: number;
   exercise_name: string;
+  body_part_id: number;
   body_part_name: string;
   equipment: string | null;
   sets: WorkoutSet[];

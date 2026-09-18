@@ -5,6 +5,7 @@ import RutinaScreen from '../screens/RutinaScreen';
 import MusclePanelScreen from '../screens/MusclePanelScreen';
 import ExerciseConfigScreen from '../screens/ExerciseConfigScreen';
 import WorkoutActiveScreen from '../screens/WorkoutActiveScreen';
+import CasualWorkoutScreen from '../screens/CasualWorkoutScreen';
 import type { RutinaStackParamList } from './types';
 
 const Stack = createNativeStackNavigator<RutinaStackParamList>();
@@ -21,6 +22,7 @@ export default function RutinaStack() {
       <Stack.Screen name="MusclePanel" component={MusclePanelScreen} />
       <Stack.Screen name="ExerciseConfig" component={ExerciseConfigScreen} />
       <Stack.Screen name="WorkoutActive" component={WorkoutActiveScreen} />
+      <Stack.Screen name="CasualWorkout" component={CasualWorkoutScreen} />
     </Stack.Navigator>
   );
 }

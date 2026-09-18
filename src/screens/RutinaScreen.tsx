@@ -24,6 +24,9 @@ import {
   addMusclesToDay,
   removeMuscleFromDay,
   resetStaleCompletions,
+  listCasualSessions,
+  deleteCasualSession,
+  type CasualSessionSummary,
 } from '../services/workoutService';
 import { getAllBodyParts } from '../services/exerciseService';
 import type { BodyPart } from '../types/exercise';
@@ -42,10 +45,22 @@ function getTodayDayOfWeek(): DayOfWeek {
   return DAYS_ORDER[jsDay === 0 ? 6 : jsDay - 1];
 }
 
+function formatCasualDate(dateStr: string): string {
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const date = new Date(y, m - 1, d);
+  const diff = Math.round((date.getTime() - now.getTime()) / 86400000);
+  if (diff === 0) return 'Hoy';
+  if (diff === -1) return 'Ayer';
+  return `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear()}`;
+}
+
 export default function RutinaScreen() {
   const navigation = useNavigation<RutinaNav>();
   const [musclesByDay, setMusclesByDay] = useState<Record<string, DayMuscle[]>>({});
   const [bodyParts, setBodyParts] = useState<BodyPart[]>([]);
+  const [casualSessions, setCasualSessions] = useState<CasualSessionSummary[]>([]);
   const [selectedDay, setSelectedDay] = useState<DayOfWeek>(getTodayDayOfWeek);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -57,7 +72,11 @@ export default function RutinaScreen() {
     try {
       await initWorkoutData();
       await resetStaleCompletions();
-      const [all, bp] = await Promise.all([getAllDayMuscles(), getAllBodyParts()]);
+      const [all, bp, casual] = await Promise.all([
+        getAllDayMuscles(),
+        getAllBodyParts(),
+        listCasualSessions(),
+      ]);
       const grouped: Record<string, DayMuscle[]> = {};
       for (const m of all) {
         if (!grouped[m.day_of_week]) grouped[m.day_of_week] = [];
@@ -65,6 +84,7 @@ export default function RutinaScreen() {
       }
       setMusclesByDay(grouped);
       setBodyParts(bp);
+      setCasualSessions(casual);
     } catch {
       Alert.alert('Error', 'No se pudo cargar la rutina.');
     } finally {
@@ -126,6 +146,30 @@ export default function RutinaScreen() {
               await loadData();
             } catch (e) {
               Alert.alert('Error', e instanceof Error ? e.message : 'No se pudo quitar.');
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const handleRemoveCasual = (session: CasualSessionSummary) => {
+    Alert.alert(
+      'Eliminar entrenamiento',
+      `¿Eliminar el entreno ocasional del ${formatCasualDate(session.date)}${
+        session.note ? ` (${session.note})` : ''
+      }? También se quitará de tu Progreso.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Eliminar',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteCasualSession(session.id);
+              await loadData();
+            } catch (e) {
+              Alert.alert('Error', e instanceof Error ? e.message : 'No se pudo eliminar.');
             }
           },
         },
@@ -236,6 +280,61 @@ export default function RutinaScreen() {
             ))}
           </ScrollView>
         )}
+
+        <View style={styles.casualSection}>
+          <View style={styles.casualHeader}>
+            <View style={styles.casualHeaderText}>
+              <Text style={styles.casualTitle}>Entrenos ocasionales</Text>
+              <Text style={styles.casualSubtitle}>Fuera de la rutina de la semana</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.casualAddBtn}
+              onPress={() => navigation.navigate('CasualWorkout', {})}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="add" size={18} color={colors.text} />
+            </TouchableOpacity>
+          </View>
+          {casualSessions.length === 0 ? (
+            <Text style={styles.casualEmpty}>
+              ¿Hiciste algo especial hoy? Ej: la rutina marcaba abdomen+piernas e hiciste cardio.
+              Aquí puedes registrarlo sin cambiar tu plan semanal.
+            </Text>
+          ) : (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.casualList}
+            >
+              {casualSessions.map((s) => (
+                <TouchableOpacity
+                  key={s.id}
+                  style={styles.casualCard}
+                  onPress={() => navigation.navigate('CasualWorkout', { sessionId: s.id })}
+                  activeOpacity={0.75}
+                >
+                  <View style={styles.casualCardHeader}>
+                    <Text style={styles.casualCardDate}>{formatCasualDate(s.date)}</Text>
+                    <TouchableOpacity
+                      onPress={() => handleRemoveCasual(s)}
+                      activeOpacity={0.7}
+                      style={styles.casualCardDelete}
+                    >
+                      <Ionicons name="trash-outline" size={15} color={colors.textSubtle} />
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={styles.casualCardNote} numberOfLines={1}>
+                    {s.note ?? 'Entreno ocasional'}
+                  </Text>
+                  <Text style={styles.casualCardMeta}>
+                    {s.exercise_count} ejercicios · {s.set_count} series
+                    {s.calories_burned > 0 ? ` · ${Math.round(s.calories_burned)} kcal` : ''}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
+        </View>
       </View>
 
       <ModalAgregarMusculo
@@ -515,5 +614,87 @@ const styles = StyleSheet.create({
     backgroundColor: themeColors.background,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  casualSection: {
+    marginHorizontal: 16,
+    marginBottom: 12,
+  },
+  casualHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  casualHeaderText: {
+    flex: 1,
+  },
+  casualTitle: {
+    color: themeColors.text,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  casualSubtitle: {
+    color: themeColors.textSubtle,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  casualAddBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: themeColors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  casualList: {
+    height: 100,
+    gap: 10,
+    paddingRight: 8,
+  },
+  casualCard: {
+    width: 230,
+    backgroundColor: themeColors.card,
+    borderWidth: 1,
+    borderColor: themeColors.cardAlt,
+    borderRadius: 12,
+    padding: 12,
+    justifyContent: 'space-between',
+  },
+  casualCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  casualCardDate: {
+    color: themeColors.primary,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  casualCardDelete: {
+    width: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  casualCardNote: {
+    color: themeColors.text,
+    fontSize: 14,
+    fontWeight: '600',
+    marginVertical: 4,
+  },
+  casualCardMeta: {
+    color: themeColors.textSubtle,
+    fontSize: 12,
+  },
+  casualEmpty: {
+    color: themeColors.textSubtle,
+    fontSize: 13,
+    lineHeight: 19,
+    backgroundColor: themeColors.card,
+    borderWidth: 1,
+    borderColor: themeColors.cardAlt,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
 });

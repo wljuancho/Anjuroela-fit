@@ -31,10 +31,15 @@ export type RutinaStackParamList = {
     exercise: MuscleExercise;
     sessionId: number;
     muscleExercises?: MuscleExercise[];
+    sessionType?: 'routine' | 'casual';
   };
   WorkoutActive: MusclePanelParams & {
     exercise: MuscleExercise;
     sessionId: number;
     plan: WorkoutPlan;
+    sessionType?: 'routine' | 'casual';
+  };
+  CasualWorkout: {
+    sessionId?: number;
   };
 };

@@ -16,7 +16,7 @@ import { TouchableOpacity } from 'react-native';
 import AppButton from '../components/AppButton';
 import type { RutinaStackParamList } from '../navigation/types';
 import { DAY_LABELS, type WorkoutSetInput } from '../types/workout';
-import { upsertSets } from '../services/workoutService';
+import { upsertSets, completeSession } from '../services/workoutService';
 import { useWorkoutTimer } from '../hooks/useWorkoutTimer';
 
 type ActiveNav = NativeStackNavigationProp<RutinaStackParamList, 'WorkoutActive'>;
@@ -34,7 +34,7 @@ function formatCountdown(totalSeconds: number): string {
 export default function WorkoutActiveScreen() {
   const navigation = useNavigation<ActiveNav>();
   const route = useRoute<ActiveRoute>();
-  const { day, exercise, sessionId, plan, muscleId, bodyPartId, bodyPartName } = route.params;
+  const { day, exercise, sessionId, plan, muscleId, bodyPartId, bodyPartName, sessionType } = route.params;
 
   const timer = useWorkoutTimer({
     plan,
@@ -117,6 +117,11 @@ export default function WorkoutActiveScreen() {
     try {
       await upsertSets(sessionId, sets);
       clearTimer();
+      if (sessionType === 'casual') {
+        await completeSession(sessionId);
+        navigation.popTo('CasualWorkout', { sessionId });
+        return;
+      }
       navigation.popTo('MusclePanel', {
         day,
         muscleId,

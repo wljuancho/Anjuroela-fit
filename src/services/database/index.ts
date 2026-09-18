@@ -94,6 +94,8 @@ export async function initDatabase(): Promise<void> {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       day_of_week TEXT NOT NULL,
       date TEXT NOT NULL,
+      session_type TEXT NOT NULL DEFAULT 'routine',
+      note TEXT,
       completed INTEGER DEFAULT 0,
       calories_burned REAL NOT NULL DEFAULT 0,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
@@ -224,6 +226,7 @@ export async function initDatabase(): Promise<void> {
   await migrateExercisesV2Mode(database);
   await migrateDayMuscles(database);
   await migrateUniqueSessionIndex(database);
+  await migrateWorkoutSessionType(database);
   await migrateBodyPartsIsActive(database);
   await migrateExercisesIsActive(database);
   await migrateWeeklyMealPlanSchema(database);
@@ -235,7 +238,8 @@ export async function initDatabase(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_day_muscles_day ON day_muscles (day_of_week);
     CREATE INDEX IF NOT EXISTS idx_day_exercises_day ON day_exercises (day_of_week);
     CREATE INDEX IF NOT EXISTS idx_exercises_v2_body_part ON exercises_v2 (body_part_id);
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_workout_sessions_day_date ON workout_sessions (day_of_week, date);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_workout_sessions_day_date_type
+      ON workout_sessions (day_of_week, date, session_type);
     CREATE INDEX IF NOT EXISTS idx_workout_sets_session ON workout_sets (session_id);
     CREATE INDEX IF NOT EXISTS idx_workout_sets_exercise ON workout_sets (exercise_id);
     CREATE INDEX IF NOT EXISTS idx_workout_sets_session_exercise_set
@@ -273,6 +277,30 @@ async function migrateUniqueSessionIndex(db: SQLite.SQLiteDatabase): Promise<voi
     WHERE id NOT IN (SELECT MIN(id) FROM workout_sessions GROUP BY day_of_week, date);
     DROP INDEX IF EXISTS idx_workout_sessions_day_date;
     CREATE UNIQUE INDEX IF NOT EXISTS idx_workout_sessions_day_date ON workout_sessions (day_of_week, date);
+  `);
+}
+
+// Añade a workout_sessions el tipo de sesión ('routine' | 'casual') y la nota
+// opcional, y amplía la unicidad a (day_of_week, date, session_type) para que
+// una sesión de rutina y una ocasional puedan coexistir el mismo día. La
+// sesión ocasional no toca la plantilla semanal: solo se guarda en
+// workout_sessions/workout_sets para contar en progreso sin reaparecer la
+// semana siguiente. Idempotente para instalaciones nuevas y migradas.
+async function migrateWorkoutSessionType(db: SQLite.SQLiteDatabase): Promise<void> {
+  const columns = await db.getAllAsync<{ name: string }>(
+    'PRAGMA table_info(workout_sessions)',
+  );
+  const names = columns.map((c) => c.name);
+  if (!names.includes('session_type')) {
+    await db.execAsync("ALTER TABLE workout_sessions ADD COLUMN session_type TEXT NOT NULL DEFAULT 'routine'");
+  }
+  if (!names.includes('note')) {
+    await db.execAsync('ALTER TABLE workout_sessions ADD COLUMN note TEXT');
+  }
+  await db.execAsync(`
+    DROP INDEX IF EXISTS idx_workout_sessions_day_date;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_workout_sessions_day_date_type
+      ON workout_sessions (day_of_week, date, session_type);
   `);
 }
 

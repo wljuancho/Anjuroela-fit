@@ -20,7 +20,7 @@ type Mode = 'reps' | 'time' | 'circuit';
 export default function ExerciseConfigScreen() {
   const navigation = useNavigation<ConfigNav>();
   const route = useRoute<ConfigRoute>();
-  const { day, exercise, sessionId, muscleId, bodyPartId, bodyPartName, muscleExercises } =
+  const { day, exercise, sessionId, muscleId, bodyPartId, bodyPartName, muscleExercises, sessionType } =
     route.params;
 
   const [mode, setMode] = useState<Mode>(exercise.mode === 'time' ? 'time' : 'reps');
@@ -76,6 +76,7 @@ export default function ExerciseConfigScreen() {
       bodyPartId,
       bodyPartName,
       plan: { mode: 'reps', series: parsePositive(series), reps: parsePositive(reps), restSeconds: parsePositive(restSeconds) || 60 },
+      sessionType,
     });
   };
 
@@ -89,6 +90,7 @@ export default function ExerciseConfigScreen() {
       bodyPartId,
       bodyPartName,
       plan: { mode: 'time', series: parsePositive(series), workSeconds: parsePositive(workSeconds), restSeconds: parseNonNegative(restSeconds) },
+      sessionType,
     });
   };
 
@@ -134,6 +136,7 @@ export default function ExerciseConfigScreen() {
         workSeconds: parsePositive(workSeconds),
         restSeconds: parseNonNegative(restSeconds),
       },
+      sessionType,
     });
   };
 
