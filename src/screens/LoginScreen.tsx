@@ -96,8 +96,9 @@ export default function LoginScreen() {
     try {
       if (mode === 'register') {
         await signUp(name.trim(), email, password);
-        Alert.alert('¡Éxito!', '¡Cuenta creada con éxito! Ahora puedes iniciar sesión.');
-        switchMode('login');
+        // signUp deja la sesión iniciada con el perfil aún vacío: el
+        // RootNavigator redirige automáticamente al Onboarding para completar
+        // el cuestionario de metas/calorías (no hace falta un segundo login).
       } else {
         const ok = await signIn(email, password);
         if (!ok) {

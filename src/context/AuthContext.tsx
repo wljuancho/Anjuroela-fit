@@ -238,6 +238,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (prevUserId && prevUserId !== newRecord.id) {
           await purgeUserData(prevUserId);
         }
+        // Auto-login tras el registro: con el perfil aún vacío, RootNavigator
+        // aterriza directo en el Onboarding (cuestionario de metas/calorías),
+        // y el Tutorial solo aparece después de guardar el perfil. Así no se
+        // salta el cuestionario ni se exige un segundo inicio de sesión.
+        const nextUser: AuthUser = {
+          id: newRecord.id,
+          name: newRecord.name,
+          email: newRecord.email,
+          authProvider: 'local',
+        };
+        setSupabaseAppUser(newRecord.id);
+        setUser(nextUser);
+        setProfile(null);
+        await persistSession(nextUser, null);
       },
 
       async signIn(email: string, password: string) {

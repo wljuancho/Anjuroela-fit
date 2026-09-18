@@ -31,6 +31,8 @@ import {
   requestWearablePermissions,
   hasWearablePermissions,
   revokeWearableAccess,
+  getAndroidHealthConnectStatus,
+  openHealthConnectPlayStore,
 } from '../services/healthService';
 
 type Status = 'idle' | 'saved' | 'tested-ok' | 'tested-fail' | 'error';
@@ -79,6 +81,40 @@ export default function SettingsScreen() {
     if (!storageUserId) return;
     setLinkingHealth(true);
     try {
+      if (Platform.OS === 'android') {
+        const hcStatus = await getAndroidHealthConnectStatus();
+        if (hcStatus === 'not-installed') {
+          Alert.alert(
+            'Instala Health Connect',
+            'Health Connect no está instalado en tu dispositivo. Descarga la aplicación oficial de Google para vincular tus dispositivos (Samsung, Xiaomi, Garmin, Fitbit, etc.).',
+            [
+              {
+                text: 'Descargar Health Connect',
+                onPress: () => void openHealthConnectPlayStore(),
+              },
+              { text: 'Cancelar', style: 'cancel' },
+            ],
+          );
+          return;
+        }
+        if (hcStatus === 'update-required') {
+          Alert.alert(
+            'Actualiza Health Connect',
+            'Health Connect está desactualizado. Actualiza la aplicación oficial de Google desde Play Store para poder vincular tus dispositivos (Samsung, Xiaomi, Garmin, Fitbit, etc.).',
+            [
+              {
+                text: 'Actualizar Health Connect',
+                onPress: () => void openHealthConnectPlayStore(),
+              },
+              { text: 'Cancelar', style: 'cancel' },
+            ],
+          );
+          return;
+        }
+      }
+
+      // En Android el flujo abre la pantalla del sistema de Health Connect
+      // para conceder lectura de Ritmo Cardíaco y Calorías Activas.
       await requestWearablePermissions();
       const authed = await hasWearablePermissions().catch(() => false);
       if (!authed) {
@@ -359,6 +395,10 @@ const handleTest = async () => {
             y las calorías de tus sesiones combinándolos con tus series, rondas y
             descansos.
           </Text>
+          <Text style={styles.infoText}>
+            Sincroniza con cualquier marca (Samsung, Xiaomi, Garmin, Fitbit, Oura,
+            etc.) que envíe datos a Health Connect o Apple Health.
+          </Text>
 
           {wearableStatus === 'checking' ? (
             <View style={styles.statusRow}>
@@ -366,12 +406,24 @@ const handleTest = async () => {
               <Text style={styles.statusText}>Revisando dispositivo…</Text>
             </View>
           ) : wearableStatus === 'unavailable' ? (
-            <View style={[styles.statusBox, styles.statusFail]}>
-              <Ionicons name="phone-portrait-outline" size={18} color={colors.primary} />
-              <Text style={[styles.statusText, styles.statusTextFail]}>
-                Tu dispositivo no admite la sincronización de salud.
-              </Text>
-            </View>
+            <>
+              <View style={[styles.statusBox, styles.statusFail]}>
+                <Ionicons name="phone-portrait-outline" size={18} color={colors.primary} />
+                <Text style={[styles.statusText, styles.statusTextFail]}>
+                  {Platform.OS === 'android'
+                    ? 'Health Connect no está instalado en este dispositivo.'
+                    : 'Tu dispositivo no admite la sincronización de salud.'}
+                </Text>
+              </View>
+              {Platform.OS === 'android' ? (
+                <AppButton
+                  title="Vincular mi reloj / pulsera"
+                  onPress={handleLinkWearable}
+                  loading={linkingHealth}
+                  disabled={linkingHealth}
+                />
+              ) : null}
+            </>
           ) : wearableEnabled && wearableAuthed ? (
             <>
               <View style={[styles.statusBox, styles.statusOk]}>

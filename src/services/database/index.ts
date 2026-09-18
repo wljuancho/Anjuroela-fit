@@ -122,20 +122,11 @@ export async function initDatabase(): Promise<void> {
       FOREIGN KEY (exercise_id) REFERENCES exercises_v2 (id) ON DELETE CASCADE
     );
 
-    CREATE TABLE IF NOT EXISTS workout_circuits (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      day_of_week TEXT NOT NULL,
-      body_part_id INTEGER NOT NULL,
-      name TEXT NOT NULL,
-      work_seconds INTEGER NOT NULL,
-      rest_seconds INTEGER NOT NULL,
-      rounds INTEGER NOT NULL DEFAULT 3,
-      exercises_json TEXT NOT NULL,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (body_part_id) REFERENCES body_parts (id) ON DELETE CASCADE,
-      UNIQUE (day_of_week, body_part_id)
-    );
-
+    -- Definición ÚNICA de workout_circuits (replica 1:1 de Supabase): los
+    -- CREATE duplicados de versiones anteriores no afectan al modelo (la
+    -- primera definición ganaba en instalaciones nuevas). Los INSERT desde la
+    -- app siempre envían work_seconds/rest_seconds/rounds explícitos; los
+    -- DEFAULT igualan el esquema remoto en instalaciones nuevas.
     CREATE TABLE IF NOT EXISTS workout_circuits (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       day_of_week TEXT NOT NULL,
@@ -143,21 +134,7 @@ export async function initDatabase(): Promise<void> {
       name TEXT NOT NULL,
       work_seconds REAL NOT NULL DEFAULT 30,
       rest_seconds REAL NOT NULL DEFAULT 60,
-      rounds INTEGER NOT NULL DEFAULT 4,
-      exercises_json TEXT NOT NULL,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (body_part_id) REFERENCES body_parts (id) ON DELETE CASCADE,
-      UNIQUE (day_of_week, body_part_id)
-    );
-
-    CREATE TABLE IF NOT EXISTS workout_circuits (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      day_of_week TEXT NOT NULL,
-      body_part_id INTEGER NOT NULL,
-      name TEXT NOT NULL,
-      work_seconds INTEGER NOT NULL,
-      rest_seconds INTEGER NOT NULL,
-      rounds INTEGER NOT NULL,
+      rounds INTEGER NOT NULL DEFAULT 3,
       exercises_json TEXT NOT NULL,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (body_part_id) REFERENCES body_parts (id) ON DELETE CASCADE,
@@ -247,54 +224,64 @@ export async function initDatabase(): Promise<void> {
     );
   `);
 
-  await migrateWorkoutSets(database);
-  await migrateWorkoutSetsRest(database);
-  await migrateWorkoutSessionsCalories(database);
-  await migrateWorkoutSessionsHealth(database);
-  await migrateDailyCaloriesBurned(database);
-  await migrateExercisesV2Mode(database);
-  await migrateDayMuscles(database);
-  await migrateDayExercisesWeekOf(database);
-  await migrateWorkoutSessionsUserId(database);
-  await migrateUniqueSessionIndex(database);
-  await migrateWorkoutSessionType(database);
-  await migrateBodyPartsIsActive(database);
-  await migrateExercisesIsActive(database);
-  await migrateWeeklyMealPlanSchema(database);
-  await migrateUsersEmailPk(database);
-  await migrateDropUsersGoogleId(database);
-  await migrateDailyCaloriesUserDate(database);
-  await migrateMealLogsUserId(database);
-  await migrateWeightLogsUserId(database);
+  // Migración segura de columnas de perfil (try/catch por columna). Se ejecuta
+  // TEMPRANO y también en el finally del bloque de migraciones: garantiza que
+  // user_profiles tenga gender y sex_for_calorie_formula, y nutrition_profile
+  // sex_for_calorie_formula, antes de que authService/nutritionService/
+  // exerciseService consulten o escriban con esas columnas — aunque alguna
+  // migración posterior (p. ej. migrateUsersEmailPk) reconstruya tablas o falle.
+  await ensureProfileColumns(database);
 
-  await database.execAsync(`
-    CREATE INDEX IF NOT EXISTS idx_user_profiles_user ON user_profiles (user_id);
-    CREATE INDEX IF NOT EXISTS idx_day_muscles_day ON day_muscles (day_of_week);
-    CREATE INDEX IF NOT EXISTS idx_day_exercises_day ON day_exercises (day_of_week);
-    CREATE INDEX IF NOT EXISTS idx_exercises_v2_body_part ON exercises_v2 (body_part_id);
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_workout_sessions_user_day_date_type
-      ON workout_sessions (user_id, day_of_week, date, session_type);
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_daily_calories_user_date
-      ON daily_calories (user_id, date);
-    CREATE INDEX IF NOT EXISTS idx_workout_sets_session ON workout_sets (session_id);
-    CREATE INDEX IF NOT EXISTS idx_workout_sets_exercise ON workout_sets (exercise_id);
-    CREATE INDEX IF NOT EXISTS idx_workout_sets_session_exercise_set
-      ON workout_sets (session_id, exercise_id, set_number);
-    CREATE INDEX IF NOT EXISTS idx_weight_logs_date ON weight_logs (date);
-    CREATE INDEX IF NOT EXISTS idx_meal_logs_date ON meal_logs (date);
-    CREATE INDEX IF NOT EXISTS idx_weight_logs_user ON weight_logs (user_id);
-    CREATE INDEX IF NOT EXISTS idx_meal_logs_user ON meal_logs (user_id);
-    CREATE INDEX IF NOT EXISTS idx_weekly_meal_plan_day ON weekly_meal_plan (day_of_week);
-    CREATE INDEX IF NOT EXISTS idx_weekly_meal_plan_date ON weekly_meal_plan (date);
-    CREATE INDEX IF NOT EXISTS idx_pending_deletions_user ON pending_deletions (user_id);
-    CREATE INDEX IF NOT EXISTS idx_user_row_owners_user ON user_row_owners (user_id);
-  `);
+  try {
+    await migrateWorkoutSets(database);
+    await migrateWorkoutSetsRest(database);
+    await migrateWorkoutSessionsCalories(database);
+    await migrateWorkoutSessionsHealth(database);
+    await migrateDailyCaloriesBurned(database);
+    await migrateExercisesV2Mode(database);
+    await migrateDayMuscles(database);
+    await migrateDayExercisesWeekOf(database);
+    await migrateWorkoutSessionsUserId(database);
+    await migrateUniqueSessionIndex(database);
+    await migrateWorkoutSessionType(database);
+    await migrateBodyPartsIsActive(database);
+    await migrateExercisesIsActive(database);
+    await migrateWeeklyMealPlanSchema(database);
+    await migrateUsersEmailPk(database);
+    await migrateDropUsersGoogleId(database);
+    await migrateDailyCaloriesUserDate(database);
+    await migrateMealLogsUserId(database);
+    await migrateWeightLogsUserId(database);
 
-  await migrateUserProfileGoalStatus(database);
-  await migrateUserProfilesUnique(database);
-  await migrateUserProfileGender(database);
-  await migrateUserProfileSexFormula(database);
-  await migrateNutritionProfileSexFormula(database);
+    await database.execAsync(`
+      CREATE INDEX IF NOT EXISTS idx_user_profiles_user ON user_profiles (user_id);
+      CREATE INDEX IF NOT EXISTS idx_day_muscles_day ON day_muscles (day_of_week);
+      CREATE INDEX IF NOT EXISTS idx_day_exercises_day ON day_exercises (day_of_week);
+      CREATE INDEX IF NOT EXISTS idx_exercises_v2_body_part ON exercises_v2 (body_part_id);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_workout_sessions_user_day_date_type
+        ON workout_sessions (user_id, day_of_week, date, session_type);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_daily_calories_user_date
+        ON daily_calories (user_id, date);
+      CREATE INDEX IF NOT EXISTS idx_workout_sets_session ON workout_sets (session_id);
+      CREATE INDEX IF NOT EXISTS idx_workout_sets_exercise ON workout_sets (exercise_id);
+      CREATE INDEX IF NOT EXISTS idx_workout_sets_session_exercise_set
+        ON workout_sets (session_id, exercise_id, set_number);
+      CREATE INDEX IF NOT EXISTS idx_weight_logs_date ON weight_logs (date);
+      CREATE INDEX IF NOT EXISTS idx_meal_logs_date ON meal_logs (date);
+      CREATE INDEX IF NOT EXISTS idx_weight_logs_user ON weight_logs (user_id);
+      CREATE INDEX IF NOT EXISTS idx_meal_logs_user ON meal_logs (user_id);
+      CREATE INDEX IF NOT EXISTS idx_weekly_meal_plan_day ON weekly_meal_plan (day_of_week);
+      CREATE INDEX IF NOT EXISTS idx_weekly_meal_plan_date ON weekly_meal_plan (date);
+      CREATE INDEX IF NOT EXISTS idx_pending_deletions_user ON pending_deletions (user_id);
+      CREATE INDEX IF NOT EXISTS idx_user_row_owners_user ON user_row_owners (user_id);
+    `);
+
+    await migrateUserProfileGoalStatus(database);
+    await migrateUserProfilesUnique(database);
+  } finally {
+    await ensureProfileColumns(database);
+  }
+
   await dropLegacyTables(database);
   await resetExerciseCatalogOnce(database);
 }
@@ -703,6 +690,7 @@ async function migrateUsersEmailPk(db: SQLite.SQLiteDatabase): Promise<void> {
           goal_date TEXT,
           goal_status TEXT DEFAULT 'active',
           username TEXT,
+          gender TEXT,
           sex_for_calorie_formula TEXT DEFAULT 'not_specified',
           created_at TEXT DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY (user_id) REFERENCES users (email) ON DELETE CASCADE
@@ -740,9 +728,10 @@ async function migrateUsersEmailPk(db: SQLite.SQLiteDatabase): Promise<void> {
           FROM users;
 
         INSERT OR IGNORE INTO user_profiles_v2
-          (user_id, age, height, current_weight, target_weight, goal_weeks, goal_date, goal_status, username, created_at)
+          (user_id, age, height, current_weight, target_weight, goal_weeks, goal_date, goal_status, username, gender, sex_for_calorie_formula, created_at)
         SELECT users_v2.email, up.age, up.height, up.current_weight, up.target_weight,
-               up.goal_weeks, up.goal_date, up.goal_status, up.username, up.created_at
+               up.goal_weeks, up.goal_date, up.goal_status, up.username, up.gender,
+               COALESCE(up.sex_for_calorie_formula, 'not_specified'), up.created_at
           FROM user_profiles up
           JOIN users u ON up.user_id = u.id
           JOIN users_v2 ON users_v2.email = lower(trim(u.email));
@@ -810,46 +799,37 @@ async function migrateUserProfileGoalStatus(db: SQLite.SQLiteDatabase): Promise<
   }
 }
 
-// Añade la columna 'gender' ('mujer' | 'hombre') a user_profiles para los
-// usuarios que crearon su cuenta antes de que existiera este campo. Idempotente
-// para instalaciones nuevas y ya migradas.
-async function migrateUserProfileGender(db: SQLite.SQLiteDatabase): Promise<void> {
-  const columns = await db.getAllAsync<{ name: string }>(
-    'PRAGMA table_info(user_profiles)',
+// Migración segura de columnas de perfil — try/catch por columna. Garantiza
+// que user_profiles tenga 'gender' y 'sex_for_calorie_formula', y
+// nutrition_profile tenga 'sex_for_calorie_formula' (DEFAULT 'not_specified').
+// Se ejecuta al principio y al final de initDatabase: si alguna migración
+// intermedia reconstruye tablas (migrateUsersEmailPk) o falla, el finally
+// reintenta antes de que la app consulte o escriba con estas columnas.
+// Idempotente: en instalaciones nuevas las columnas ya existen en el CREATE.
+async function ensureProfileColumns(database: SQLite.SQLiteDatabase): Promise<void> {
+  const ensure = async (table: string, column: string, ddl: string): Promise<void> => {
+    try {
+      const columns = await database.getAllAsync<{ name: string }>(
+        `PRAGMA table_info(${table})`,
+      );
+      if (!columns.some((c) => c.name === column)) {
+        await database.execAsync(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+      }
+    } catch {
+      // No crítica: se reintenta al final de initDatabase en el finally.
+    }
+  };
+  await ensure('user_profiles', 'gender', 'gender TEXT');
+  await ensure(
+    'user_profiles',
+    'sex_for_calorie_formula',
+    "sex_for_calorie_formula TEXT DEFAULT 'not_specified'",
   );
-  const names = columns.map((c) => c.name);
-  if (!names.includes('gender')) {
-    await db.execAsync('ALTER TABLE user_profiles ADD COLUMN gender TEXT');
-  }
-}
-
-// Añade sex_for_calorie_formula ('male' | 'female' | 'not_specified') a las dos
-// tablas de perfil: el sexo biológico que la fórmula Mifflin-St Jeor usa para
-// calcular el BMR (la app no antiguamente lo deducía del 'gender' de
-// user_profiles). Va nullable con DEFAULT para que los upserts de sync lo
-// escriban con COALESCE y no pisen los perfiles que aún no lo tienen.
-async function migrateUserProfileSexFormula(db: SQLite.SQLiteDatabase): Promise<void> {
-  const columns = await db.getAllAsync<{ name: string }>(
-    'PRAGMA table_info(user_profiles)',
+  await ensure(
+    'nutrition_profile',
+    'sex_for_calorie_formula',
+    "sex_for_calorie_formula TEXT DEFAULT 'not_specified'",
   );
-  const names = columns.map((c) => c.name);
-  if (!names.includes('sex_for_calorie_formula')) {
-    await db.execAsync(
-      "ALTER TABLE user_profiles ADD COLUMN sex_for_calorie_formula TEXT DEFAULT 'not_specified'",
-    );
-  }
-}
-
-async function migrateNutritionProfileSexFormula(db: SQLite.SQLiteDatabase): Promise<void> {
-  const columns = await db.getAllAsync<{ name: string }>(
-    'PRAGMA table_info(nutrition_profile)',
-  );
-  const names = columns.map((c) => c.name);
-  if (!names.includes('sex_for_calorie_formula')) {
-    await db.execAsync(
-      "ALTER TABLE nutrition_profile ADD COLUMN sex_for_calorie_formula TEXT DEFAULT 'not_specified'",
-    );
-  }
 }
 
 async function migrateUserProfilesUnique(db: SQLite.SQLiteDatabase): Promise<void> {

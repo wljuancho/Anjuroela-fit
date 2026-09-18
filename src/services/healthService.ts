@@ -1,4 +1,4 @@
-import { Platform } from 'react-native';
+import { Linking, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   getSdkStatus,
@@ -75,6 +75,45 @@ async function androidSdkAvailable(): Promise<boolean> {
     return status === SdkAvailabilityStatus.SDK_AVAILABLE;
   } catch {
     return false;
+  }
+}
+
+// Paquete oficial de la app "Health Connect" de Google y accesos directos a su
+// ficha en Google Play (el deep link market:// abre la tienda instalada; el
+// HTTPS es el respaldo a su ficha web).
+export const HEALTH_CONNECT_PROVIDER_PACKAGE = 'com.google.android.apps.healthdata';
+export const HEALTH_CONNECT_PLAY_STORE_URL =
+  'https://play.google.com/store/apps/details?id=com.google.android.apps.healthdata';
+
+export type AndroidHealthConnectStatus =
+  | 'available'
+  | 'not-installed'
+  | 'update-required';
+
+// Consulta el estado de Health Connect en Android distinguiendo si la app de
+// Google está instalada (y actualizada) o no. En iOS no aplica: el flujo usa
+// Salud/HealthKit, así que siempre se reporta 'available'.
+export async function getAndroidHealthConnectStatus(): Promise<AndroidHealthConnectStatus> {
+  if (Platform.OS !== 'android') return 'available';
+  try {
+    const status = await getSdkStatus(HEALTH_CONNECT_PROVIDER_PACKAGE);
+    if (status === SdkAvailabilityStatus.SDK_AVAILABLE) return 'available';
+    if (status === SdkAvailabilityStatus.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED) {
+      return 'update-required';
+    }
+    return 'not-installed';
+  } catch {
+    return 'not-installed';
+  }
+}
+
+// Abre la ficha de Health Connect en Google Play (o su página web si el
+// dispositivo no tiene la tienda de Play).
+export async function openHealthConnectPlayStore(): Promise<void> {
+  try {
+    await Linking.openURL(`market://details?id=${HEALTH_CONNECT_PROVIDER_PACKAGE}`);
+  } catch {
+    await Linking.openURL(HEALTH_CONNECT_PLAY_STORE_URL);
   }
 }
 
