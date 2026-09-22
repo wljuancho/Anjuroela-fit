@@ -105,7 +105,8 @@ export async function initDatabase(): Promise<void> {
       heart_rate_avg REAL,
       calories_source TEXT DEFAULT 'estimate',
       user_id TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users (email) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS workout_sets (
@@ -147,7 +148,8 @@ export async function initDatabase(): Promise<void> {
       weight_kg REAL NOT NULL,
       notes TEXT,
       user_id TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users (email) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS nutrition_profile (
@@ -166,7 +168,8 @@ export async function initDatabase(): Promise<void> {
       user_id TEXT,
       calories_consumed REAL NOT NULL DEFAULT 0,
       calories_burned REAL NOT NULL DEFAULT 0,
-      logged_at TEXT DEFAULT CURRENT_TIMESTAMP
+      logged_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users (email) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS meal_logs (
@@ -176,7 +179,8 @@ export async function initDatabase(): Promise<void> {
       calories REAL NOT NULL DEFAULT 0,
       photo_uri TEXT,
       user_id TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users (email) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS weekly_meal_plan (
@@ -252,6 +256,7 @@ export async function initDatabase(): Promise<void> {
     await migrateDailyCaloriesUserDate(database);
     await migrateMealLogsUserId(database);
     await migrateWeightLogsUserId(database);
+    await ensureUserCascadeFk(database);
 
     await database.execAsync(`
       CREATE INDEX IF NOT EXISTS idx_user_profiles_user ON user_profiles (user_id);
@@ -548,10 +553,15 @@ async function migrateDailyCaloriesUserDate(db: SQLite.SQLiteDatabase): Promise<
           ALTER TABLE daily_calories_v2 RENAME TO daily_calories;
         `);
       });
-    } finally {
-      await db.execAsync('PRAGMA foreign_keys = ON;');
-    }
+} finally {
+    // Se deja foreign_keys OFF (valor por defecto de la conexión): el consumo
+    // sincroniza el catálogo con DELETE+INSERT (replaceLocalRows) y activar FK
+    // global haría que borrar body_parts cascadeara en day_*/circuits. El
+    // CASCADE al borrar un usuario se activa puntualmente en
+    // removeLocalUserAccount alrededor del DELETE FROM users.
+    await db.execAsync('PRAGMA foreign_keys = OFF;');
   }
+}
 
   if (await dailyCaloriesHasUserDateUnique(db)) return;
 
@@ -590,6 +600,124 @@ async function migrateWeightLogsUserId(db: SQLite.SQLiteDatabase): Promise<void>
   await db.execAsync('ALTER TABLE weight_logs ADD COLUMN user_id TEXT');
   if (userId) {
     await db.runAsync('UPDATE weight_logs SET user_id = ?', [userId]);
+  }
+}
+
+// Reconstruye las tablas de progreso que ya tienen user_id para dotarlas de la
+// clave foránea FK -> users(email) ON DELETE CASCADE: al borrar la cuenta
+// (DELETE FROM users WHERE email = ?) SQLite elimina en cascada las sesiones,
+// históricos de peso y calorías y registros de comida, sin depender solo del
+// borrado explícito de purgeUserData. SQLite no permite añadir una FK con
+// ALTER TABLE, por eso se reconstruye la tabla conservando ids y datos
+// (igual que migrateUsersEmailPk). Idempotente: solo reconstruye las tablas
+// que aún no tengan la FK hacia 'users'.
+async function ensureUserCascadeFk(db: SQLite.SQLiteDatabase): Promise<void> {
+  const hasUsersFk = async (table: string): Promise<boolean> => {
+    const fks = await db.getAllAsync<{ table: string }>(
+      `PRAGMA foreign_key_list(${table})`,
+    );
+    return fks.some((f) => f.table === 'users');
+  };
+
+  const rebuild = async (
+    table: string,
+    columns: string[],
+    ddl: string,
+    indexes: string[],
+  ): Promise<void> => {
+    if (await hasUsersFk(table)) return;
+    const quoted = columns.join(', ');
+    const indexSql = indexes.length ? `\n${indexes.join(';\n')};` : '';
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS ${table}_v2 (${ddl});
+      INSERT INTO ${table}_v2 (${quoted}) SELECT ${quoted} FROM ${table};
+      DROP TABLE ${table};
+      ALTER TABLE ${table}_v2 RENAME TO ${table};${indexSql}
+    `);
+  };
+
+  await db.execAsync('PRAGMA foreign_keys = OFF;');
+  try {
+    await rebuild(
+      'workout_sessions',
+      [
+        'id', 'day_of_week', 'date', 'session_type', 'note', 'completed',
+        'calories_burned', 'heart_rate_avg', 'calories_source', 'user_id', 'created_at',
+      ],
+      `
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        day_of_week TEXT NOT NULL,
+        date TEXT NOT NULL,
+        session_type TEXT NOT NULL DEFAULT 'routine',
+        note TEXT,
+        completed INTEGER DEFAULT 0,
+        calories_burned REAL NOT NULL DEFAULT 0,
+        heart_rate_avg REAL,
+        calories_source TEXT DEFAULT 'estimate',
+        user_id TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users (email) ON DELETE CASCADE
+      `,
+      [
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_workout_sessions_user_day_date_type ON workout_sessions (user_id, day_of_week, date, session_type)',
+      ],
+    );
+
+    await rebuild(
+      'weight_logs',
+      ['id', 'date', 'weight_kg', 'notes', 'user_id', 'created_at'],
+      `
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT NOT NULL,
+        weight_kg REAL NOT NULL,
+        notes TEXT,
+        user_id TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users (email) ON DELETE CASCADE
+      `,
+      [
+        'CREATE INDEX IF NOT EXISTS idx_weight_logs_date ON weight_logs (date)',
+        'CREATE INDEX IF NOT EXISTS idx_weight_logs_user ON weight_logs (user_id)',
+      ],
+    );
+
+    await rebuild(
+      'daily_calories',
+      ['id', 'date', 'user_id', 'calories_consumed', 'calories_burned', 'logged_at'],
+      `
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT NOT NULL,
+        user_id TEXT,
+        calories_consumed REAL NOT NULL DEFAULT 0,
+        calories_burned REAL NOT NULL DEFAULT 0,
+        logged_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users (email) ON DELETE CASCADE
+      `,
+      [
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_daily_calories_user_date ON daily_calories (user_id, date)',
+      ],
+    );
+
+    await rebuild(
+      'meal_logs',
+      ['id', 'date', 'meal_name', 'calories', 'photo_uri', 'user_id', 'created_at'],
+      `
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT NOT NULL,
+        meal_name TEXT NOT NULL,
+        calories REAL NOT NULL DEFAULT 0,
+        photo_uri TEXT,
+        user_id TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users (email) ON DELETE CASCADE
+      `,
+      [
+        'CREATE INDEX IF NOT EXISTS idx_meal_logs_date ON meal_logs (date)',
+        'CREATE INDEX IF NOT EXISTS idx_meal_logs_user ON meal_logs (user_id)',
+      ],
+    );
+  } finally {
+    await db.execAsync('PRAGMA foreign_keys = ON;');
   }
 }
 

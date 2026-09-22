@@ -277,10 +277,23 @@ async function enforceRemoteUserExistence(): Promise<boolean> {
 /**
  * Elimina la fila de la cuenta local en SQLite para que un usuario borrado en
  * la nube no vuelva a subirse en sincronizaciones posteriores.
+ *
+ * Activa temporalmente las claves foráneas (desactivadas por defecto en la
+ * conexión) SOLO alrededor del DELETE FROM users: así las FK con ON DELETE
+ * CASCADE de workout_sessions, weight_logs, daily_calories, meal_logs,
+ * user_profiles y nutrition_profile limpian los datos vinculados al user_id.
+ * No se deja foreign_keys=ON persistente porque syncRemoteToLocal reemplaza el
+ * catálogo con DELETE+INSERT y un CASCADE global borraría las tablas de rutina.
  */
 export async function removeLocalUserAccount(userId: string): Promise<void> {
   try {
-    await getDatabase().runAsync('DELETE FROM users WHERE email = ?', [userId]);
+    const db = getDatabase();
+    await db.execAsync('PRAGMA foreign_keys = ON;');
+    try {
+      await db.runAsync('DELETE FROM users WHERE email = ?', [userId]);
+    } finally {
+      await db.execAsync('PRAGMA foreign_keys = OFF;');
+    }
   } catch {
     // Fallo no letal.
   }

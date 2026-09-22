@@ -841,6 +841,66 @@ create policy anon_all_pending_deletions on public.pending_deletions
 --  limpian solas con ON DELETE CASCADE.
 --  SECURITY DEFINER: el borrado se ejecuta como dueño de la función y no
 --  depende de la cabecera x-app-user ni de RLS (funciona desde el panel).
+
+-- ---------------- borrado en cascada por user_id (aditivo) ----------------
+-- Las tablas de progreso con columna user_id (workout_sessions, weight_logs,
+-- daily_calories, meal_logs) ya se limpian al borrar la cuenta mediante el
+-- disparador cascade_delete_user_data() + user_row_owners. Estas FK refuerzan
+-- el CASCADE DELETE DIRECTO referenciando users(email) para cualquier fila con
+-- user_id (incluidas las legacy sin registro en user_row_owners). Idempotentes:
+-- solo se crean si la restricción aún no existe.
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.workout_sessions'::regclass
+      and contype = 'f'
+      and conname = 'workout_sessions_user_fk'
+  ) then
+    alter table public.workout_sessions
+      add constraint workout_sessions_user_fk
+        foreign key (user_id) references public.users (email) on delete cascade;
+  end if;
+end $$;
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.weight_logs'::regclass
+      and contype = 'f'
+      and conname = 'weight_logs_user_fk'
+  ) then
+    alter table public.weight_logs
+      add constraint weight_logs_user_fk
+        foreign key (user_id) references public.users (email) on delete cascade;
+  end if;
+end $$;
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.daily_calories'::regclass
+      and contype = 'f'
+      and conname = 'daily_calories_user_fk'
+  ) then
+    alter table public.daily_calories
+      add constraint daily_calories_user_fk
+        foreign key (user_id) references public.users (email) on delete cascade;
+  end if;
+end $$;
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.meal_logs'::regclass
+      and contype = 'f'
+      and conname = 'meal_logs_user_fk'
+  ) then
+    alter table public.meal_logs
+      add constraint meal_logs_user_fk
+        foreign key (user_id) references public.users (email) on delete cascade;
+  end if;
+end $$;
 --  Whitelist FIJA de tablas: nunca se usan table_name dinámicos de origen
 --  externo, por lo que no hay riesgo de inyección/escalada pese al rol.
 --  Idempotente: create or replace + drop trigger + create trigger permiten
