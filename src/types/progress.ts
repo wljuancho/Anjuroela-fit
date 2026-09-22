@@ -65,6 +65,12 @@ export interface SessionCaloriesBurned {
   caloriesBurned: number;
   caloriesSource?: 'wearable' | 'estimate';
   setCount: number;
+  // Fuente y detalle del desglose de calorías (panel Progreso + coach):
+  // 'routine' | 'casual', FC media de la sesión y ejercicios implicados
+  // (nombres separados por coma) para distinguir trabajo individual vs circuito.
+  sessionType?: string;
+  heartRateAvg?: number | null;
+  exerciseNames?: string | null;
 }
 
 export interface SessionHealthMetrics {

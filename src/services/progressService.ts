@@ -250,12 +250,18 @@ export async function getCaloriesBurnedBySession(userId: string, limit = 30): Pr
       date: string;
       calories_burned: number | null;
       calories_source: string | null;
+      session_type: string | null;
+      heart_rate_avg: number | null;
       set_count: number;
+      exercise_names: string | null;
     }>(
       `SELECT s.id, s.day_of_week, s.date, s.calories_burned, s.calories_source,
-              COUNT(w.id) AS set_count
+              s.session_type, s.heart_rate_avg,
+              COUNT(w.id) AS set_count,
+              GROUP_CONCAT(DISTINCT e.name) AS exercise_names
        FROM workout_sessions s
        LEFT JOIN workout_sets w ON w.session_id = s.id
+       LEFT JOIN exercises_v2 e ON e.id = w.exercise_id
        WHERE s.completed = 1 AND s.calories_burned IS NOT NULL AND s.calories_burned > 0
          AND (s.user_id = ? OR s.user_id IS NULL)
        GROUP BY s.id
@@ -270,6 +276,9 @@ export async function getCaloriesBurnedBySession(userId: string, limit = 30): Pr
       caloriesBurned: Math.max(0, Math.round((r.calories_burned ?? 0) * 10) / 10),
       caloriesSource: r.calories_source === 'wearable' ? 'wearable' : 'estimate',
       setCount: r.set_count,
+      sessionType: r.session_type ?? 'routine',
+      heartRateAvg: r.heart_rate_avg ?? null,
+      exerciseNames: r.exercise_names ?? null,
     }));
   } catch {
     throw new Error('No se pudieron cargar las calorías quemadas por entrenamiento.');

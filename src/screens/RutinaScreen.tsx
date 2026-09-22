@@ -29,6 +29,7 @@ import {
   type CasualSessionSummary,
 } from '../services/workoutService';
 import { getAllBodyParts } from '../services/exerciseService';
+import { formatDate } from '../services/utils';
 import type { BodyPart } from '../types/exercise';
 import {
   DAYS_ORDER,
@@ -67,6 +68,12 @@ export default function RutinaScreen() {
   const [addModalVisible, setAddModalVisible] = useState(false);
 
   const todayDay = getTodayDayOfWeek();
+
+  // "Entrenos Ocasionales del Día": solo se muestran los registrados HOY.
+  // El historial de días anteriores se conserva intacto en workout_sessions/
+  // workout_sets (y se replica a Supabase); simplemente deja de listarse aquí
+  // al cambiar el día, sin borrar nada.
+  const todayCasualSessions = casualSessions.filter((s) => s.date === formatDate(new Date()));
 
   const loadData = useCallback(async () => {
     try {
@@ -295,7 +302,7 @@ export default function RutinaScreen() {
               <Ionicons name="add" size={18} color={colors.text} />
             </TouchableOpacity>
           </View>
-          {casualSessions.length === 0 ? (
+          {todayCasualSessions.length === 0 ? (
             <Text style={styles.casualEmpty}>
               ¿Hiciste algo especial hoy? Ej: la rutina marcaba abdomen+piernas e hiciste cardio.
               Aquí puedes registrarlo sin cambiar tu plan semanal.
@@ -306,7 +313,7 @@ export default function RutinaScreen() {
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.casualList}
             >
-              {casualSessions.map((s) => (
+              {todayCasualSessions.map((s) => (
                 <TouchableOpacity
                   key={s.id}
                   style={styles.casualCard}

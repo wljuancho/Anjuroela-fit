@@ -17,15 +17,21 @@ import RemoteUpdateManager from './src/components/RemoteUpdateManager';
 
 SplashScreen.preventAutoHideAsync();
 
-// Muestra las notificaciones (banner + sonido) también con la app en primer plano,
-// necesario para que la alarma del temporizador suene durante el entrenamiento.
+// Avisos del temporizador: con la app en PRIMER PLANO la notificación se
+// silencia (banner + sonido) porque el propio temporizador reproduce su tono
+// por el canal de MÚSICA/MEDIA (evita sonido doble). Con la app en SEGUNDO
+// PLANO la notificación PUSH nativa se muestra con sonido para que la alarma
+// no se pierda.
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
+  handleNotification: async () => {
+    const foreground = AppState.currentState === 'active';
+    return {
+      shouldShowBanner: !foreground,
+      shouldShowList: !foreground,
+      shouldPlaySound: !foreground,
+      shouldSetBadge: false,
+    };
+  },
 });
 
 const WARM_KEY = 'anjuroela_fit:warmup';

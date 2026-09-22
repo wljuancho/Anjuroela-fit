@@ -31,6 +31,31 @@ function formatSleepHours(hours: number | null): string {
   return m > 0 ? `${h} h ${m} min` : `${h} h`;
 }
 
+// Fuente del gasto calórico de cada sesión: con reloj/pulsera el cálculo usa la
+// frecuencia cardíaca REAL medida; sin reloj se estima por fórmulas MET.
+function getSessionSourceLabel(s: SessionCaloriesBurned): string {
+  if (s.caloriesSource === 'wearable') {
+    return s.heartRateAvg != null
+      ? `Reloj/Pulsera · FC real (${formatNumber(s.heartRateAvg)} bpm)`
+      : 'Reloj/Pulsera · calorías del dispositivo';
+  }
+  return 'Estimación MET (sin reloj vinculado)';
+}
+
+// Origen de la actividad de la sesión: ocasional, ejercicio individual o circuito.
+function getSessionOriginLabel(s: SessionCaloriesBurned): string {
+  if (s.sessionType === 'casual') return 'Entreno Ocasional';
+  const names = (s.exerciseNames ?? '')
+    .split(',')
+    .map((n) => n.trim())
+    .filter(Boolean);
+  if (names.length === 1) {
+    return `Ejercicio Individual: ${names[0]}`;
+  }
+  if (names.length > 1) return `Circuito: ${names.join(', ')}`;
+  return 'Entrenamiento de rutina';
+}
+
 interface CaloriesBreakdown {
   wearableKcal: number;
   estimateKcal: number;
@@ -122,10 +147,9 @@ export default function CardCaloriasQuemadas({ sessions, userId }: CardCaloriasQ
                   <Text style={styles.rowDate}>
                     {formatFriendlyDate(s.date)} · {DAY_LABELS[s.dayOfWeek as keyof typeof DAY_LABELS] ?? s.dayOfWeek}
                   </Text>
+                  <Text style={styles.rowOrigin}>{getSessionOriginLabel(s)}</Text>
                   <Text style={styles.rowMeta}>
-                    {s.setCount} {s.setCount === 1 ? 'serie' : 'series'}
-                    {' · '}
-                    {s.caloriesSource === 'wearable' ? 'Reloj/Salud' : 'Estimado (MET)'}
+                    {s.setCount} {s.setCount === 1 ? 'serie' : 'series'} · {getSessionSourceLabel(s)}
                   </Text>
                 </View>
                 <Text style={styles.rowValue}>{formatNumber(s.caloriesBurned)} kcal</Text>
@@ -161,18 +185,33 @@ export default function CardCaloriasQuemadas({ sessions, userId }: CardCaloriasQ
                 <View style={styles.payloadRow}>
                   <View style={styles.payloadChip}>
                     <Ionicons name="watch" size={15} color={colors.primary} />
-                    <Text style={styles.payloadLabel}>Reloj/Salud</Text>
+                    <Text style={styles.payloadLabel}>
+                      {detail && detail.heartRateAvg != null
+                        ? `Reloj/Pulsera · FC ${formatNumber(detail.heartRateAvg)} bpm`
+                        : 'Reloj/Pulsera con pulso real'}
+                    </Text>
                     <Text style={styles.payloadValue}>
                       {detail && detail.wearableKcal > 0 ? `${formatNumber(detail.wearableKcal)} kcal` : 'sin registros'}
                     </Text>
                   </View>
                   <View style={styles.payloadChip}>
                     <Ionicons name="calculator" size={15} color={colors.textSubtle} />
-                    <Text style={styles.payloadLabel}>Estimación MET</Text>
+                    <Text style={styles.payloadLabel}>Estimación MET sin reloj</Text>
                     <Text style={styles.payloadValue}>
                       {detail && detail.estimateKcal > 0 ? `${formatNumber(detail.estimateKcal)} kcal` : 'sin registros'}
                     </Text>
                   </View>
+                </View>
+
+                <Text style={styles.sectionTitle}>Desglose por sesión</Text>
+                <View style={styles.sessionBreakdown}>
+                  {sessions.map((s) => (
+                    <View key={s.sessionId} style={styles.sessionRow}>
+                      <Text style={styles.sessionOrigin}>{getSessionOriginLabel(s)}</Text>
+                      <Text style={styles.sessionSource}>{getSessionSourceLabel(s)}</Text>
+                      <Text style={styles.sessionKcal}>{formatNumber(s.caloriesBurned)} kcal</Text>
+                    </View>
+                  ))}
                 </View>
 
                 <Text style={styles.sectionTitle}>Pasos de hoy</Text>
@@ -296,6 +335,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 1,
   },
+  rowOrigin: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 1,
+  },
   rowValue: {
     color: colors.text,
     fontSize: 14,
@@ -400,6 +445,33 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 13,
     flex: 1,
+  },
+  sessionBreakdown: {
+    gap: 8,
+  },
+  sessionRow: {
+    backgroundColor: colors.graph,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  sessionOrigin: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  sessionSource: {
+    color: colors.textMuted,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  sessionKcal: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: '700',
+    marginTop: 4,
   },
   closeBtn: {
     marginTop: 18,

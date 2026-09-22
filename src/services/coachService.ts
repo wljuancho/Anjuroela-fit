@@ -13,6 +13,7 @@ import {
   addExercisesToDay,
   getWeeklySchedule,
   saveCircuitToDay,
+  listCasualSessions,
 } from './workoutService';
 import {
   getWeightHistory,
@@ -91,6 +92,10 @@ const GOAL_LABELS: Record<string, string> = {
   mantener: 'mantener',
   libre: 'contar calorías libremente (sin déficit forzado)',
 };
+
+function capitalize(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
 
 function describeNutritionStrategy(goalType: string, dailyGoal: number | null): string {
   switch (goalType) {
@@ -384,9 +389,33 @@ async function buildContext(userId: string): Promise<string> {
     }
     if (burnedSessions.length > 0) {
       const total = burnedSessions.reduce((s, b) => s + b.caloriesBurned, 0);
+      const wearableKcal = burnedSessions
+        .filter((b) => b.caloriesSource === 'wearable')
+        .reduce((s, b) => s + b.caloriesBurned, 0);
+      const estimateKcal = Math.max(0, total - wearableKcal);
+      const hrCount = burnedSessions.filter((b) => b.heartRateAvg != null).length;
       sections.push(
-        `- Calorías totales quemadas en las últimas ${burnedSessions.length} sesiones: ${Math.round(total)} kcal.`,
+        `- Desglose de calorías (últimas ${burnedSessions.length} sesiones): ${Math.round(total)} kcal totales; ` +
+          `${Math.round(wearableKcal)} kcal con reloj/pulsera usando la FC real${hrCount > 0 ? ` (promedio medido en ${hrCount} sesión(es))` : ` (sin promedio de FC medido aún)`}; ` +
+          `${Math.round(estimateKcal)} kcal por estimación MET (sin reloj vinculado).`,
       );
+      const origins = Array.from(
+        new Set(
+          burnedSessions.map((b) => {
+            if (b.sessionType === 'casual') return 'entreno ocasional';
+            const names = (b.exerciseNames ?? '')
+              .split(',')
+              .map((n) => n.trim())
+              .filter(Boolean);
+            return names.length > 1 ? 'circuito' : 'ejercicio individual';
+          }),
+        ),
+      );
+      if (origins.length > 0) {
+        sections.push(
+          `- Actividad reciente por origen: ${origins.map((o) => capitalize(o)).join(', ')}.`,
+        );
+      }
     }
     const steps = await readTodaySteps();
     sections.push(
@@ -400,6 +429,25 @@ async function buildContext(userId: string): Promise<string> {
         ? `- Sueño del último periodo nocturno: ${formatSleepHours(sleepHours)} registrados en el dispositivo.`
         : '- Sueño del último periodo nocturno: sin datos.',
     );
+  } catch {}
+
+  // ------------------------------------------------- ENTRENOS OCASIONALES
+  sections.push('[ENTRENOS OCASIONALES]');
+  try {
+    const casual = await listCasualSessions();
+    if (casual.length === 0) {
+      sections.push('- Sin entrenos ocasionales registrados.');
+    } else {
+      const lines = casual
+        .slice(0, 6)
+        .map((c) => {
+          const note = c.note ? ` "${c.note}"` : '';
+          const kcal = c.calories_burned > 0 ? `, ${Math.round(c.calories_burned)} kcal` : '';
+          return `${c.date}${note}: ${c.exercise_count} ejercicios, ${c.set_count} series${kcal}${c.completed ? '' : ' (en curso)'}`;
+        })
+        .join('; ');
+      sections.push(`- Últimos entrenos ocasionales (máx 6): ${lines}.`);
+    }
   } catch {}
 
   // ------------------------------------------------------ RUTINA Y FUERZA

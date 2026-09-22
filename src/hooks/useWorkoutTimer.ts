@@ -7,7 +7,7 @@ import {
   ensureNotificationPermission,
   scheduleWorkoutWarnings,
 } from '../services/notifications';
-import { playRestWarningSound } from '../services/soundService';
+import { playRestWarningSound, playWorkWarningSound } from '../services/soundService';
 
 type Phase = 'series' | 'rest' | 'work' | 'done';
 
@@ -20,6 +20,9 @@ interface TimerState {
   workDone: number;
   roundIndex: number;
   exerciseIndex: number;
+  hasPlayedRestWarning: boolean;
+  hasPlayedWorkWarning: boolean;
+  interrupted: boolean;
 }
 
 interface TimerSnapshotData {
@@ -47,6 +50,11 @@ interface TimerSnapshotData {
   pausedRemainingMs: number;
   currentSeries: number;
   workDone: number;
+  hasPlayedRestWarning?: boolean;
+  hasPlayedWorkWarning?: boolean;
+  interrupted?: boolean;
+  startTime?: number;
+  targetEndTime?: number | null;
 }
 
 export interface UseWorkoutTimerOptions {
@@ -60,6 +68,10 @@ export interface UseWorkoutTimerOptions {
 }
 
 const STALE_MS = 60 * 60 * 1000; // 1 hora: una sesión abandonada se descarta.
+// Si la app estuvo fuera (cerrada/en segundo plano) más de 2 minutos, la
+// sesión se declara pausada/interrumpida y el usuario decide continuar o
+// reiniciar (no se auto-avanza en silencio con tiempo real).
+const INTERRUPT_DELAY_MS = 2 * 60 * 1000;
 
 function createInitialState(plan: WorkoutPlan): TimerState {
   if (plan.mode === 'reps') {
@@ -72,6 +84,9 @@ function createInitialState(plan: WorkoutPlan): TimerState {
       workDone: 0,
       roundIndex: 0,
       exerciseIndex: 0,
+      hasPlayedRestWarning: false,
+      hasPlayedWorkWarning: false,
+      interrupted: false,
     };
   }
   if (plan.mode === 'circuit') {
@@ -84,6 +99,9 @@ function createInitialState(plan: WorkoutPlan): TimerState {
       workDone: 0,
       roundIndex: 0,
       exerciseIndex: 0,
+      hasPlayedRestWarning: false,
+      hasPlayedWorkWarning: false,
+      interrupted: false,
     };
   }
   return {
@@ -95,6 +113,9 @@ function createInitialState(plan: WorkoutPlan): TimerState {
     workDone: 0,
     roundIndex: 0,
     exerciseIndex: 0,
+    hasPlayedRestWarning: false,
+    hasPlayedWorkWarning: false,
+    interrupted: false,
   };
 }
 
@@ -230,6 +251,9 @@ export function useWorkoutTimer(options: UseWorkoutTimerOptions) {
 
   const [state, setState] = useState<TimerState>(() => createInitialState(plan));
   const stateRef = useRef(state);
+  // Marca el instante en que la app pasó a segundo plano (AppState != 'active')
+  // para medir con precisión cuánto estuvo fuera al volver al primer plano.
+  const backgroundedAtRef = useRef<number | null>(null);
   const [seconds, setSeconds] = useState<number>(() => computeSeconds(createInitialState(plan), Date.now()));
 
   const persistSnapshot = useCallback(
@@ -264,6 +288,11 @@ export function useWorkoutTimer(options: UseWorkoutTimerOptions) {
         workDone: next.workDone,
         roundIndex: next.roundIndex,
         exerciseIndex: next.exerciseIndex,
+        hasPlayedRestWarning: next.hasPlayedRestWarning,
+        hasPlayedWorkWarning: next.hasPlayedWorkWarning,
+        interrupted: next.interrupted,
+        startTime: Date.now(),
+        targetEndTime: next.endsAt,
       };
       void setItem(StorageKeys.WorkoutActiveTimer, snapshot);
     },
@@ -336,6 +365,9 @@ export function useWorkoutTimer(options: UseWorkoutTimerOptions) {
           workDone: raw.workDone,
           roundIndex: raw.roundIndex ?? 0,
           exerciseIndex: raw.exerciseIndex ?? 0,
+          hasPlayedRestWarning: raw.hasPlayedRestWarning ?? false,
+          hasPlayedWorkWarning: raw.hasPlayedWorkWarning ?? false,
+          interrupted: false,
         };
         const restoredPlan: WorkoutPlan =
           raw.mode === 'reps'
@@ -356,17 +388,33 @@ export function useWorkoutTimer(options: UseWorkoutTimerOptions) {
                   restSeconds: raw.restSeconds,
                 };
         const now = Date.now();
-        const { state: caught, steps } = catchUp(restored, restoredPlan, now);
-        stateRef.current = caught;
-        setState(caught);
-        setSeconds(computeSeconds(caught, now));
-        persistSnapshot(caught);
-        if (steps === 1) {
-          const result = onExpire(restored, restoredPlan, now);
-          if (result.shouldVibrate) {
-            Vibration.vibrate(400);
+        // Si la sesión estuvo corriendo y la app salió hace más de 2 minutos,
+        // no se congela el conteo ni se auto-avanza en silencio: se declara
+        // interrumpida/pausada y el usuario decide continuar o reiniciar.
+        const awayMs = now - raw.savedAt;
+        let target: TimerState;
+        if (restored.running && awayMs > INTERRUPT_DELAY_MS) {
+          target = {
+            ...restored,
+            interrupted: true,
+            running: false,
+            endsAt: null,
+          };
+          void cancelScheduledWarnings();
+        } else {
+          const { state: caught, steps } = catchUp(restored, restoredPlan, now);
+          target = caught;
+          if (steps === 1) {
+            const result = onExpire(restored, restoredPlan, now);
+            if (result.shouldVibrate) {
+              Vibration.vibrate(400);
+            }
           }
         }
+        stateRef.current = target;
+        setState(target);
+        setSeconds(computeSeconds(target, now));
+        persistSnapshot(target);
       } else if (raw) {
         void removeItem(StorageKeys.WorkoutActiveTimer);
       }
@@ -384,22 +432,67 @@ export function useWorkoutTimer(options: UseWorkoutTimerOptions) {
     return () => clearInterval(interval);
   }, [handleExpiry, refreshSeconds]);
 
-  // Aviso sonoro: cuando quedan 7 segundos de descanso suena un tono breve
-  // para prepararse, sin interferir con el conteo.
+  // Avisos sonoros previos al cambio de fase (canal MÚSICA/MEDIA):
+  // - Trabajo/ejercicio (modos Tiempo y Circuito): 5 s antes con playWorkWarningSound.
+  // - Descanso (todos los modos): 7 s antes con playRestWarningSound.
+  // Las banderas evitan repetirlos dentro de la misma fase y se reinician al
+  // pasar a otra fase (o al terminar la sesión).
   useEffect(() => {
-    if (state.phase === 'rest' && seconds === 7) {
-      playRestWarningSound();
+    const current = stateRef.current;
+    let nextWork = current.hasPlayedWorkWarning;
+    let nextRest = current.hasPlayedRestWarning;
+
+    if (current.phase === 'work' && plan.mode !== 'reps') {
+      if (seconds <= 5 && seconds > 2 && !nextWork) {
+        playWorkWarningSound();
+        nextWork = true;
+      }
+    } else {
+      nextWork = false;
     }
-  }, [state.phase, seconds]);
+
+    if (current.phase === 'rest') {
+      if (seconds <= 7 && seconds > 5 && !nextRest) {
+        playRestWarningSound();
+        nextRest = true;
+      }
+    } else {
+      nextRest = false;
+    }
+
+    if (nextWork !== current.hasPlayedWorkWarning || nextRest !== current.hasPlayedRestWarning) {
+      commit({ ...current, hasPlayedWorkWarning: nextWork, hasPlayedRestWarning: nextRest });
+    }
+  }, [state.phase, seconds, plan.mode, commit]);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (appState) => {
       if (appState === 'active') {
+        const backgroundedAt = backgroundedAtRef.current;
+        backgroundedAtRef.current = null;
+        const current = stateRef.current;
+        // Volvió al primer plano tras estar fuera >2 min con el conteo activo:
+        // igual que en el arranque, la sesión se declara pausada/interrumpida y
+        // el usuario decide (retomar en vivo o reiniciar). Si fue ≤2 min, el
+        // tiempo avanza en tiempo real con catchUp.
+        if (
+          backgroundedAt != null &&
+          current.running &&
+          current.phase !== 'done' &&
+          !current.interrupted &&
+          Date.now() - backgroundedAt > INTERRUPT_DELAY_MS
+        ) {
+          commit({ ...current, interrupted: true, running: false, endsAt: null });
+          void cancelScheduledWarnings();
+          return;
+        }
         handleCatchUp();
+      } else {
+        backgroundedAtRef.current = Date.now();
       }
     });
     return () => sub.remove();
-  }, [handleCatchUp]);
+  }, [handleCatchUp, commit]);
 
   useEffect(() => {
     const current = stateRef.current;
@@ -452,6 +545,28 @@ export function useWorkoutTimer(options: UseWorkoutTimerOptions) {
     }
   }, [plan, commit]);
 
+  // La sesión estuvo interrumpida (>2 min fuera): retoma "en vivo" avanzando
+  // la fase con el tiempo real transcurrido (trabajo → descanso → …).
+  const resumeAfterInterruption = useCallback(() => {
+    const now = Date.now();
+    const current = stateRef.current;
+    if (!current.interrupted) return;
+    const { state: caught, steps } = catchUp(current, plan, now);
+    const resumed = { ...caught, interrupted: false };
+    if (steps === 1) {
+      const result = onExpire(current, plan, now);
+      if (result.shouldVibrate) {
+        Vibration.vibrate(400);
+      }
+    }
+    commit(resumed);
+  }, [plan, commit]);
+
+  // Reinicia la sesión completa desde cero (serie/trabajo inicial).
+  const restartAfterInterruption = useCallback(() => {
+    commit(createInitialState(plan));
+  }, [plan, commit]);
+
   const togglePause = useCallback(() => {
     const current = stateRef.current;
     if (current.phase !== 'work' && current.phase !== 'rest') return;
@@ -477,9 +592,12 @@ export function useWorkoutTimer(options: UseWorkoutTimerOptions) {
     roundIndex: state.roundIndex,
     exerciseIndex: state.exerciseIndex,
     seconds,
+    interrupted: state.interrupted,
     startRest,
     skipRest,
     togglePause,
+    resumeAfterInterruption,
+    restartAfterInterruption,
     clearTimer,
   };
 }

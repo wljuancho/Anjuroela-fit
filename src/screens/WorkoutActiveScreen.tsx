@@ -45,7 +45,7 @@ export default function WorkoutActiveScreen() {
     bodyPartId,
     bodyPartName,
   });
-  const { phase, seconds, running, currentSeries, workDone, roundIndex, exerciseIndex, startRest, skipRest, togglePause, clearTimer } = timer;
+  const { phase, seconds, running, currentSeries, workDone, roundIndex, exerciseIndex, interrupted, startRest, skipRest, togglePause, resumeAfterInterruption, restartAfterInterruption, clearTimer } = timer;
 
   const [weightInput, setWeightInput] = useState('');
   const [saving, setSaving] = useState(false);
@@ -167,7 +167,32 @@ export default function WorkoutActiveScreen() {
         <View style={styles.backBtn} />
       </View>
 
-      {phase === 'done' ? (
+      {interrupted ? (
+        <View style={styles.interruptedContainer}>
+          <Ionicons name="pause-circle" size={56} color={colors.warning} />
+          <Text style={styles.interruptedTitle}>Sesión pausada</Text>
+          <Text style={styles.interruptedSubtitle}>
+            La app estuvo fuera más de 2 minutos. Elige cómo continuar:
+          </Text>
+          <AppButton
+            title="Retomar en tiempo real"
+            onPress={resumeAfterInterruption}
+            style={styles.interruptedBtn}
+          />
+          <AppButton
+            title="Reiniciar sesión"
+            variant="outline"
+            onPress={restartAfterInterruption}
+            style={styles.interruptedBtn}
+          />
+          <AppButton
+            title="Salir sin guardar"
+            variant="outline"
+            onPress={cancel}
+            style={styles.interruptedBtn}
+          />
+        </View>
+      ) : phase === 'done' ? (
         <View style={styles.doneContainer}>
           <Ionicons name="checkmark-circle" size={56} color={colors.success} />
           <Text style={styles.doneTitle}>¡Series completadas!</Text>
@@ -447,5 +472,29 @@ const styles = StyleSheet.create({
   finishBtn: {
     width: '100%',
     marginTop: 24,
+  },
+  interruptedContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    paddingBottom: 40,
+  },
+  interruptedTitle: {
+    color: colors.warning,
+    fontSize: 22,
+    fontWeight: '800',
+    marginTop: 16,
+    marginBottom: 6,
+  },
+  interruptedSubtitle: {
+    color: colors.textMuted,
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  interruptedBtn: {
+    width: '100%',
+    marginBottom: 10,
   },
 });
