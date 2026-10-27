@@ -48,12 +48,12 @@ export default function PlanComidasSemanalCard({
             <Ionicons name="restaurant-outline" size={40} color={colors.textSubtle} />
           </View>
           <Text style={styles.emptyText}>
-            Aún no tienes un plan de comidas. Pídele al Entrenador Anjuroela que te diseñe una dieta
+            AÃºn no tienes un plan de comidas. PÃ­dele al Entrenador Anjuroela que te diseÃ±e una dieta
             personalizada.
           </Text>
           <Text style={styles.emptyHint}>
-            Ve a la pestaña Entrenador y pide por ejemplo: "Crea un plan de comidas para 2 personas
-            durante 8 días".
+            Ve a la pestaÃ±a Entrenador y pide por ejemplo: &quot;Crea un plan de comidas para 2 personas
+            durante 8 dÃ­as&quot;.
           </Text>
         </View>
       </View>
@@ -70,9 +70,9 @@ export default function PlanComidasSemanalCard({
         <View style={styles.headerLeft}>
           <Text style={styles.cardTitle}>Plan de Comidas</Text>
           <Text style={styles.headerMeta}>
-            {dates.length} {dates.length === 1 ? 'día' : 'días'} · {plan.length}{' '}
+            {dates.length} {dates.length === 1 ? 'dÃ­a' : 'dÃ­as'} Â· {plan.length}{' '}
             {plan.length === 1 ? 'platillo' : 'platillos'}
-            {expiresAt ? ` · expira el ${formatPlanDate(expiresAt)}` : ''}
+            {expiresAt ? ` Â· expira el ${formatPlanDate(expiresAt)}` : ''}
           </Text>
         </View>
         <TouchableOpacity style={styles.clearBtn} onPress={onClearPlan} activeOpacity={0.8}>

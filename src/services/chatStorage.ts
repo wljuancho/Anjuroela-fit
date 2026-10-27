@@ -1,4 +1,4 @@
-﻿import AsyncStorage from '@react-native-async-storage/async-storage';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { ChatMessage } from '../types/coach';
 
 const PREFIX = 'anjuroela_fit:chat';

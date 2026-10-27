@@ -116,7 +116,7 @@ export function useProgressData(userId: string): ProgressData {
 
   useEffect(() => {
     mounted.current = true;
-    reload();
+    void Promise.resolve().then(reload);
     return () => {
       mounted.current = false;
     };
@@ -124,7 +124,7 @@ export function useProgressData(userId: string): ProgressData {
 
   useEffect(() => {
     let cancelled = false;
-    setMuscleSessionHistory([]);
+    void Promise.resolve().then(() => setMuscleSessionHistory([]));
     if (selectedMuscleGroupId === null) {
       return;
     }

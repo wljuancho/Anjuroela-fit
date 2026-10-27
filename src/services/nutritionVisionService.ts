@@ -276,10 +276,10 @@ export class OpenAIVisionProvider implements NutritionVisionProvider {
   }
 }
 
-const FOOD_DB: Array<{
+const FOOD_DB: {
   keywords: string[];
   estimate: NutritionEstimate;
-}> = [
+}[] = [
   {
     keywords: ['pollo', 'grill', 'pechuga', 'pojado'],
     estimate: { calories: 350, proteinG: 40, carbsG: 25, fatG: 12 },

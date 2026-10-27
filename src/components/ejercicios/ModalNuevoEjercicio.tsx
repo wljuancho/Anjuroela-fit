@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect -- Intentional lifecycle sync: these effects reset form/timer state when their visibility or input props change. */
 import { colors } from '../../theme/colors';
 import React, { useEffect, useState } from 'react';
 import {
@@ -65,7 +66,7 @@ export default function ModalNuevoEjercicio({
       setEquipment('');
     }
     setError('');
-  }, [visible, editingExercise, initialName]);
+  }, [visible, editingExercise, initialName, initialBodyPartId, bodyParts]);
 
   const trimmedName = name.trim();
   const matchedExisting =

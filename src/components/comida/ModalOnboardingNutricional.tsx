@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect -- Intentional lifecycle sync: these effects reset form/timer state when their visibility or input props change. */
 import { colors } from '../../theme/colors';
 import React, { useMemo, useState } from 'react';
 import {
@@ -20,6 +21,7 @@ import type {
   SexForFormula,
 } from '../../types/nutrition';
 import { formatNumber } from '../../services/utils';
+import { validateCalorieGoal, MIN_DAILY_CALORIES_GOAL, MAX_DAILY_CALORIES_GOAL, MIN_NUTRITION_GOAL_AGE } from '../../services/utils/nutritionSafety';
 
 interface ModalOnboardingNutricionalProps {
   visible: boolean;
@@ -39,16 +41,16 @@ interface ModalOnboardingNutricionalProps {
 
 const ACTIVITY_OPTIONS: { value: ActivityLevel; label: string; hint: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { value: 'sedentario', label: 'Sedentario', hint: 'Poco o nada de ejercicio', icon: 'bed-outline' },
-  { value: 'ligero', label: 'Ligero', hint: 'Ejercicio ligero 1-3 días/semana', icon: 'footsteps-outline' },
-  { value: 'moderado', label: 'Moderado', hint: 'Ejercicio 3-5 días/semana', icon: 'walk-outline' },
+  { value: 'ligero', label: 'Ligero', hint: 'Ejercicio ligero 1-3 dÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­as/semana', icon: 'footsteps-outline' },
+  { value: 'moderado', label: 'Moderado', hint: 'Ejercicio 3-5 dÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­as/semana', icon: 'walk-outline' },
   { value: 'activo', label: 'Activo', hint: 'Entrenamiento intenso frecuente', icon: 'barbell-outline' },
 ];
 
 const GOAL_OPTIONS: { value: NutritionGoalType; label: string; hint: string }[] = [
-  { value: 'perder', label: 'Déficit calórico', hint: 'Perder grasa · resta kcal' },
-  { value: 'mantener', label: 'Mantenimiento', hint: 'Conservar peso · TDEE exacto' },
-  { value: 'ganar', label: 'Superávit calórico', hint: 'Aumentar masa · suma kcal' },
-  { value: 'libre', label: 'Libre / Sin objetivo', hint: 'Contar calorías sin déficit forzado' },
+  { value: 'perder', label: 'DÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©ficit calÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³rico', hint: 'Perder grasa ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· resta kcal' },
+  { value: 'mantener', label: 'Mantenimiento', hint: 'Conservar peso ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· TDEE exacto' },
+  { value: 'ganar', label: 'SuperÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡vit calÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³rico', hint: 'Aumentar masa ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· suma kcal' },
+  { value: 'libre', label: 'Libre / Sin objetivo', hint: 'Contar calorÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­as sin dÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©ficit forzado' },
 ];
 
 export default function ModalOnboardingNutricional({
@@ -88,10 +90,10 @@ export default function ModalOnboardingNutricional({
   const heightNum = parseFloat(height.replace(',', '.')) || 0;
   const manualGoalNum =
     goalType === 'libre' && manualGoal.trim() !== '' ? parseFloat(manualGoal.replace(',', '.')) || 0 : 0;
-  // La edad es OPCIONAL: si no se ha ingresado (o no es válida) se usa 30 años
-  // como valor por defecto para la estimación, sin bloquear el guardado.
-  const effectiveAge = ageNum >= 10 && ageNum <= 120 ? ageNum : 30;
-  const canPreview = heightNum >= 100 && heightNum <= 250 && activity !== null && goalType !== null;
+  // La edad debe ser adulta y valida para mostrar y guardar la estimacion.
+
+  const effectiveAge = ageNum;
+  const canPreview = Number.isFinite(ageNum) && ageNum >= 18 && ageNum <= 100 && heightNum >= 100 && heightNum <= 250 && activity !== null && goalType !== null;
   const previewGoal = useMemo(() => {
     if (!canPreview) return null;
     const base = calculateTDEE({
@@ -104,11 +106,11 @@ export default function ModalOnboardingNutricional({
     });
     if (goalType === 'libre' && manualGoalNum > 0) return manualGoalNum;
     return base;
-  }, [canPreview, effectiveAge, weightKg, heightNum, activity, goalType, manualGoalNum]);
+  }, [canPreview, effectiveAge, weightKg, heightNum, activity, goalType, manualGoalNum, prefill?.sexForFormula]);
 
   const handleSave = async () => {
     if (!heightNum || heightNum < 100 || heightNum > 250) {
-      setError('Ingresa tu altura en centímetros (entre 100 y 250 cm)');
+      setError('Ingresa tu altura en centÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­metros (entre 100 y 250 cm)');
       return;
     }
     if (!activity) {
@@ -116,11 +118,11 @@ export default function ModalOnboardingNutricional({
       return;
     }
     if (!goalType) {
-      setError('Selecciona tu estrategia calórica');
+      setError('Selecciona tu estrategia calÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³rica');
       return;
     }
-    if (goalType === 'libre' && manualGoal.trim() !== '' && (!manualGoalNum || manualGoalNum < 500 || manualGoalNum > 8000)) {
-      setError('Ingresa una meta diaria manual válida (entre 500 y 8000 kcal)');
+    if (!Number.isFinite(ageNum) || ageNum < MIN_NUTRITION_GOAL_AGE || ageNum > 100) {
+      setError('Ingresa una edad vÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡lida entre 18 y 100 aÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â±os para definir una meta nutricional.');
       return;
     }
     setError('');
@@ -134,16 +136,28 @@ export default function ModalOnboardingNutricional({
         goalType,
         sexForFormula: prefill?.sexForFormula,
       });
+      const dailyCaloriesGoal = goalType === 'libre' && manualGoalNum > 0 ? manualGoalNum : baseTdee;
+      const safetyError = validateCalorieGoal({
+        calories: dailyCaloriesGoal,
+        age: effectiveAge,
+        heightCm: heightNum,
+        weightKg,
+        goalType,
+      });
+      if (safetyError) {
+        setError(safetyError);
+        return;
+      }
       await onSave({
-        dailyCaloriesGoal: goalType === 'libre' && manualGoalNum > 0 ? manualGoalNum : baseTdee,
+        dailyCaloriesGoal,
         activityLevel: activity,
         goalType,
-        age: ageNum >= 10 && ageNum <= 120 ? ageNum : undefined,
+        age: ageNum,
         heightCm: heightNum,
       });
       onClose();
     } catch {
-      setError('No se pudo guardar la meta de calorías');
+      setError('No se pudo guardar la meta de calorÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­as');
     } finally {
       setSaving(false);
     }
@@ -163,15 +177,15 @@ export default function ModalOnboardingNutricional({
         <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={handleClose} />
         <View style={styles.sheet}>
           <View style={styles.handle} />
-          <Text style={styles.title}>Contador de Calorías Inteligente</Text>
+          <Text style={styles.title}>Contador de CalorÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­as Inteligente</Text>
           <Text style={styles.subtitle}>
-            Responde brevemente e ingresaremos tu altura para calcular tu meta diaria de calorías
+            Responde brevemente e ingresaremos tu altura para calcular tu meta diaria de calorÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­as
             (TDEE).
           </Text>
 
           <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
             <AppTextInput
-              label="Edad (opcional)"
+              label="Edad (obligatoria, 18+)"
               placeholder="Ej: 30"
               value={age}
               onChangeText={(t) => {
@@ -252,7 +266,7 @@ export default function ModalOnboardingNutricional({
                   keyboardType="number-pad"
                 />
                 <Text style={styles.manualHint}>
-                  Déjala vacía para usar tu mantenimiento calculado (TDEE sin déficit).
+                  Dejala vacia para usar el mantenimiento estimado. Rango manual: {MIN_DAILY_CALORIES_GOAL}-{MAX_DAILY_CALORIES_GOAL} kcal. Limite preventivo de la app; no es recomendacion medica.
                 </Text>
               </View>
             ) : null}
@@ -270,7 +284,7 @@ export default function ModalOnboardingNutricional({
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
             <AppButton
-              title="Guardar meta de calorías"
+              title="Guardar meta de calorÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­as"
               onPress={handleSave}
               loading={saving}
               style={styles.saveButton}

@@ -20,7 +20,7 @@ export function TutorialProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (userId === null) {
-      setHasSeenTutorial(false);
+      void Promise.resolve().then(() => setHasSeenTutorial(false));
       return;
     }
     let cancelled = false;

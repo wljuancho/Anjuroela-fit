@@ -18,6 +18,7 @@ import { useAuth } from '../context';
 import type { AuthUser, UserProfile } from '../context/AuthContext';
 import type { GenderValue } from '../services/authService';
 import type { RootStackParamList } from '../navigation/types';
+import { validateGoal, MIN_WEIGHT_GOAL_AGE } from '../services/utils/goalValidator';
 
 interface ProfileField {
   key: keyof ProfileCheckItem;
@@ -116,30 +117,53 @@ function ProfileForm({ user, profile }: { user: AuthUser | null; profile: UserPr
     const next: Record<string, string | undefined> = {};
 
     const ageNum = age.trim() ? parseNumber(age) : null;
-    if (age.trim() && (ageNum === null || ageNum < 10 || ageNum > 120)) {
-      next.age = 'Ingresa una edad válida (10-120).';
+    if (age.trim() && (ageNum === null || ageNum < MIN_WEIGHT_GOAL_AGE || ageNum > 100)) {
+      next.age = 'Ingresa una edad vÃ¡lida (18-100).';
     }
     const heightNum = heightCm.trim() ? parseNumber(heightCm) : null;
     if (heightCm.trim() && (heightNum === null || heightNum < 100 || heightNum > 250)) {
-      next.heightCm = 'Ingresa una altura válida en cm (100-250).';
+      next.heightCm = 'Ingresa una altura vÃ¡lida en cm (100-250).';
     }
     const currentNum = currentWeight.trim() ? parseNumber(currentWeight) : null;
     if (currentWeight.trim() && (currentNum === null || currentNum < 30 || currentNum > 400)) {
-      next.currentWeight = 'Ingresa un peso válido en kg (30-400).';
+      next.currentWeight = 'Ingresa un peso vÃ¡lido en kg (30-400).';
     }
     const targetNum = targetWeight.trim() ? parseNumber(targetWeight) : null;
     if (targetWeight.trim() && (targetNum === null || targetNum < 30 || targetNum > 400)) {
-      next.targetWeight = 'Ingresa un peso válido en kg (30-400).';
+      next.targetWeight = 'Ingresa un peso vÃ¡lido en kg (30-400).';
     }
     const weeksNum = goalWeeks.trim() ? parseInt(goalWeeks, 10) : null;
     if (goalWeeks.trim() && (weeksNum === null || weeksNum <= 0 || weeksNum > 104)) {
-      next.goalWeeks = 'Ingresa un plazo válido en semanas (1-104).';
+      next.goalWeeks = 'Ingresa un plazo vÃ¡lido en semanas (1-104).';
     }
     if (goalDate.trim() && !isValidISODate(goalDate)) {
       next.goalDate = 'Usa el formato AAAA-MM-DD (p. ej. 2026-12-31).';
     }
     if (targetNum !== null && currentNum !== null && Math.abs(targetNum - currentNum) < 0.01) {
       next.targetWeight = 'El peso objetivo debe diferir del actual.';
+    }
+
+    const goalCurrentWeight = currentNum ?? profile?.currentWeight;
+    const goalTargetWeight = targetNum ?? profile?.targetWeight;
+    const goalHeight = heightNum ?? profile?.heightCm;
+    const goalAge = ageNum ?? profile?.age;
+    const goalDuration = weeksNum ?? profile?.goalWeeks;
+    const goalFieldsChanged = targetNum !== null || currentNum !== null || heightNum !== null || ageNum !== null || weeksNum !== null;
+    if (goalFieldsChanged && (goalCurrentWeight == null || goalTargetWeight == null || goalHeight == null || goalAge == null || goalDuration == null)) {
+      next.targetWeight = 'Completa edad, estatura, peso y plazo en tu perfil antes de guardar una meta.';
+    } else if (
+      goalCurrentWeight != null && goalTargetWeight != null && goalHeight != null &&
+      goalAge != null && goalDuration != null &&
+      goalFieldsChanged
+    ) {
+      const result = validateGoal({
+        currentWeightKg: goalCurrentWeight,
+        targetWeightKg: goalTargetWeight,
+        heightCm: goalHeight,
+        age: goalAge,
+        weeks: goalDuration,
+      });
+      if (!result.isValid) next.targetWeight = result.message ?? 'Revisa la seguridad de tu meta.';
     }
 
     setErrors(next);
@@ -169,12 +193,12 @@ function ProfileForm({ user, profile }: { user: AuthUser | null; profile: UserPr
       }
 
       if (Object.keys(fields).length === 0) {
-        Alert.alert('Sin cambios', 'No hay cambios que guardar en esta información.');
+        Alert.alert('Sin cambios', 'No hay cambios que guardar en esta informaciÃ³n.');
         return;
       }
       await updateProfile(fields);
       setErrors({});
-      Alert.alert('Perfil actualizado', 'Tu información se guardó correctamente.');
+      Alert.alert('Perfil actualizado', 'Tu informaciÃ³n se guardÃ³ correctamente.');
     } catch (e) {
       Alert.alert(
         'Error',
@@ -189,11 +213,11 @@ function ProfileForm({ user, profile }: { user: AuthUser | null; profile: UserPr
     <View style={styles.section}>
       <View style={styles.sectionHeader}>
         <Ionicons name="create-outline" size={22} color={colors.primary} />
-        <Text style={styles.sectionTitle}>Completa tu información</Text>
+        <Text style={styles.sectionTitle}>Completa tu informaciÃ³n</Text>
       </View>
       <Text style={styles.sectionSubtitle}>
-        Llena los campos que falten y guarda: el resto de tu información se conserva
-        automáticamente.
+        Llena los campos que falten y guarda: el resto de tu informaciÃ³n se conserva
+        automÃ¡ticamente.
       </Text>
 
       <AppTextInput
@@ -208,7 +232,7 @@ function ProfileForm({ user, profile }: { user: AuthUser | null; profile: UserPr
         autoCapitalize="words"
       />
 
-      <Text style={styles.fieldLabel}>Género</Text>
+      <Text style={styles.fieldLabel}>GÃ©nero</Text>
       <View style={styles.genderRow}>
         {GENDER_OPTIONS.map((option) => {
           const selected = gender === option.value;
@@ -219,7 +243,7 @@ function ProfileForm({ user, profile }: { user: AuthUser | null; profile: UserPr
               onPress={() => setGender(option.value)}
               accessibilityRole="radio"
               accessibilityState={{ selected }}
-              accessibilityLabel={`Género ${option.label}`}
+              accessibilityLabel={`GÃ©nero ${option.label}`}
             >
               <Ionicons name={option.icon} size={20} color={selected ? colors.text : colors.textMuted} />
               <Text style={[styles.genderOptionText, selected ? styles.genderOptionTextActive : null]}>
@@ -236,7 +260,7 @@ function ProfileForm({ user, profile }: { user: AuthUser | null; profile: UserPr
       </View>
 
       <AppTextInput
-        label="Edad (años)"
+        label="Edad (aÃ±os)"
         value={age}
         onChangeText={(t) => {
           setAge(t);
@@ -325,7 +349,7 @@ export default function ProfileScreen() {
   const checkItems: ProfileField[] = [
     {
       key: 'gender',
-      label: 'Género',
+      label: 'GÃ©nero',
       value: isGender(profile?.gender) ? (profile.gender === 'mujer' ? 'Mujer' : 'Hombre') : null,
       icon: 'people-outline',
     },
@@ -367,15 +391,15 @@ export default function ProfileScreen() {
 
   async function handleChangePassword() {
     if (!currentPassword || !newPassword || !confirmPassword) {
-      Alert.alert('Campos incompletos', 'Completa todos los campos de la contraseña.');
+      Alert.alert('Campos incompletos', 'Completa todos los campos de la contraseÃ±a.');
       return;
     }
     if (newPassword !== confirmPassword) {
-      Alert.alert('Contraseñas', 'Las contraseñas nuevas no coinciden.');
+      Alert.alert('ContraseÃ±as', 'Las contraseÃ±as nuevas no coinciden.');
       return;
     }
     if (newPassword.length < 6) {
-      Alert.alert('Contraseña', 'La nueva contraseña debe tener al menos 6 caracteres.');
+      Alert.alert('ContraseÃ±a', 'La nueva contraseÃ±a debe tener al menos 6 caracteres.');
       return;
     }
     setSavingPassword(true);
@@ -384,11 +408,11 @@ export default function ProfileScreen() {
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
-      Alert.alert('Contraseña actualizada', 'Tu contraseña se cambió correctamente.');
+      Alert.alert('ContraseÃ±a actualizada', 'Tu contraseÃ±a se cambiÃ³ correctamente.');
     } catch (e) {
       Alert.alert(
         'Error',
-        e instanceof Error ? e.message : 'No se pudo cambiar la contraseña.',
+        e instanceof Error ? e.message : 'No se pudo cambiar la contraseÃ±a.',
       );
     } finally {
       setSavingPassword(false);
@@ -468,34 +492,34 @@ export default function ProfileScreen() {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Ionicons name="lock-closed-outline" size={22} color={colors.primary} />
-            <Text style={styles.sectionTitle}>Cambiar contraseña</Text>
+            <Text style={styles.sectionTitle}>Cambiar contraseÃ±a</Text>
           </View>
           <Text style={styles.sectionSubtitle}>
-            Ingresa tu contraseña actual y define una nueva para tu cuenta.
+            Ingresa tu contraseÃ±a actual y define una nueva para tu cuenta.
           </Text>
           <AppTextInput
-            label="Contraseña actual"
+            label="ContraseÃ±a actual"
             value={currentPassword}
             onChangeText={setCurrentPassword}
-            placeholder="••••••••"
+            placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
             secureTextEntry
           />
           <AppTextInput
-            label="Nueva contraseña"
+            label="Nueva contraseÃ±a"
             value={newPassword}
             onChangeText={setNewPassword}
-            placeholder="••••••••"
+            placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
             secureTextEntry
           />
           <AppTextInput
-            label="Confirmar nueva contraseña"
+            label="Confirmar nueva contraseÃ±a"
             value={confirmPassword}
             onChangeText={setConfirmPassword}
-            placeholder="••••••••"
+            placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
             secureTextEntry
           />
           <AppButton
-            title="Cambiar contraseña"
+            title="Cambiar contraseÃ±a"
             variant="outline"
             onPress={handleChangePassword}
             loading={savingPassword}

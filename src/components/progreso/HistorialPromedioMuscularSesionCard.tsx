@@ -24,10 +24,10 @@ export default function HistorialPromedioMuscularSesionCard({
     return (
       <View style={styles.emptyContainer}>
         <Text style={styles.emptyText}>
-          Aún no has registrado sesiones completadas para este músculo.
+          AÃºn no has registrado sesiones completadas para este mÃºsculo.
         </Text>
         <Text style={styles.emptySubtext}>
-          Completa un entrenamiento de {bodyPartName} y presiona "Terminé" para ver su evolución.
+          Completa un entrenamiento de {bodyPartName} y presiona &quot;TerminÃ©&quot; para ver su evoluciÃ³n.
         </Text>
       </View>
     );
@@ -51,7 +51,7 @@ export default function HistorialPromedioMuscularSesionCard({
   return (
     <View style={styles.container}>
       <Text style={styles.groupName}>{bodyPartName}</Text>
-      <Text style={styles.label}>Promedio de peso por sesión</Text>
+      <Text style={styles.label}>Promedio de peso por sesiÃ³n</Text>
 
       <View style={[styles.evolutionBanner, styles.evolutionBannerColor]}>
         <Ionicons
@@ -63,21 +63,21 @@ export default function HistorialPromedioMuscularSesionCard({
         />
         <Text style={[styles.evolutionText, styles.evolutionTextColor]}>
           {evolution === 'first'
-            ? `Primera sesión registrada — ${formatNumber(last.avgWeightKg, 1)} kg`
+            ? `Primera sesiÃ³n registrada â€” ${formatNumber(last.avgWeightKg, 1)} kg`
             : evolution === 'up'
-              ? `Subiste ${formatNumber(diff, 1)} kg respecto a tu sesión anterior`
+              ? `Subiste ${formatNumber(diff, 1)} kg respecto a tu sesiÃ³n anterior`
               : evolution === 'down'
-                ? `Bajaste ${formatNumber(Math.abs(diff), 1)} kg respecto a tu sesión anterior`
-                : 'Mantuviste el mismo promedio que tu sesión anterior'}
+                ? `Bajaste ${formatNumber(Math.abs(diff), 1)} kg respecto a tu sesiÃ³n anterior`
+                : 'Mantuviste el mismo promedio que tu sesiÃ³n anterior'}
         </Text>
       </View>
 
       {points.length === 1 ? (
         <View style={styles.singleStat}>
-          <Text style={styles.singleLabel}>Promedio de la sesión</Text>
+          <Text style={styles.singleLabel}>Promedio de la sesiÃ³n</Text>
           <Text style={styles.singleValue}>{formatNumber(last.avgWeightKg, 1)} kg</Text>
           <Text style={styles.singleDate}>
-            {last.date} · {last.setCount} serie{last.setCount > 1 ? 's' : ''}
+            {last.date} Â· {last.setCount} serie{last.setCount > 1 ? 's' : ''}
           </Text>
         </View>
       ) : (

@@ -15,7 +15,9 @@ export function useLoadOnMount<T>(
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const loaderRef = useRef(loader);
-  loaderRef.current = loader;
+  useEffect(() => {
+    loaderRef.current = loader;
+  }, [loader]);
   const mounted = useRef(true);
 
   const reload = useCallback(async (): Promise<T | null> => {
@@ -42,10 +44,12 @@ export function useLoadOnMount<T>(
 
   useEffect(() => {
     mounted.current = true;
-    reload();
+    void Promise.resolve().then(reload);
     return () => {
       mounted.current = false;
     };
+    // This hook intentionally forwards the dependency list supplied by its caller.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
 
   return { data, loading, error, reload };

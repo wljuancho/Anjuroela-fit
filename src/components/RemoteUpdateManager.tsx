@@ -1,5 +1,5 @@
 import { colors } from '../theme/colors';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Modal,
   View,
@@ -22,7 +22,7 @@ export default function RemoteUpdateManager() {
   const [info, setInfo] = useState<RemoteUpdateInfo | null>(null);
   const lastShownRef = useRef<string | null>(null);
 
-  async function runCheck() {
+  const runCheck = useCallback(async () => {
     try {
       const result = await checkForRemoteUpdate();
       if (!result) return;
@@ -32,19 +32,19 @@ export default function RemoteUpdateManager() {
     } catch {
       // Fallo no letal: el check nunca debe bloquear la app.
     }
-  }
+  }, []);
 
-  function onAppStateChange(state: AppStateStatus) {
+  const onAppStateChange = useCallback((state: AppStateStatus) => {
     if (state === 'active') {
       void runCheck();
     }
-  }
+  }, [runCheck]);
 
   useEffect(() => {
-    void runCheck();
+    void Promise.resolve().then(runCheck);
     const sub = AppState.addEventListener('change', onAppStateChange);
     return () => sub.remove();
-  }, []);
+  }, [onAppStateChange, runCheck]);
 
   function handleUpdate() {
     if (!info) return;

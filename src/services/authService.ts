@@ -3,6 +3,7 @@ import { getDatabase } from './database';
 import { formatDate, assertSafeIdentifier } from './utils';
 import { provisionRemoteUser, syncLocalToRemote } from './syncService';
 import { getSupabase, setSupabaseAppUser, isSupabaseConfigured } from './supabaseClient';
+import { validateGoal } from './utils/goalValidator';
 
 export type AuthProvider = 'local' | 'google';
 
@@ -211,7 +212,21 @@ export async function getProfile(userId: string): Promise<UserProfileRecord | nu
     'SELECT user_id, age, height, current_weight, target_weight, goal_weeks, goal_date, goal_status, gender FROM user_profiles WHERE user_id = ? LIMIT 1',
     [userId],
   );
-  return result[0] ?? null;
+  const profile = result[0];
+  if (!profile) return null;
+  if (profile.target_weight != null) {
+    const goalCheck = validateGoal({
+      currentWeightKg: profile.current_weight ?? 0,
+      targetWeightKg: profile.target_weight,
+      weeks: profile.goal_weeks ?? 0,
+      heightCm: profile.height ?? 0,
+      age: profile.age ?? 0,
+    });
+    if (!goalCheck.isValid) {
+      return { ...profile, target_weight: null, goal_status: 'inactive' };
+    }
+  }
+  return profile;
 }
 
 export async function updateGoalStatus(userId: string, status: 'active' | 'completed' | 'expired'): Promise<void> {

@@ -1,4 +1,4 @@
-export const MIN_ADULT_AGE = 18;
+export const MIN_WEIGHT_GOAL_AGE = 18;
 export const MIN_TARGET_BMI = 18.5;
 export const MAX_WEEKLY_LOSS_KG = 0.75;
 export const MAX_WEEKLY_GAIN_KG = 0.5;
@@ -25,7 +25,7 @@ export function validateGoal({
   heightCm,
   age,
 }: GoalInput): GoalValidationResult {
-  if (!Number.isFinite(age) || age < MIN_ADULT_AGE || age > 100) {
+  if (!Number.isFinite(age) || age < MIN_WEIGHT_GOAL_AGE || age > 100) {
     return { isValid: false, message: 'Esta app de metas nutricionales está diseñada para personas adultas (18+). Pide orientación profesional para menores de edad.' };
   }
   if (!Number.isFinite(heightCm) || heightCm < 120 || heightCm > 250) {
@@ -43,10 +43,10 @@ export function validateGoal({
   if (currentBmi < MIN_TARGET_BMI && targetWeightKg < currentWeightKg) {
     return { isValid: false, message: 'Tu peso actual ya está por debajo del IMC adulto de referencia. La app no recomienda una meta de pérdida; consulta a un profesional.' };
   }
-  if (weeks <= 0) {
+  if (!Number.isFinite(weeks) || weeks <= 0 || weeks > 104) {
     return {
       isValid: false,
-      message: 'El plazo debe ser mayor a 0 semanas.',
+      message: 'El plazo debe estar entre 1 y 104 semanas.',
     };
   }
 

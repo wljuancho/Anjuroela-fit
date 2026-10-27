@@ -17,7 +17,6 @@ import { SelectorDiasSemana, ModalAgregarMusculo } from '../components/rutina';
 import { ScreenTutorialModal } from '../components';
 import type { ScreenTutorialPoint } from '../components/ScreenTutorialModal';
 import type { RutinaStackParamList } from '../navigation/types';
-import { colors as themeColors } from '../theme/colors';
 import {
   initWorkoutData,
   getAllDayMuscles,
@@ -64,7 +63,7 @@ export default function RutinaScreen() {
   const [casualSessions, setCasualSessions] = useState<CasualSessionSummary[]>([]);
   const [selectedDay, setSelectedDay] = useState<DayOfWeek>(getTodayDayOfWeek);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [, setSaving] = useState(false);
   const [addModalVisible, setAddModalVisible] = useState(false);
 
   const todayDay = getTodayDayOfWeek();
@@ -429,7 +428,7 @@ function MuscleCard({
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: themeColors.background,
+    backgroundColor: colors.background,
   },
   container: {
     flex: 1,
@@ -438,15 +437,15 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: themeColors.background,
+    backgroundColor: colors.background,
   },
   dayHeaderLabel: {
-    color: themeColors.textMuted,
+    color: colors.textMuted,
     fontSize: 13,
     fontWeight: '500',
   },
   dayTitle: {
-    color: themeColors.text,
+    color: colors.text,
     fontSize: 22,
     fontWeight: '700',
     textTransform: 'capitalize',
@@ -454,9 +453,9 @@ const styles = StyleSheet.create({
   hoySection: {
     marginHorizontal: 16,
     marginBottom: 12,
-    backgroundColor: themeColors.card,
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: themeColors.cardAlt,
+    borderColor: colors.cardAlt,
     borderRadius: 14,
     paddingVertical: 12,
     paddingHorizontal: 16,
@@ -468,12 +467,12 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   hoyTitle: {
-    color: themeColors.text,
+    color: colors.text,
     fontSize: 15,
     fontWeight: '700',
   },
   hoySubtitle: {
-    color: themeColors.primary,
+    color: colors.primary,
     fontSize: 13,
     fontWeight: '600',
     textTransform: 'capitalize',
@@ -486,24 +485,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: themeColors.background,
+    backgroundColor: colors.background,
     borderWidth: 1,
-    borderColor: themeColors.cardAlt,
+    borderColor: colors.cardAlt,
     borderRadius: 18,
     paddingHorizontal: 12,
     paddingVertical: 6,
   },
   hoyChipDone: {
-    borderColor: themeColors.success,
-    backgroundColor: themeColors.successSoft,
+    borderColor: colors.success,
+    backgroundColor: colors.successSoft,
   },
   hoyChipText: {
-    color: themeColors.textMuted,
+    color: colors.textMuted,
     fontSize: 13,
     fontWeight: '500',
   },
   hoyEmpty: {
-    color: themeColors.textSubtle,
+    color: colors.textSubtle,
     fontSize: 13,
   },
   planHeader: {
@@ -517,11 +516,11 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: themeColors.primary,
+    backgroundColor: colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
     elevation: 4,
-    shadowColor: themeColors.primary,
+    shadowColor: colors.primary,
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.3,
     shadowRadius: 6,
@@ -533,13 +532,13 @@ const styles = StyleSheet.create({
     paddingBottom: 80,
   },
   restTitle: {
-    color: themeColors.textMuted,
+    color: colors.textMuted,
     fontSize: 18,
     fontWeight: '600',
     marginTop: 16,
   },
   restSubtitle: {
-    color: themeColors.textSubtle,
+    color: colors.textSubtle,
     fontSize: 14,
     marginTop: 6,
     textAlign: 'center',
@@ -556,15 +555,15 @@ const styles = StyleSheet.create({
   muscleCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: themeColors.card,
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: themeColors.cardAlt,
+    borderColor: colors.cardAlt,
     borderRadius: 14,
     padding: 16,
   },
   muscleCardDone: {
-    backgroundColor: themeColors.successSoft,
-    borderColor: themeColors.success,
+    backgroundColor: colors.successSoft,
+    borderColor: colors.success,
   },
   muscleInfo: {
     flex: 1,
@@ -575,29 +574,29 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   muscleName: {
-    color: themeColors.text,
+    color: colors.text,
     fontSize: 17,
     fontWeight: '700',
   },
   muscleNameDone: {
-    color: themeColors.success,
+    color: colors.success,
   },
   doneBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: themeColors.successSoft,
+    backgroundColor: colors.successSoft,
     borderRadius: 12,
     paddingHorizontal: 8,
     paddingVertical: 3,
     gap: 4,
   },
   doneBadgeText: {
-    color: themeColors.success,
+    color: colors.success,
     fontSize: 12,
     fontWeight: '600',
   },
   muscleHint: {
-    color: themeColors.textSubtle,
+    color: colors.textSubtle,
     fontSize: 13,
     marginTop: 4,
   },
@@ -610,7 +609,7 @@ const styles = StyleSheet.create({
     width: 46,
     height: 46,
     borderRadius: 23,
-    backgroundColor: themeColors.primary,
+    backgroundColor: colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -618,7 +617,7 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: themeColors.background,
+    backgroundColor: colors.background,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -636,12 +635,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   casualTitle: {
-    color: themeColors.text,
+    color: colors.text,
     fontSize: 15,
     fontWeight: '700',
   },
   casualSubtitle: {
-    color: themeColors.textSubtle,
+    color: colors.textSubtle,
     fontSize: 12,
     marginTop: 2,
   },
@@ -649,7 +648,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: themeColors.primary,
+    backgroundColor: colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -660,9 +659,9 @@ const styles = StyleSheet.create({
   },
   casualCard: {
     width: 230,
-    backgroundColor: themeColors.card,
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: themeColors.cardAlt,
+    borderColor: colors.cardAlt,
     borderRadius: 12,
     padding: 12,
     justifyContent: 'space-between',
@@ -673,7 +672,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   casualCardDate: {
-    color: themeColors.primary,
+    color: colors.primary,
     fontSize: 12,
     fontWeight: '700',
   },
@@ -684,22 +683,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   casualCardNote: {
-    color: themeColors.text,
+    color: colors.text,
     fontSize: 14,
     fontWeight: '600',
     marginVertical: 4,
   },
   casualCardMeta: {
-    color: themeColors.textSubtle,
+    color: colors.textSubtle,
     fontSize: 12,
   },
   casualEmpty: {
-    color: themeColors.textSubtle,
+    color: colors.textSubtle,
     fontSize: 13,
     lineHeight: 19,
-    backgroundColor: themeColors.card,
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: themeColors.cardAlt,
+    borderColor: colors.cardAlt,
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 12,

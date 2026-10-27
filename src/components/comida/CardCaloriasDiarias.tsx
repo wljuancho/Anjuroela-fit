@@ -14,7 +14,6 @@ export default function CardCaloriasDiarias({ data, onEditStrategy }: CardCalori
   const { caloriesConsumed, goal, remaining, percentage } = data;
   const hasGoal = goal !== null && goal > 0;
   const overGoal = hasGoal && remaining !== null && remaining < 0;
-  const fillColor = overGoal ? colors.warning : colors.primary;
 
   return (
     <View style={styles.card}>

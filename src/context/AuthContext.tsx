@@ -21,7 +21,6 @@ import {
   getUserSession,
   hasProfile,
   deleteRemoteUserAccount,
-  type UserRecord,
   type GenderValue,
 } from '../services/authService';
 import {
@@ -36,6 +35,7 @@ import {
 } from '../services/syncService';
 import { setSupabaseAppUser } from '../services/supabaseClient';
 import type { SexForFormula } from '../types/nutrition';
+import { validateGoal } from '../services/utils/goalValidator';
 
 export interface AuthUser {
   id: string;
@@ -109,6 +109,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     loadSession();
+    // Session restoration must run once on provider mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Registra el callback de revocación remota: si el usuario fue eliminado en
@@ -300,6 +302,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!user) {
           throw new Error('No hay sesión activa.');
         }
+        const goalCheck = validateGoal({
+          currentWeightKg: data.currentWeight,
+          targetWeightKg: data.targetWeight,
+          weeks: data.goalWeeks,
+          heightCm: data.heightCm ?? profile?.heightCm ?? 0,
+          age: data.age ?? profile?.age ?? 0,
+        });
+        if (!goalCheck.isValid) throw new Error(goalCheck.message ?? 'Revisa la seguridad de tu meta.');
         await saveProfileForUser(user.id, {
           age: data.age ?? profile?.age,
           height: data.heightCm ?? profile?.heightCm,
@@ -324,6 +334,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       },
 
       async updateProfile(fields: ProfileEditableFields) {
+        const goalFieldsChanged = fields.currentWeight !== undefined || fields.targetWeight !== undefined || fields.goalWeeks !== undefined;
+        const goalCurrent = fields.currentWeight ?? profile?.currentWeight;
+        const goalTarget = fields.targetWeight ?? profile?.targetWeight;
+        const goalHeight = fields.heightCm ?? profile?.heightCm;
+        const goalAge = fields.age ?? profile?.age;
+        const goalWeeks = fields.goalWeeks ?? profile?.goalWeeks;
+        const hasCompleteGoal = goalCurrent != null && goalTarget != null && goalHeight != null && goalAge != null && goalWeeks != null;
+        if (goalFieldsChanged && !hasCompleteGoal) {
+          throw new Error('Completa edad, estatura, peso y plazo en tu perfil antes de guardar una meta.');
+        }
+        if (hasCompleteGoal && (goalFieldsChanged || fields.heightCm !== undefined || fields.age !== undefined)) {
+          const goalCheck = validateGoal({
+            currentWeightKg: goalCurrent,
+            targetWeightKg: goalTarget,
+            weeks: goalWeeks,
+            heightCm: goalHeight,
+            age: goalAge,
+          });
+          if (!goalCheck.isValid) throw new Error(goalCheck.message ?? 'Revisa la seguridad de tu meta.');
+        }
         if (!user) throw new Error('No hay sesión activa.');
 
         if (fields.name !== undefined) {

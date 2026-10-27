@@ -181,6 +181,8 @@ export async function initDatabase(): Promise<void> {
       carbs_g REAL,
       fat_g REAL,
       meal_type TEXT NOT NULL DEFAULT 'snack',
+      nutrition_source TEXT,
+      nutrition_confidence TEXT,
       photo_uri TEXT,
       user_id TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -612,6 +614,8 @@ async function migrateMealLogNutrition(db: SQLite.SQLiteDatabase): Promise<void>
   if (!names.has('meal_type')) {
     await db.execAsync("ALTER TABLE meal_logs ADD COLUMN meal_type TEXT NOT NULL DEFAULT 'snack'");
   }
+  if (!names.has('nutrition_source')) await db.execAsync('ALTER TABLE meal_logs ADD COLUMN nutrition_source TEXT');
+  if (!names.has('nutrition_confidence')) await db.execAsync('ALTER TABLE meal_logs ADD COLUMN nutrition_confidence TEXT');
 }
 
 // Añade weight_logs.user_id (email de la cuenta) para aislar el historial de

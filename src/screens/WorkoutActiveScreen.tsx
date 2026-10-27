@@ -6,13 +6,13 @@ import {
   StyleSheet,
   Alert,
   TextInput,
+  TouchableOpacity,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RouteProp } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { TouchableOpacity } from 'react-native';
 import AppButton from '../components/AppButton';
 import type { RutinaStackParamList } from '../navigation/types';
 import { DAY_LABELS, type WorkoutSetInput } from '../types/workout';

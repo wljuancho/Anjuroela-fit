@@ -1,7 +1,8 @@
 import { getDatabase } from './database';
 import { formatDate } from './utils';
 import { getProfile, updateGoalStatus } from './authService';
-import { getActiveUserId, syncLocalToRemote, queueLocalDeletion } from './syncService';
+import { syncLocalToRemote, queueLocalDeletion } from './syncService';
+import { validateGoal } from './utils/goalValidator';
 import type {
   WeightLog,
   NewWeightLog,
@@ -172,6 +173,15 @@ export interface NuevoMetaData {
 
 export async function updateGoalMeta(userId: string, data: NuevoMetaData): Promise<void> {
   const db = getDatabase();
+  const profile = await getProfile(userId);
+  const goalCheck = validateGoal({
+    currentWeightKg: data.initialWeight,
+    targetWeightKg: data.targetWeight,
+    weeks: data.goalWeeks,
+    heightCm: profile?.height ?? 0,
+    age: profile?.age ?? 0,
+  });
+  if (!goalCheck.isValid) throw new Error(goalCheck.message ?? 'Revisa la seguridad de tu meta.');
   try {
     await db.runAsync(
       `UPDATE user_profiles

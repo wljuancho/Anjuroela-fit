@@ -35,7 +35,7 @@ import {
   updateGoalMeta,
 } from '../services/progressService';
 import type { NuevoMetaData } from '../services/progressService';
-import type { WeightLog, NewWeightLog, GoalDeadlineEvaluation } from '../types/progress';
+import type { WeightLog, GoalDeadlineEvaluation } from '../types/progress';
 import type { ProgressStackParamList } from '../navigation/types';
 
 export default function ProgresoScreen() {
@@ -107,7 +107,7 @@ export default function ProgresoScreen() {
         throw new Error(e instanceof Error ? e.message : 'No se pudo guardar la nueva meta.');
       }
     },
-    [user?.id, refresh],
+    [user, refresh],
   );
 
   const handleSavePhysical = useCallback(
@@ -310,6 +310,8 @@ export default function ProgresoScreen() {
         visible={metaModalVisible}
         currentWeight={summary?.currentWeight ?? null}
         targetWeight={summary?.targetWeight ?? null}
+        age={profile?.age ?? null}
+        heightCm={profile?.heightCm ?? summary?.heightCm ?? null}
         onClose={() => setMetaModalVisible(false)}
         onSave={handleSaveNuevaMeta}
       />

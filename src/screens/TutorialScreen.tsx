@@ -6,7 +6,6 @@ import {
   StyleSheet,
   FlatList,
   Pressable,
-  Dimensions,
   useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -49,7 +48,6 @@ const STEPS: TutorialStep[] = [
 
 export default function TutorialScreen({ navigation }: Props) {
   const { width } = useWindowDimensions();
-  const initialIndex = useRef(0);
   const listRef = useRef<FlatList<TutorialStep>>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const { completeTutorial } = useTutorial();
@@ -97,7 +95,7 @@ export default function TutorialScreen({ navigation }: Props) {
         horizontal
         pagingEnabled
         showsHorizontalScrollIndicator={false}
-        initialScrollIndex={initialIndex.current}
+        initialScrollIndex={0}
         getItemLayout={(_, index) => ({
           length: totalWidth,
           offset: totalWidth * index,

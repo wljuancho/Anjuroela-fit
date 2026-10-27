@@ -29,6 +29,12 @@ export default function CardComidaItem({ meal, onDelete }: CardComidaItemProps) 
     meal.carbs_g != null ? `C ${formatNumber(meal.carbs_g, 1)} g` : null,
     meal.fat_g != null ? `G ${formatNumber(meal.fat_g, 1)} g` : null,
   ].filter(Boolean).join(' · ');
+  const sourceLabel = {
+    manual: 'Dato ingresado por ti',
+    catalog: 'Catálogo · referencia aproximada',
+    photo_ai: `Foto con IA · confianza ${meal.nutrition_confidence ?? 'no indicada'}`,
+    unknown: 'Origen no registrado',
+  }[meal.nutrition_source ?? 'unknown'];
   return (
     <View style={styles.row}>
       {meal.photo_uri ? (
@@ -47,6 +53,7 @@ export default function CardComidaItem({ meal, onDelete }: CardComidaItemProps) 
           <Text style={styles.time}>{time || 'Sin hora'}</Text>
         </View>
         {macros ? <Text style={styles.macros} numberOfLines={1}>{macros}</Text> : null}
+        <Text style={styles.source} numberOfLines={1}>{sourceLabel}</Text>
       </View>
       <Text style={styles.calories}>{formatNumber(meal.calories)} kcal</Text>
       <TouchableOpacity style={styles.action} onPress={() => onDelete(meal.id)}>
@@ -111,6 +118,11 @@ const styles = StyleSheet.create({
     color: colors.success,
     fontSize: 11,
     marginTop: 4,
+  },
+  source: {
+    color: colors.textSubtle,
+    fontSize: 10,
+    marginTop: 3,
   },
   calories: {
     color: colors.primary,

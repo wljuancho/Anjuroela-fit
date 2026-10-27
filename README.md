@@ -1,116 +1,70 @@
-<p align="center">
-  <img src="assets/icon.png" alt="Anjuroela Fit Logo" width="180" />
-</p>
+﻿# Anjuroela Fit
 
-<h1 align="center">Anjuroela Fit</h1>
+Aplicación de fitness y nutrición construida con React Native, Expo y TypeScript. Incluye rutinas, biblioteca de ejercicios, registro de comidas, objetivos y seguimiento del progreso. Los datos se guardan localmente en SQLite y pueden sincronizarse con Supabase.
 
-<p align="center">
-  App de fitness y nutricion personal construida con React Native y Expo.
-</p>
+## Funciones
 
-<p align="center">
-  <a href="#caracteristicas">Caracteristicas</a> &bull;
-  <a href="#tecnologias">Tecnologias</a> &bull;
-  <a href="#instalacion">Instalacion</a> &bull;
-  <a href="#estructura-del-proyecto">Estructura</a> &bull;
-  <a href="#licencia">Licencia</a>
-</p>
+- Rutinas y sesiones de entrenamiento con registro de ejercicios, series y progreso.
+- Historial de peso, actividad y metas personales.
+- Registro de comidas manual, desde el catálogo o mediante una estimación por foto con IA.
+- Estimación de calorías con Mifflin-St Jeor y registro de macronutrientes.
+- El registro de comida muestra su procedencia. Los valores de catálogo y foto son aproximados; una estimación visual no puede confirmar ingredientes ni porciones exactas.
+- La IA de entrenamiento puede usar información del perfil y de la actividad registrada para dar respuestas con contexto.
 
----
+## Tecnologías
 
-## Caracteristicas
+| Área | Tecnología |
+|---|---|
+| Aplicación | Expo SDK 57, React Native 0.86, TypeScript 6 |
+| Navegación | React Navigation 7 |
+| Datos locales | SQLite (`expo-sqlite`) y AsyncStorage |
+| Sincronización | Supabase |
+| Cámara y galería | Expo Image Picker |
 
-- **Rutinas de entrenamiento** — Calendario semanal con asignacion de grupos musculares por dia, registro de series/pesos y seguimiento de sesiones completadas.
-- **Biblioteca de ejercicios** — Catalogo de ejercicios por grupo muscular con soporte para agregar ejercicios y categorias personalizadas.
-- **Seguimiento de nutricion** — Registro de comidas diarias con estimacion de calorias/macros, recomendaciones contextualizadas y resumen caloricodiario.
-- **Panel de progreso** — Historial de peso, graficos de fuerza por ejercicio y resumen de metas con validacion de ritmo saludable.
-- **Autenticacion** — Login/registro local con hash SHA-256 y soporte para Google Sign-In.
-- **Onboarding** — Flujo de configuracion inicial de perfil con validacion de objetivos de peso.
+## Requisitos
 
-## Tecnologias
+- Node.js compatible con Expo SDK 57. `npm test` requiere Node.js con soporte para eliminar tipos de TypeScript (`--experimental-strip-types`).
+- npm
+- Android Studio o Xcode para ejecutar las compilaciones nativas. Este proyecto usa módulos nativos de salud, por lo que el flujo habitual es un development build; Expo Go puede no incluirlos.
 
-| Capa | Tecnologia |
-|------|-----------|
-| Framework | React Native 0.76 + Expo SDK 52 |
-| Lenguaje | TypeScript 5.3 |
-| Navegacion | React Navigation 7 (Native Stack + Bottom Tabs) |
-| Base de datos | SQLite local (expo-sqlite) |
-| Persistencia | AsyncStorage |
-| Autenticacion | Expo Crypto (SHA-256) |
-| Camara | Expo Image Picker |
-
-## Instalacion
-
-### Requisitos
-
-- [Node.js](https://nodejs.org/) 18+
-- [Expo CLI](https://docs.expo.dev/get-started/installation/)
-- Expo Go (dispositivo) o emulador Android/iOS
-
-### Pasos
+## Instalación y ejecución
 
 ```bash
-# Clonar el repositorio
-git clone https://github.com/tu-usuario/anjuroela-fit.git
-cd anjuroela-fit
-
-# Instalar dependencias
 npm install
-
-# Iniciar el servidor de desarrollo
 npm start
 ```
 
-Escanear el codigo QR con Expo Go (Android/iOS) o presionar `a` / `i` para abrir en un emulador.
+Para compilar y abrir en un dispositivo/emulador:
 
-## Estructura del proyecto
-
-```
-src/
-├── components/
-│   ├── comida/          # Tarjetas y modales de nutricion
-│   ├── ejercicios/      # Tarjetas y modales de biblioteca
-│   ├── progreso/        # Graficos y modales de progreso
-│   ├── rutina/          # Tarjetas y modales de entrenamiento
-│   ├── AppButton.tsx
-│   ├── AppTextInput.tsx
-│   └── PlaceholderScreen.tsx
-├── context/
-│   ├── AuthContext.tsx   # Estado de autenticacion y sesion
-│   └── OnboardingContext.tsx
-├── navigation/
-│   ├── RootNavigator.tsx
-│   ├── MainTabs.tsx
-│   └── types.ts
-├── screens/
-│   ├── LoginScreen.tsx
-│   ├── OnboardingScreen.tsx
-│   ├── RutinaScreen.tsx
-│   ├── EjerciciosScreen.tsx
-│   ├── ComidaScreen.tsx
-│   └── ProgresoScreen.tsx
-├── services/
-│   ├── database/         # Inicializacion y esquema SQLite
-│   ├── authService.ts
-│   ├── exerciseService.ts
-│   ├── workoutService.ts
-│   ├── mealService.ts
-│   ├── progressService.ts
-│   ├── nutritionVisionService.ts
-│   └── utils/
-└── types/                # Definiciones TypeScript
+```bash
+npm run android
+# o
+npm run ios
 ```
 
-## Scripts
+Configura `EXPO_PUBLIC_SUPABASE_URL` y `EXPO_PUBLIC_SUPABASE_ANON_KEY` en `.env` para sincronización. Las claves de proveedores de IA se configuran en la app. Revisa la política de privacidad antes de enviar fotos o información de salud a servicios externos.
 
-| Comando | Descripcion |
-|---------|-------------|
-| `npm start` | Iniciar Expo |
-| `npm run android` | Abrir en Android |
-| `npm run ios` | Abrir en iOS |
-| `npm run web` | Abrir en navegador |
-| `npm run lint` | Ejecutar linter |
+## Base de datos
 
-## Licencia
+`supabase_schema.sql` contiene el esquema Supabase utilizado para sincronizar. Revísalo y respalda los datos de la base antes de aplicarlo a una instalación existente: el archivo incluye instrucciones `DROP TABLE ... CASCADE` para tablas legacy.
 
-Este es un proyecto privado. Todos los derechos reservados.
+`supabase_reset.sql` es un script de reinicio y puede borrar datos. No lo ejecutes como parte de una instalación normal.
+
+## Calidad
+
+```bash
+npm run lint
+npm test
+npx tsc --noEmit
+```
+
+Las pruebas actuales cubren las reglas puras de seguridad de objetivos de peso y calorías. Todavía falta una suite de integración con SQLite, sincronización y pantallas.
+
+## Estructura
+
+- `src/screens`: pantallas principales.
+- `src/components`: componentes y formularios.
+- `src/services`: lógica de datos, sincronización, nutrición y entrenamiento.
+- `src/context`: sesión y perfil de usuario.
+- `src/types`: contratos TypeScript.
+- `tests`: pruebas automatizadas de reglas de dominio.

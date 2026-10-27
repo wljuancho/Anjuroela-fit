@@ -1,5 +1,5 @@
 import { colors } from '../theme/colors';
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -51,7 +51,9 @@ export default function EjerciciosScreen() {
   const [optionsBodyPart, setOptionsBodyPart] = useState<BodyPart | null>(null);
 
   const selectedRef = useRef<BodyPart | null>(null);
-  selectedRef.current = selectedBodyPart;
+  useEffect(() => {
+    selectedRef.current = selectedBodyPart;
+  }, [selectedBodyPart]);
 
   const { data: bodyParts, loading, reload: reloadBodyParts } = useLoadOnMount<BodyPart[]>(
     useCallback(async () => {

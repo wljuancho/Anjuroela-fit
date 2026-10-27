@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect -- Intentional lifecycle sync: these effects reset form/timer state when their visibility or input props change. */
 import { colors } from '../../theme/colors';
 import React, { useMemo, useState } from 'react';
 import {

@@ -16,7 +16,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import AppTextInput from '../AppTextInput';
 import AppButton from '../AppButton';
-import type { NewMealLog, NutritionEstimate, PlanMealType } from '../../types/nutrition';
+import type { NewMealLog, NutritionConfidence, NutritionEstimate, PlanMealType } from '../../types/nutrition';
 import type {
   CookingMethod,
   MealOrigin,
@@ -26,6 +26,7 @@ import type {
 import { getVisionApiKey } from '../../services/configService';
 import { formatNumber } from '../../services/utils';
 import { FOOD_CATALOG, type FoodCatalogItem } from '../../data/foodCatalog';
+import { resolveMealProvenance } from '../../services/utils/mealProvenance';
 
 interface ModalEscanearComidaProps {
   visible: boolean;
@@ -134,6 +135,8 @@ export default function ModalEscanearComida({
   const [hasApiKey, setHasApiKey] = useState(false);
   const [error, setError] = useState('');
   const [confident, setConfident] = useState<string | null>(null);
+  const [confidence, setConfidence] = useState<NutritionConfidence | null>(null);
+  const [estimateApplied, setEstimateApplied] = useState(false);
   const [descOverride, setDescOverride] = useState('');
   const [portion, setPortion] = useState<PortionSize | null>(null);
   const [mealTime, setMealTime] = useState<PlanMealType>(getDefaultMealTime);
@@ -156,6 +159,7 @@ export default function ModalEscanearComida({
   };
 
   const applyEstimate = (estimate: NutritionEstimate) => {
+    setEstimateApplied(true);
     setMealName(estimate.mealName ?? 'Comida');
     setCalories(String(Math.round(estimate.calories)));
     setProtein(String(Math.round(estimate.proteinG * 10) / 10));
@@ -165,6 +169,7 @@ export default function ModalEscanearComida({
       `Proteínas ${formatNumber(estimate.proteinG, 1)}g · Carbs ${formatNumber(estimate.carbsG)}g · Grasas ${formatNumber(estimate.fatG)}g`,
     );
     if (estimate.confidence) {
+      setConfidence(estimate.confidence);
       const label =
         estimate.confidence === 'alta'
           ? 'Alta confianza: la estimación es bastante acertada.'
@@ -173,6 +178,7 @@ export default function ModalEscanearComida({
             : 'Estimación aproximada: el cálculo de las porciones no fue muy preciso.';
       setConfident(label);
     } else {
+      setConfidence(null);
       setConfident(null);
     }
   };
@@ -210,6 +216,8 @@ export default function ModalEscanearComida({
     setEstimating(true);
     setError('');
     setConfident(null);
+    setConfidence(null);
+    setEstimateApplied(false);
     try {
       const estimate = await onEstimate(buildInput(uri));
       if (estimate) {
@@ -289,6 +297,13 @@ export default function ModalEscanearComida({
         const parsed = Number(value.replace(',', '.'));
         return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
       };
+      const provenance = resolveMealProvenance({
+        entryMode,
+        hasPhoto: Boolean(photoUri),
+        estimateApplied,
+        selectedCatalogFood: selectedFood !== null,
+        confidence,
+      });
       await onConfirm({
         date,
         meal_name: mealName.trim(),
@@ -297,6 +312,8 @@ export default function ModalEscanearComida({
         carbs_g: optionalNumber(carbs),
         fat_g: optionalNumber(fat),
         meal_type: mealTime ?? 'snack',
+        nutrition_source: provenance.source,
+        nutrition_confidence: provenance.confidence,
         photo_uri: photoUri,
       });
       handleClose();

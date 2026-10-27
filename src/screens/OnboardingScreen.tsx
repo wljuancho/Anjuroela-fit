@@ -18,7 +18,7 @@ import {
   validateGoal,
   MAX_WEEKLY_LOSS_KG,
   MAX_WEEKLY_GAIN_KG,
-  MIN_ADULT_AGE,
+  MIN_WEIGHT_GOAL_AGE,
 } from '../services/utils/goalValidator';
 import type { GenderValue } from '../services/authService';
 
@@ -131,8 +131,8 @@ export default function OnboardingScreen() {
     if (!gender) {
       next.gender = 'Selecciona tu género.';
     }
-    if (!Number.isFinite(ageNum) || ageNum < MIN_ADULT_AGE || ageNum > 100) {
-      next.age = 'Esta app está diseñada para personas adultas (18+).';
+    if (!Number.isFinite(ageNum) || ageNum < MIN_WEIGHT_GOAL_AGE || ageNum > 100) {
+      next.age = `Ingresa una edad de ${MIN_WEIGHT_GOAL_AGE} años o más.`;
     }
     if (!Number.isFinite(heightCmNum) || heightCmNum < 120 || heightCmNum > 250) {
       next.heightCm = 'Ingresa tu estatura entre 120 y 250 cm para revisar tu meta.';
@@ -231,11 +231,29 @@ export default function OnboardingScreen() {
             <Ionicons name="information-circle" size={18} color={colors.primary} />
             <Text style={styles.infoText}>
               Cambio saludable: máx. {MAX_WEEKLY_LOSS_KG} kg/sem en pérdida o{' '}
-              {MAX_WEEKLY_GAIN_KG} kg/sem en ganancia.
+              {MAX_WEEKLY_GAIN_KG} kg/sem en ganancia. La estatura y el IMC adulto se usan como referencia, no como diagnóstico.
             </Text>
           </View>
 
           {errors.form ? <Text style={styles.formError}>{errors.form}</Text> : null}
+
+          <AppTextInput
+            label="Edad"
+            value={age}
+            onChangeText={(value) => { setAge(value); setErrors((prev) => ({ ...prev, age: undefined })); }}
+            placeholder="18 o más"
+            keyboardType="number-pad"
+            error={errors.age}
+          />
+
+          <AppTextInput
+            label="Estatura (cm)"
+            value={heightCm}
+            onChangeText={(value) => { setHeightCm(value); setErrors((prev) => ({ ...prev, heightCm: undefined })); }}
+            placeholder="Ej: 165"
+            keyboardType="decimal-pad"
+            error={errors.heightCm}
+          />
 
           <View style={styles.fieldContainer}>
             <Text style={styles.fieldLabel}>Género</Text>

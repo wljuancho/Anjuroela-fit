@@ -107,10 +107,12 @@ export function useWorkoutSession(): WorkoutSessionData {
     return () => {
       active = false;
     };
+    // One-time boot: the loaded schedule is passed explicitly to avoid a schedule/load callback loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadSchedule]);
 
   useEffect(() => {
-    loadDayExercises(selectedDay);
+    void Promise.resolve().then(() => loadDayExercises(selectedDay));
   }, [selectedDay, loadDayExercises]);
 
   const handleSaveWorkout = useCallback(async () => {

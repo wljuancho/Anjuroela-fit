@@ -86,7 +86,7 @@ export default function CaloriesHistoryScreen() {
     } finally {
       setLoading(false);
     }
-  }, [user?.id]);
+  }, [user]);
 
   useFocusEffect(useCallback(() => { void refresh(); }, [refresh]));
 

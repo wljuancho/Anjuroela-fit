@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect -- Intentional lifecycle sync: these effects reset form/timer state when their visibility or input props change. */
 import { colors } from '../../theme/colors';
 import React, { useEffect, useState } from 'react';
 import {
@@ -17,11 +18,14 @@ import AppTextInput from '../AppTextInput';
 import AppButton from '../AppButton';
 import type { NuevoMetaData } from '../../services/progressService';
 import { formatNumber } from '../../services/utils';
+import { validateGoal } from '../../services/utils/goalValidator';
 
 interface ModalEstablecerNuevaMetaProps {
   visible: boolean;
   currentWeight: number | null;
   targetWeight?: number | null;
+  age?: number | null;
+  heightCm?: number | null;
   onClose: () => void;
   onSave: (data: NuevoMetaData) => Promise<void>;
 }
@@ -51,6 +55,8 @@ export default function ModalEstablecerNuevaMeta({
   visible,
   currentWeight,
   targetWeight,
+  age,
+  heightCm,
   onClose,
   onSave,
 }: ModalEstablecerNuevaMetaProps) {
@@ -103,14 +109,29 @@ export default function ModalEstablecerNuevaMeta({
       return;
     }
 
-    const dateStr = goalDate || toISODate(new Date());
+    const defaultDate = toISODate(new Date(Date.now() + 12 * 7 * 86400000));
+    const resolvedDate = goalDate || defaultDate;
+    const goalWeeks = computeGoalWeeks(resolvedDate);
+    const goalCheck = validateGoal({
+      currentWeightKg: currentWeight,
+      targetWeightKg: parsed,
+      weeks: goalWeeks,
+      heightCm: heightCm ?? 0,
+      age: age ?? 0,
+    });
+    if (!goalCheck.isValid) {
+      setError(goalCheck.message ?? 'Revisa la seguridad de tu meta y su plazo.');
+      return;
+    }
+
+    const dateStr = resolvedDate;
     setError('');
     setSaving(true);
     try {
       await onSave({
         initialWeight: Math.round(currentWeight * 10) / 10,
         targetWeight: Math.round(parsed * 10) / 10,
-        goalWeeks: computeGoalWeeks(dateStr),
+        goalWeeks,
         goalDate: dateStr,
       });
     } catch (e) {
