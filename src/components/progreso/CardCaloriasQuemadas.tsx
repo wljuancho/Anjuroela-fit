@@ -1,256 +1,71 @@
 import { colors } from '../../theme/colors';
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity, ActivityIndicator } from 'react-native';
+import React from 'react';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { SessionCaloriesBurned } from '../../types/progress';
-import { DAY_LABELS } from '../../types/workout';
 import { formatNumber } from '../../services/utils';
-import {
-  readTodaySteps,
-  readLastNightSleepHours,
-} from '../../services/healthService';
-import { getRecentSessionHealthMetrics } from '../../services/progressService';
 
 interface CardCaloriasQuemadasProps {
   sessions: SessionCaloriesBurned[];
-  userId?: string;
+  onPress: () => void;
 }
 
-function formatFriendlyDate(date: string): string {
-  const parts = date.split('-');
-  if (parts.length !== 3) return date;
-  return `${parts[2]}/${parts[1]}/${parts[0]}`;
+function getMonday(dateValue: string): string | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateValue);
+  if (!match) return null;
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  date.setDate(date.getDate() - ((date.getDay() + 6) % 7));
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
-function formatSleepHours(hours: number | null): string {
-  if (hours == null) return '—';
-  const totalMinutes = Math.round(hours * 60);
-  const h = Math.floor(totalMinutes / 60);
-  const m = totalMinutes % 60;
-  if (h === 0) return `${m} min`;
-  return m > 0 ? `${h} h ${m} min` : `${h} h`;
-}
-
-// Fuente del gasto calórico de cada sesión: con reloj/pulsera el cálculo usa la
-// frecuencia cardíaca REAL medida; sin reloj se estima por fórmulas MET.
-function getSessionSourceLabel(s: SessionCaloriesBurned): string {
-  if (s.caloriesSource === 'wearable') {
-    return s.heartRateAvg != null
-      ? `Reloj/Pulsera · FC real (${formatNumber(s.heartRateAvg)} bpm)`
-      : 'Reloj/Pulsera · calorías del dispositivo';
-  }
-  return 'Estimación MET (sin reloj vinculado)';
-}
-
-// Origen de la actividad de la sesión: ocasional, ejercicio individual o circuito.
-function getSessionOriginLabel(s: SessionCaloriesBurned): string {
-  if (s.sessionType === 'casual') return 'Entreno Ocasional';
-  const names = (s.exerciseNames ?? '')
-    .split(',')
-    .map((n) => n.trim())
-    .filter(Boolean);
-  if (names.length === 1) {
-    return `Ejercicio Individual: ${names[0]}`;
-  }
-  if (names.length > 1) return `Circuito: ${names.join(', ')}`;
-  return 'Entrenamiento de rutina';
-}
-
-interface CaloriesBreakdown {
-  wearableKcal: number;
-  estimateKcal: number;
-  steps: number;
-  stepsKcal: number | null;
-  sleepHours: number | null;
-  heartRateAvg: number | null;
-}
-
-export default function CardCaloriasQuemadas({ sessions, userId }: CardCaloriasQuemadasProps) {
-  const total = sessions.reduce((acc, s) => acc + s.caloriesBurned, 0);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [loadingDetail, setLoadingDetail] = useState(false);
-  const [detail, setDetail] = useState<CaloriesBreakdown | null>(null);
-
-  const openDetail = () => {
-    setModalVisible(true);
-    setLoadingDetail(true);
-    setDetail(null);
-    void (async () => {
-      try {
-        const [steps, sleep, metrics] = await Promise.all([
-          readTodaySteps(),
-          readLastNightSleepHours(),
-          userId ? getRecentSessionHealthMetrics(userId, 1) : Promise.resolve([]),
-        ]);
-        const wearableKcal = sessions
-          .filter((s) => s.caloriesSource === 'wearable')
-          .reduce((acc, s) => acc + s.caloriesBurned, 0);
-        const estimateKcal = sessions
-          .filter((s) => s.caloriesSource !== 'wearable')
-          .reduce((acc, s) => acc + s.caloriesBurned, 0);
-        setDetail({
-          wearableKcal,
-          estimateKcal,
-          steps: steps.steps,
-          stepsKcal: steps.caloriesBurned,
-          sleepHours: sleep,
-          heartRateAvg: metrics[0]?.heartRateAvg ?? null,
-        });
-      } catch {
-        setDetail(null);
-      } finally {
-        setLoadingDetail(false);
-      }
-    })();
-  };
-
-  const closeDetail = () => {
-    setModalVisible(false);
-    setDetail(null);
-  };
+export default function CardCaloriasQuemadas({ sessions, onPress }: CardCaloriasQuemadasProps) {
+  const today = new Date();
+  today.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+  const currentWeek = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const weekSessions = sessions.filter((session) => getMonday(session.date) === currentWeek);
+  const weekCalories = weekSessions.reduce((sum, session) => sum + session.caloriesBurned, 0);
+  const wearableSessions = weekSessions.filter((session) => session.caloriesSource === 'wearable').length;
 
   return (
-    <>
-      <TouchableOpacity
-        activeOpacity={0.7}
-        style={styles.card}
-        onPress={openDetail}
-        accessibilityRole="button"
-        accessibilityLabel="Ver desglose de calorías quemadas y métricas de salud"
-      >
-        <View style={styles.titleRow}>
-          <Text style={styles.cardTitle}>Calorías Quemadas</Text>
-          {sessions.length > 0 ? (
-            <View style={styles.totalChip}>
-              <Text style={styles.totalValue}>{formatNumber(total)}</Text>
-              <Text style={styles.totalLabel}>kcal</Text>
-            </View>
-          ) : null}
+    <TouchableOpacity
+      activeOpacity={0.78}
+      style={styles.card}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel="Abrir historial semanal de calorías quemadas"
+    >
+      <View style={styles.topRow}>
+        <View style={styles.iconWrap}>
+          <Ionicons name="flame" size={19} color={colors.primary} />
         </View>
-
-        {sessions.length === 0 ? (
-          <View style={styles.emptyRow}>
-            <Ionicons name="flame-outline" size={18} color={colors.textSubtle} />
-            <Text style={styles.emptyText}>
-              Al completar un entrenamiento, aquí verás las kcal que quemaste (estimación
-              aproximada).
-            </Text>
-          </View>
-        ) : (
-          <View style={styles.list}>
-            {sessions.map((s) => (
-              <View key={s.sessionId} style={styles.row}>
-                <View style={styles.rowIcon}>
-                  <Ionicons name="flame" size={16} color={colors.primary} />
-                </View>
-                <View style={styles.rowInfo}>
-                  <Text style={styles.rowDate}>
-                    {formatFriendlyDate(s.date)} · {DAY_LABELS[s.dayOfWeek as keyof typeof DAY_LABELS] ?? s.dayOfWeek}
-                  </Text>
-                  <Text style={styles.rowOrigin}>{getSessionOriginLabel(s)}</Text>
-                  <Text style={styles.rowMeta}>
-                    {s.setCount} {s.setCount === 1 ? 'serie' : 'series'} · {getSessionSourceLabel(s)}
-                  </Text>
-                </View>
-                <Text style={styles.rowValue}>{formatNumber(s.caloriesBurned)} kcal</Text>
-              </View>
-            ))}
-          </View>
-        )}
-
-        <View style={styles.detailHint}>
-          <Ionicons name="trending-up" size={14} color={colors.primary} />
-          <Text style={styles.detailHintText}>Toca para ver el desglose de métricas</Text>
+        <View style={styles.heading}>
+          <Text style={styles.title}>Calorías quemadas</Text>
+          <Text style={styles.subtitle}>Resumen de esta semana</Text>
         </View>
-      </TouchableOpacity>
+        <Ionicons name="chevron-forward" size={20} color={colors.textSubtle} />
+      </View>
 
-      <Modal visible={modalVisible} animationType="fade" transparent onRequestClose={closeDetail}>
-        <View style={styles.overlay}>
-          <View style={styles.modalCard}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Desglose de Calorías Quemadas</Text>
-              <TouchableOpacity onPress={closeDetail} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                <Ionicons name="close" size={22} color={colors.textMuted} />
-              </TouchableOpacity>
-            </View>
+      <View style={styles.summaryRow}>
+        <Text style={styles.value}>{formatNumber(weekCalories)}</Text>
+        <Text style={styles.unit}>kcal</Text>
+        <View style={styles.separator} />
+        <Text style={styles.sessionCount}>
+          {weekSessions.length} {weekSessions.length === 1 ? 'sesión' : 'sesiones'}
+        </Text>
+      </View>
 
-            {loadingDetail ? (
-              <View style={styles.loadingBox}>
-                <ActivityIndicator size="small" color={colors.primary} />
-                <Text style={styles.loadingText}>Consultando métricas de salud…</Text>
-              </View>
-            ) : (
-              <>
-                <Text style={styles.sectionTitle}>Origen del gasto calórico</Text>
-                <View style={styles.payloadRow}>
-                  <View style={styles.payloadChip}>
-                    <Ionicons name="watch" size={15} color={colors.primary} />
-                    <Text style={styles.payloadLabel}>
-                      {detail && detail.heartRateAvg != null
-                        ? `Reloj/Pulsera · FC ${formatNumber(detail.heartRateAvg)} bpm`
-                        : 'Reloj/Pulsera con pulso real'}
-                    </Text>
-                    <Text style={styles.payloadValue}>
-                      {detail && detail.wearableKcal > 0 ? `${formatNumber(detail.wearableKcal)} kcal` : 'sin registros'}
-                    </Text>
-                  </View>
-                  <View style={styles.payloadChip}>
-                    <Ionicons name="calculator" size={15} color={colors.textSubtle} />
-                    <Text style={styles.payloadLabel}>Estimación MET sin reloj</Text>
-                    <Text style={styles.payloadValue}>
-                      {detail && detail.estimateKcal > 0 ? `${formatNumber(detail.estimateKcal)} kcal` : 'sin registros'}
-                    </Text>
-                  </View>
-                </View>
-
-                <Text style={styles.sectionTitle}>Desglose por sesión</Text>
-                <View style={styles.sessionBreakdown}>
-                  {sessions.map((s) => (
-                    <View key={s.sessionId} style={styles.sessionRow}>
-                      <Text style={styles.sessionOrigin}>{getSessionOriginLabel(s)}</Text>
-                      <Text style={styles.sessionSource}>{getSessionSourceLabel(s)}</Text>
-                      <Text style={styles.sessionKcal}>{formatNumber(s.caloriesBurned)} kcal</Text>
-                    </View>
-                  ))}
-                </View>
-
-                <Text style={styles.sectionTitle}>Pasos de hoy</Text>
-                <View style={styles.metricRow}>
-                  <Ionicons name="footsteps" size={18} color={colors.primary} />
-                  <Text style={styles.metricText}>
-                    {detail && detail.steps > 0 ? formatNumber(detail.steps) : '—'} pasos
-                    {detail && detail.stepsKcal != null && detail.stepsKcal > 0
-                      ? ` (≈ ${formatNumber(detail.stepsKcal)} kcal)` : ''}
-                  </Text>
-                </View>
-
-                <Text style={styles.sectionTitle}>Sueño de la última noche</Text>
-                <View style={styles.metricRow}>
-                  <Ionicons name="moon" size={18} color={colors.primary} />
-                  <Text style={styles.metricText}>
-                    {detail ? `${formatSleepHours(detail.sleepHours)} registrados en el dispositivo` : '—'}
-                  </Text>
-                </View>
-
-                <Text style={styles.sectionTitle}>Ritmo cardíaco promedio</Text>
-                <View style={styles.metricRow}>
-                  <Ionicons name="heart" size={18} color={colors.primary} />
-                  <Text style={styles.metricText}>
-                    {detail && detail.heartRateAvg != null
-                      ? `${formatNumber(detail.heartRateAvg)} bpm en la última sesión`
-                      : 'sin datos en la última sesión'}
-                  </Text>
-                </View>
-              </>
-            )}
-
-            <TouchableOpacity style={styles.closeBtn} onPress={closeDetail}>
-              <Text style={styles.closeBtnText}>Cerrar</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-    </>
+      <View style={styles.footer}>
+        <Text style={styles.footerText}>
+          {weekSessions.length === 0
+            ? 'Tus entrenamientos aparecerán aquí.'
+            : `${wearableSessions} con wearable · ${weekSessions.length - wearableSessions} estimadas`}
+        </Text>
+        <Text style={styles.link}>Ver semanas</Text>
+      </View>
+    </TouchableOpacity>
   );
 }
 
@@ -259,230 +74,84 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.cardAlt,
-    borderRadius: 14,
-    padding: 18,
+    borderRadius: 16,
+    padding: 16,
     marginHorizontal: 16,
-    marginBottom: 16,
+    marginBottom: 18,
   },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  cardTitle: {
-    color: colors.text,
-    fontSize: 17,
-    fontWeight: '700',
-  },
-  totalChip: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    backgroundColor: colors.primarySofter,
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    gap: 3,
-  },
-  totalValue: {
-    color: colors.primary,
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  totalLabel: {
-    color: colors.textMuted,
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  emptyRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 6,
-  },
-  emptyText: {
-    color: colors.textSubtle,
-    fontSize: 13,
-    lineHeight: 18,
-    flex: 1,
-  },
-  list: {
-    gap: 10,
-  },
-  row: {
+  topRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
   },
-  rowIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+  iconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
     backgroundColor: colors.primarySoft,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  rowInfo: {
+  heading: {
     flex: 1,
   },
-  rowDate: {
+  title: {
     color: colors.text,
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  rowMeta: {
-    color: colors.textMuted,
-    fontSize: 12,
-    marginTop: 1,
-  },
-  rowOrigin: {
-    color: colors.primary,
-    fontSize: 12,
-    fontWeight: '600',
-    marginTop: 1,
-  },
-  rowValue: {
-    color: colors.text,
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '700',
   },
-  detailHint: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginTop: 12,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  detailHintText: {
-    color: colors.primary,
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  overlay: {
-    flex: 1,
-    backgroundColor: colors.scrimStrong,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-  },
-  modalCard: {
-    width: '100%',
-    maxWidth: 360,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.cardAlt,
-    borderRadius: 20,
-    padding: 20,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 14,
-  },
-  modalTitle: {
-    color: colors.text,
-    fontSize: 17,
-    fontWeight: '800',
-    flex: 1,
-    paddingRight: 8,
-  },
-  loadingBox: {
-    alignItems: 'center',
-    gap: 10,
-    paddingVertical: 28,
-  },
-  loadingText: {
-    color: colors.textMuted,
-    fontSize: 13,
-  },
-  sectionTitle: {
-    color: colors.textMuted,
-    fontSize: 12,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginTop: 12,
-    marginBottom: 6,
-  },
-  payloadRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  payloadChip: {
-    flex: 1,
-    backgroundColor: colors.graph,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 12,
-    padding: 12,
-    gap: 6,
-  },
-  payloadLabel: {
-    color: colors.textSubtle,
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  payloadValue: {
-    color: colors.text,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  metricRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: colors.graph,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  metricText: {
-    color: colors.text,
-    fontSize: 13,
-    flex: 1,
-  },
-  sessionBreakdown: {
-    gap: 8,
-  },
-  sessionRow: {
-    backgroundColor: colors.graph,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  sessionOrigin: {
-    color: colors.text,
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  sessionSource: {
+  subtitle: {
     color: colors.textMuted,
     fontSize: 12,
     marginTop: 2,
   },
-  sessionKcal: {
-    color: colors.primary,
-    fontSize: 13,
-    fontWeight: '700',
-    marginTop: 4,
+  summaryRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    marginTop: 16,
   },
-  closeBtn: {
-    marginTop: 18,
-    backgroundColor: colors.primary,
-    borderRadius: 12,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  closeBtnText: {
+  value: {
     color: colors.text,
+    fontSize: 29,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums'],
+  },
+  unit: {
+    color: colors.primary,
     fontSize: 14,
+    fontWeight: '700',
+    marginLeft: 6,
+  },
+  separator: {
+    width: 1,
+    height: 18,
+    backgroundColor: colors.border,
+    marginHorizontal: 12,
+    alignSelf: 'center',
+  },
+  sessionCount: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  footer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    marginTop: 12,
+    paddingTop: 10,
+    gap: 8,
+  },
+  footerText: {
+    color: colors.textSubtle,
+    fontSize: 11,
+    flex: 1,
+  },
+  link: {
+    color: colors.primary,
+    fontSize: 12,
     fontWeight: '700',
   },
 });

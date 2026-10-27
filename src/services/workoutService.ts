@@ -268,7 +268,7 @@ export async function deleteExerciseSetsFromSession(
     }
   });
   for (const set of sets) {
-    queueLocalDeletion({ table: 'workout_sets', rowId: set.id });
+    await queueLocalDeletion({ table: 'workout_sets', rowId: set.id });
   }
   await recalculateSessionCalories(sessionId);
   void syncLocalToRemote('workout_sets');
@@ -280,7 +280,7 @@ export async function deleteSetFromSession(sessionId: number, setId: number): Pr
     setId,
     sessionId,
   ]);
-  queueLocalDeletion({ table: 'workout_sets', rowId: setId });
+  await queueLocalDeletion({ table: 'workout_sets', rowId: setId });
   await recalculateSessionCalories(sessionId);
   void syncLocalToRemote('workout_sets');
 }
@@ -299,10 +299,10 @@ export async function deleteCasualSession(sessionId: number): Promise<void> {
     await db.runAsync('DELETE FROM workout_sessions WHERE id = ?', [sessionId]);
   });
   for (const set of sets) {
-    queueLocalDeletion({ table: 'workout_sets', rowId: set.id });
+    await queueLocalDeletion({ table: 'workout_sets', rowId: set.id });
   }
   if (session) {
-    queueLocalDeletion({
+    await queueLocalDeletion({
       table: 'workout_sessions',
       rowId: session.id,
       key: {

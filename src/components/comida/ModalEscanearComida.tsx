@@ -16,16 +16,16 @@ import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import AppTextInput from '../AppTextInput';
 import AppButton from '../AppButton';
-import type { NewMealLog, NutritionEstimate } from '../../types/nutrition';
+import type { NewMealLog, NutritionEstimate, PlanMealType } from '../../types/nutrition';
 import type {
   CookingMethod,
   MealOrigin,
-  MealTime,
   NutritionVisionInput,
   PortionSize,
 } from '../../services/nutritionVisionService';
 import { getVisionApiKey } from '../../services/configService';
 import { formatNumber } from '../../services/utils';
+import { FOOD_CATALOG, type FoodCatalogItem } from '../../data/foodCatalog';
 
 interface ModalEscanearComidaProps {
   visible: boolean;
@@ -72,13 +72,22 @@ function ChipRow<T extends string>({
   );
 }
 
+function normalizeFoodSearch(value: string): string {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase().trim();
+}
+
+function getDefaultMealTime(): PlanMealType {
+  const hour = new Date().getHours();
+  return hour < 11 ? 'desayuno' : hour < 16 ? 'almuerzo' : hour < 19 ? 'snack' : 'cena';
+}
+
 const PORTION_OPTIONS: ChipOption<PortionSize>[] = [
   { label: 'Pequeña', value: 'pequena' },
   { label: 'Media', value: 'media' },
   { label: 'Grande', value: 'grande' },
 ];
 
-const MEAL_TIME_OPTIONS: ChipOption<MealTime>[] = [
+const MEAL_TIME_OPTIONS: ChipOption<PlanMealType>[] = [
   { label: 'Desayuno', value: 'desayuno' },
   { label: 'Almuerzo', value: 'almuerzo' },
   { label: 'Cena', value: 'cena' },
@@ -109,8 +118,15 @@ export default function ModalEscanearComida({
   onConfirm,
   onEstimate,
 }: ModalEscanearComidaProps) {
+  const [entryMode, setEntryMode] = useState<'manual' | 'catalog' | 'photo'>('manual');
   const [mealName, setMealName] = useState('');
   const [calories, setCalories] = useState('');
+  const [protein, setProtein] = useState('');
+  const [carbs, setCarbs] = useState('');
+  const [fat, setFat] = useState('');
+  const [foodSearch, setFoodSearch] = useState('');
+  const [foodGrams, setFoodGrams] = useState('100');
+  const [selectedFood, setSelectedFood] = useState<FoodCatalogItem | null>(null);
   const [macros, setMacros] = useState('');
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [estimating, setEstimating] = useState(false);
@@ -120,33 +136,18 @@ export default function ModalEscanearComida({
   const [confident, setConfident] = useState<string | null>(null);
   const [descOverride, setDescOverride] = useState('');
   const [portion, setPortion] = useState<PortionSize | null>(null);
-  const [mealTime, setMealTime] = useState<MealTime | null>(null);
+  const [mealTime, setMealTime] = useState<PlanMealType>(getDefaultMealTime);
   const [origin, setOrigin] = useState<MealOrigin | null>(null);
   const [cookingMethod, setCookingMethod] = useState<CookingMethod | null>(null);
   const [servings, setServings] = useState(1);
 
   React.useEffect(() => {
-    if (visible) {
-      setMealName('');
-      setCalories('');
-      setMacros('');
-      setPhotoUri(null);
-      setError('');
-      setConfident(null);
-      setDescOverride('');
-      setPortion(null);
-      setMealTime(null);
-      setOrigin(null);
-      setCookingMethod(null);
-      setServings(1);
-      checkApiKey();
-    }
-  }, [visible]);
-
-  const checkApiKey = async () => {
-    const key = await getVisionApiKey();
-    setHasApiKey(!!key);
-  };
+    let active = true;
+    getVisionApiKey()
+      .then((key) => { if (active) setHasApiKey(Boolean(key)); })
+      .catch(() => { if (active) setHasApiKey(false); });
+    return () => { active = false; };
+  }, []);
 
   const handleClose = () => {
     setEstimating(false);
@@ -157,6 +158,9 @@ export default function ModalEscanearComida({
   const applyEstimate = (estimate: NutritionEstimate) => {
     setMealName(estimate.mealName ?? 'Comida');
     setCalories(String(Math.round(estimate.calories)));
+    setProtein(String(Math.round(estimate.proteinG * 10) / 10));
+    setCarbs(String(Math.round(estimate.carbsG * 10) / 10));
+    setFat(String(Math.round(estimate.fatG * 10) / 10));
     setMacros(
       `Proteínas ${formatNumber(estimate.proteinG, 1)}g · Carbs ${formatNumber(estimate.carbsG)}g · Grasas ${formatNumber(estimate.fatG)}g`,
     );
@@ -171,6 +175,24 @@ export default function ModalEscanearComida({
     } else {
       setConfident(null);
     }
+  };
+
+  const applyCatalogFood = (food: FoodCatalogItem, gramsValue: string) => {
+    const grams = Number(gramsValue.replace(',', '.'));
+    if (!Number.isFinite(grams) || grams <= 0) return;
+    const ratio = grams / 100;
+    setMealName(food.name);
+    setCalories(String(Math.round(food.caloriesPer100g * ratio)));
+    setProtein(String(Math.round(food.proteinPer100g * ratio * 10) / 10));
+    setCarbs(String(Math.round(food.carbsPer100g * ratio * 10) / 10));
+    setFat(String(Math.round(food.fatPer100g * ratio * 10) / 10));
+  };
+
+  const chooseCatalogFood = (food: FoodCatalogItem) => {
+    setSelectedFood(food);
+    setFoodSearch(food.name);
+    setFoodGrams('100');
+    applyCatalogFood(food, '100');
   };
 
   const buildInput = (uri: string): NutritionVisionInput => ({
@@ -252,13 +274,29 @@ export default function ModalEscanearComida({
       setError('Ingresa un valor de calorías válido');
       return;
     }
+    const macroValues = [protein, carbs, fat].map((value) =>
+      value.trim() ? Number(value.replace(',', '.')) : null,
+    );
+    if (macroValues.some((value) => value !== null && (!Number.isFinite(value) || value < 0))) {
+      setError('Revisa los valores de proteína, carbohidratos y grasa.');
+      return;
+    }
     setError('');
     setSaving(true);
     try {
+      const optionalNumber = (value: string): number | null => {
+        if (!value.trim()) return null;
+        const parsed = Number(value.replace(',', '.'));
+        return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+      };
       await onConfirm({
         date,
         meal_name: mealName.trim(),
         calories: parsedCalories,
+        protein_g: optionalNumber(protein),
+        carbs_g: optionalNumber(carbs),
+        fat_g: optionalNumber(fat),
+        meal_type: mealTime ?? 'snack',
         photo_uri: photoUri,
       });
       handleClose();
@@ -271,7 +309,6 @@ export default function ModalEscanearComida({
 
   const hasAnsweredContext =
     portion != null ||
-    mealTime != null ||
     origin != null ||
     cookingMethod != null ||
     descOverride.trim() !== '';
@@ -285,10 +322,81 @@ export default function ModalEscanearComida({
         <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={handleClose} />
         <View style={styles.sheet}>
           <View style={styles.handle} />
-          <Text style={styles.title}>Escanear Comida con Foto</Text>
+          <Text style={styles.title}>Registrar comida</Text>
 
           <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-            <View style={styles.sourceRow}>
+            <View style={styles.modeRow}>
+              <TouchableOpacity
+                style={[styles.modeButton, entryMode === 'manual' ? styles.modeButtonActive : null]}
+                onPress={() => setEntryMode('manual')}
+                accessibilityRole="button"
+                accessibilityState={{ selected: entryMode === 'manual' }}
+              >
+                <Ionicons name="create-outline" size={17} color={entryMode === 'manual' ? colors.primary : colors.textMuted} />
+                <Text style={[styles.modeText, entryMode === 'manual' ? styles.modeTextActive : null]}>Manual</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modeButton, entryMode === 'catalog' ? styles.modeButtonActive : null]}
+                onPress={() => setEntryMode('catalog')}
+                accessibilityRole="button"
+                accessibilityState={{ selected: entryMode === 'catalog' }}
+              >
+                <Ionicons name="search-outline" size={17} color={entryMode === 'catalog' ? colors.primary : colors.textMuted} />
+                <Text style={[styles.modeText, entryMode === 'catalog' ? styles.modeTextActive : null]}>Buscar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modeButton, entryMode === 'photo' ? styles.modeButtonActive : null]}
+                onPress={() => setEntryMode('photo')}
+                accessibilityRole="button"
+                accessibilityState={{ selected: entryMode === 'photo' }}
+              >
+                <Ionicons name="camera-outline" size={17} color={entryMode === 'photo' ? colors.primary : colors.textMuted} />
+                <Text style={[styles.modeText, entryMode === 'photo' ? styles.modeTextActive : null]}>Foto IA</Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.optLabel}>¿A qué comida corresponde?</Text>
+            <ChipRow options={MEAL_TIME_OPTIONS as ChipOption<PlanMealType>[]} value={mealTime} onChange={setMealTime} />
+
+            {entryMode === 'catalog' ? (
+              <View style={styles.catalogSection}>
+                <AppTextInput
+                  label="Buscar alimento"
+                  placeholder="Ej: arroz, arepa, pollo"
+                  value={foodSearch}
+                  onChangeText={(value) => { setFoodSearch(value); setSelectedFood(null); }}
+                  autoCapitalize="none"
+                />
+                {!selectedFood ? (
+                  <View style={styles.catalogResults}>
+                    {FOOD_CATALOG.filter((food) => normalizeFoodSearch(food.name).includes(normalizeFoodSearch(foodSearch)))
+                      .slice(0, 5)
+                      .map((food) => (
+                        <TouchableOpacity key={food.id} style={styles.foodOption} onPress={() => chooseCatalogFood(food)}>
+                          <Text style={styles.foodOptionName}>{food.name}</Text>
+                          <Text style={styles.foodOptionMeta}>{food.caloriesPer100g} kcal / 100 g</Text>
+                        </TouchableOpacity>
+                      ))}
+                    {FOOD_CATALOG.filter((food) => normalizeFoodSearch(food.name).includes(normalizeFoodSearch(foodSearch))).length === 0 ? (
+                      <Text style={styles.catalogEmpty}>No aparece en este catálogo. Puedes ingresarlo manualmente.</Text>
+                    ) : null}
+                  </View>
+                ) : (
+                  <>
+                    <AppTextInput
+                      label="Cantidad (gramos)"
+                      placeholder="100"
+                      value={foodGrams}
+                      onChangeText={(value) => { setFoodGrams(value); applyCatalogFood(selectedFood, value); }}
+                      keyboardType="decimal-pad"
+                    />
+                    <Text style={styles.catalogNote}>Valores de referencia aproximados por 100 g. Revisa el empaque cuando aplique.</Text>
+                  </>
+                )}
+              </View>
+            ) : null}
+
+            {entryMode === 'photo' ? <View style={styles.sourceRow}>
               <TouchableOpacity
                 style={styles.sourceBtn}
                 onPress={() => pickImage('camera')}
@@ -305,11 +413,11 @@ export default function ModalEscanearComida({
                 <Ionicons name="images-outline" size={24} color={colors.text} />
                 <Text style={styles.sourceText}>Galería</Text>
               </TouchableOpacity>
-            </View>
+            </View> : null}
 
-            <Text style={styles.label}>Toma una foto de tu plato y la IA estimará las calorías</Text>
+            {entryMode === 'photo' ? <Text style={styles.label}>Toma una foto de tu plato y la IA estimará las calorías</Text> : null}
 
-            {photoUri ? (
+            {entryMode === 'photo' && photoUri ? (
               <View style={styles.previewWrap}>
                 <Image source={{ uri: photoUri }} style={styles.preview} />
                 <TouchableOpacity
@@ -322,18 +430,18 @@ export default function ModalEscanearComida({
               </View>
             ) : null}
 
-            {macros ? (
+            {entryMode === 'photo' && macros ? (
               <View style={styles.breakdownCard}>
                 <Ionicons name="nutrition-outline" size={18} color={colors.success} />
                 <Text style={styles.breakdownText}>{macros}</Text>
               </View>
             ) : null}
 
-            {confident ? (
+            {entryMode === 'photo' && confident ? (
               <Text style={styles.confidenceText}>{confident}</Text>
             ) : null}
 
-            {onEstimate && !hasApiKey ? (
+            {entryMode === 'photo' && onEstimate && !hasApiKey ? (
               <View style={styles.aiInfoNote}>
                 <Text style={styles.aiInfoText}>
                   Estimación local aproximada. Añade tu API Key en Ajustes para mayor precisión.
@@ -341,7 +449,7 @@ export default function ModalEscanearComida({
               </View>
             ) : null}
 
-            {photoUri && onEstimate ? (
+            {entryMode === 'photo' && photoUri && onEstimate ? (
               <View style={styles.contextSection}>
                 <Text style={styles.contextTitle}>
                   Cuéntale más a la IA <Text style={styles.contextOptional}>(opcional)</Text>
@@ -360,9 +468,6 @@ export default function ModalEscanearComida({
 
                 <Text style={styles.optLabel}>Tamaño de la porción</Text>
                 <ChipRow options={PORTION_OPTIONS} value={portion} onChange={setPortion} disabled={estimating} />
-
-                <Text style={styles.optLabel}>¿Qué comida es?</Text>
-                <ChipRow options={MEAL_TIME_OPTIONS} value={mealTime} onChange={setMealTime} disabled={estimating} />
 
                 <Text style={styles.optLabel}>¿Cómo se preparó?</Text>
                 <ChipRow options={ORIGIN_OPTIONS} value={origin} onChange={setOrigin} disabled={estimating} />
@@ -412,6 +517,13 @@ export default function ModalEscanearComida({
               onChangeText={setCalories}
               keyboardType="numeric"
             />
+
+            <Text style={styles.optLabel}>Macronutrientes (opcional)</Text>
+            <View style={styles.macroInputRow}>
+              <AppTextInput label="Prot. (g)" placeholder="0" value={protein} onChangeText={setProtein} keyboardType="decimal-pad" containerStyle={styles.macroField} style={styles.macroInput} />
+              <AppTextInput label="Carbs (g)" placeholder="0" value={carbs} onChangeText={setCarbs} keyboardType="decimal-pad" containerStyle={styles.macroField} style={styles.macroInput} />
+              <AppTextInput label="Grasa (g)" placeholder="0" value={fat} onChangeText={setFat} keyboardType="decimal-pad" containerStyle={styles.macroField} style={styles.macroInput} />
+            </View>
 
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
@@ -475,6 +587,96 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
     marginBottom: 12,
+  },
+  modeRow: {
+    flexDirection: 'row',
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    padding: 4,
+    marginBottom: 16,
+    gap: 4,
+  },
+  modeButton: {
+    flex: 1,
+    minHeight: 42,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 6,
+    paddingHorizontal: 6,
+  },
+  modeButtonActive: {
+    backgroundColor: colors.primarySofter,
+  },
+  modeText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  modeTextActive: {
+    color: colors.primary,
+  },
+  catalogSection: {
+    marginBottom: 4,
+  },
+  catalogResults: {
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.cardAlt,
+    borderRadius: 12,
+    marginTop: -8,
+    marginBottom: 14,
+    overflow: 'hidden',
+  },
+  foodOption: {
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8,
+  },
+  foodOptionName: {
+    flex: 1,
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  foodOptionMeta: {
+    color: colors.textMuted,
+    fontSize: 11,
+  },
+  catalogEmpty: {
+    color: colors.textMuted,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 12,
+  },
+  catalogNote: {
+    color: colors.textMuted,
+    fontSize: 11,
+    lineHeight: 15,
+    marginTop: -8,
+    marginBottom: 12,
+  },
+  macroInputRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 4,
+  },
+  macroField: {
+    flex: 1,
+    width: 0,
+    minWidth: 0,
+  },
+  macroInput: {
+    flex: 1,
+    minWidth: 0,
+    paddingHorizontal: 8,
+    fontSize: 13,
   },
   sourceBtn: {
     flex: 1,
@@ -679,3 +881,4 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 });
+

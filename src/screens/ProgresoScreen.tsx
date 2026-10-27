@@ -12,7 +12,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import {
   CardResumenMeta,
   GraficaEvolucionPesoCard,
@@ -35,8 +36,10 @@ import {
 } from '../services/progressService';
 import type { NuevoMetaData } from '../services/progressService';
 import type { WeightLog, NewWeightLog, GoalDeadlineEvaluation } from '../types/progress';
+import type { ProgressStackParamList } from '../navigation/types';
 
 export default function ProgresoScreen() {
+  const navigation = useNavigation<NativeStackNavigationProp<ProgressStackParamList>>();
   const { user, profile, clearProfile, saveHealthProfile } = useAuth();
   const {
     summary,
@@ -208,7 +211,10 @@ export default function ProgresoScreen() {
           onEdit={openEditModal}
         />
 
-        <CardCaloriasQuemadas sessions={caloriesBurned} userId={user?.id} />
+        <CardCaloriasQuemadas
+          sessions={caloriesBurned}
+          onPress={() => navigation.navigate('CaloriesHistory')}
+        />
 
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Progreso de Fuerza</Text>

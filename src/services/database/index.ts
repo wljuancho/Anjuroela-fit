@@ -177,6 +177,10 @@ export async function initDatabase(): Promise<void> {
       date TEXT NOT NULL,
       meal_name TEXT NOT NULL,
       calories REAL NOT NULL DEFAULT 0,
+      protein_g REAL,
+      carbs_g REAL,
+      fat_g REAL,
+      meal_type TEXT NOT NULL DEFAULT 'snack',
       photo_uri TEXT,
       user_id TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -226,6 +230,15 @@ export async function initDatabase(): Promise<void> {
       user_id TEXT NOT NULL,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
+
+    -- Tablas modificadas localmente que aún deben subirse. Sobrevive al cierre
+    -- de la app para que un pull remoto no pise cambios offline pendientes.
+    CREATE TABLE IF NOT EXISTS pending_sync (
+      table_name TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (table_name, user_id)
+    );
   `);
 
   // Migración segura de columnas de perfil (try/catch por columna). Se ejecuta
@@ -255,6 +268,7 @@ export async function initDatabase(): Promise<void> {
     await migrateDropUsersGoogleId(database);
     await migrateDailyCaloriesUserDate(database);
     await migrateMealLogsUserId(database);
+    await migrateMealLogNutrition(database);
     await migrateWeightLogsUserId(database);
     await ensureUserCascadeFk(database);
 
@@ -278,6 +292,7 @@ export async function initDatabase(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_weekly_meal_plan_day ON weekly_meal_plan (day_of_week);
       CREATE INDEX IF NOT EXISTS idx_weekly_meal_plan_date ON weekly_meal_plan (date);
       CREATE INDEX IF NOT EXISTS idx_pending_deletions_user ON pending_deletions (user_id);
+      CREATE INDEX IF NOT EXISTS idx_pending_sync_user ON pending_sync (user_id);
       CREATE INDEX IF NOT EXISTS idx_user_row_owners_user ON user_row_owners (user_id);
     `);
 
@@ -585,6 +600,17 @@ async function migrateMealLogsUserId(db: SQLite.SQLiteDatabase): Promise<void> {
   await db.execAsync('ALTER TABLE meal_logs ADD COLUMN user_id TEXT');
   if (userId) {
     await db.runAsync('UPDATE meal_logs SET user_id = ?', [userId]);
+  }
+}
+
+async function migrateMealLogNutrition(db: SQLite.SQLiteDatabase): Promise<void> {
+  const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(meal_logs)');
+  const names = new Set(columns.map((column) => column.name));
+  if (!names.has('protein_g')) await db.execAsync('ALTER TABLE meal_logs ADD COLUMN protein_g REAL');
+  if (!names.has('carbs_g')) await db.execAsync('ALTER TABLE meal_logs ADD COLUMN carbs_g REAL');
+  if (!names.has('fat_g')) await db.execAsync('ALTER TABLE meal_logs ADD COLUMN fat_g REAL');
+  if (!names.has('meal_type')) {
+    await db.execAsync("ALTER TABLE meal_logs ADD COLUMN meal_type TEXT NOT NULL DEFAULT 'snack'");
   }
 }
 

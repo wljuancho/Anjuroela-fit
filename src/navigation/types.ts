@@ -18,6 +18,11 @@ export type MainTabParamList = {
   Ajustes: undefined;
 };
 
+export type ProgressStackParamList = {
+  ProgressHome: undefined;
+  CaloriesHistory: undefined;
+};
+
 export type MusclePanelParams = {
   day: DayOfWeek;
   muscleId: number;

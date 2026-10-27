@@ -7,7 +7,6 @@ import * as SplashScreen from 'expo-splash-screen';
 import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
 import * as Updates from 'expo-updates';
-import * as Notifications from 'expo-notifications';
 import Navigation from './src/navigation';
 import { AuthProvider, OnboardingProvider, TutorialProvider } from './src/context';
 import { initDatabase } from './src/services/database';
@@ -16,23 +15,6 @@ import UpdateCheckManager from './src/components/UpdateCheckManager';
 import RemoteUpdateManager from './src/components/RemoteUpdateManager';
 
 SplashScreen.preventAutoHideAsync();
-
-// Avisos del temporizador: con la app en PRIMER PLANO la notificación se
-// silencia (banner + sonido) porque el propio temporizador reproduce su tono
-// por el canal de MÚSICA/MEDIA (evita sonido doble). Con la app en SEGUNDO
-// PLANO la notificación PUSH nativa se muestra con sonido para que la alarma
-// no se pierda.
-Notifications.setNotificationHandler({
-  handleNotification: async () => {
-    const foreground = AppState.currentState === 'active';
-    return {
-      shouldShowBanner: !foreground,
-      shouldShowList: !foreground,
-      shouldPlaySound: !foreground,
-      shouldSetBadge: false,
-    };
-  },
-});
 
 const WARM_KEY = 'anjuroela_fit:warmup';
 

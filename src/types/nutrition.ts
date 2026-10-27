@@ -39,6 +39,12 @@ export interface MealLog {
   date: string;
   meal_name: string;
   calories: number;
+  protein_g?: number | null;
+  carbs_g?: number | null;
+  fat_g?: number | null;
+  meal_type?: PlanMealType | null;
+  nutrition_source?: NutritionDataSource | null;
+  nutrition_confidence?: NutritionConfidence | null;
   photo_uri?: string | null;
   user_id?: string | null;
   created_at?: string;
@@ -48,8 +54,17 @@ export interface NewMealLog {
   date: string;
   meal_name: string;
   calories: number;
+  protein_g?: number | null;
+  carbs_g?: number | null;
+  fat_g?: number | null;
+  meal_type?: PlanMealType | null;
+  nutrition_source: NutritionDataSource;
+  nutrition_confidence?: NutritionConfidence | null;
   photo_uri?: string | null;
 }
+
+export type NutritionDataSource = 'manual' | 'catalog' | 'photo_ai' | 'unknown';
+export type NutritionConfidence = 'alta' | 'media' | 'baja';
 
 export interface NutritionEstimate {
   calories: number;
@@ -68,6 +83,9 @@ export interface NutritionDayData {
   goal: number | null;
   remaining: number | null;
   percentage: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
   meals: MealLog[];
 }
 

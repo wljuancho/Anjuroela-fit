@@ -18,6 +18,17 @@ function extractTime(createdAt?: string): string {
 
 export default function CardComidaItem({ meal, onDelete }: CardComidaItemProps) {
   const time = extractTime(meal.created_at);
+  const mealType = {
+    desayuno: 'Desayuno',
+    almuerzo: 'Almuerzo',
+    cena: 'Cena',
+    snack: 'Snack',
+  }[meal.meal_type ?? 'snack'];
+  const macros = [
+    meal.protein_g != null ? `P ${formatNumber(meal.protein_g, 1)} g` : null,
+    meal.carbs_g != null ? `C ${formatNumber(meal.carbs_g, 1)} g` : null,
+    meal.fat_g != null ? `G ${formatNumber(meal.fat_g, 1)} g` : null,
+  ].filter(Boolean).join(' · ');
   return (
     <View style={styles.row}>
       {meal.photo_uri ? (
@@ -30,9 +41,12 @@ export default function CardComidaItem({ meal, onDelete }: CardComidaItemProps) 
       <View style={styles.info}>
         <Text style={styles.title} numberOfLines={1}>{meal.meal_name}</Text>
         <View style={styles.metaRow}>
+          <Text style={styles.mealType}>{mealType}</Text>
+          {time ? <Text style={styles.metaDivider}>·</Text> : null}
           <Ionicons name="time-outline" size={12} color={colors.textSubtle} />
-          <Text style={styles.time}>{time || '—'}</Text>
+          <Text style={styles.time}>{time || 'Sin hora'}</Text>
         </View>
+        {macros ? <Text style={styles.macros} numberOfLines={1}>{macros}</Text> : null}
       </View>
       <Text style={styles.calories}>{formatNumber(meal.calories)} kcal</Text>
       <TouchableOpacity style={styles.action} onPress={() => onDelete(meal.id)}>
@@ -83,6 +97,20 @@ const styles = StyleSheet.create({
   time: {
     color: colors.textSubtle,
     fontSize: 12,
+  },
+  mealType: {
+    color: colors.textMuted,
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  metaDivider: {
+    color: colors.textSubtle,
+    fontSize: 11,
+  },
+  macros: {
+    color: colors.success,
+    fontSize: 11,
+    marginTop: 4,
   },
   calories: {
     color: colors.primary,

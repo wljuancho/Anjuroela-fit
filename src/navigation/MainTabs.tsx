@@ -3,8 +3,8 @@ import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import RutinaStack from './RutinaStack';
+import ProgressStack from './ProgressStack';
 import EjerciciosScreen from '../screens/EjerciciosScreen';
-import ProgresoScreen from '../screens/ProgresoScreen';
 import ComidaScreen from '../screens/ComidaScreen';
 import EntrenadorScreen from '../screens/EntrenadorScreen';
 import SettingsScreen from '../screens/SettingsScreen';
@@ -32,6 +32,7 @@ export default function MainTabs() {
           backgroundColor: colors.card,
           borderTopColor: colors.border,
         },
+        tabBarHideOnKeyboard: route.name === 'Entrenador',
         headerStyle: {
           backgroundColor: colors.background,
         },
@@ -43,7 +44,7 @@ export default function MainTabs() {
     >
       <Tab.Screen name="Rutina" component={RutinaStack} />
       <Tab.Screen name="Ejercicios" component={EjerciciosScreen} />
-      <Tab.Screen name="Progreso" component={ProgresoScreen} />
+      <Tab.Screen name="Progreso" component={ProgressStack} options={{ headerShown: false }} />
       <Tab.Screen name="Comida" component={ComidaScreen} />
       <Tab.Screen name="Entrenador" component={EntrenadorScreen} />
       <Tab.Screen name="Ajustes" component={SettingsScreen} />

@@ -65,6 +65,23 @@ export default function CardCaloriasDiarias({ data, onEditStrategy }: CardCalori
           <Text style={styles.percentText}>{formatNumber(percentage, 1)}% de tu meta consumida</Text>
         </View>
       ) : null}
+
+      {data.proteinG > 0 || data.carbsG > 0 || data.fatG > 0 ? (
+        <View style={styles.macroTotals}>
+          <MacroTotal label="Proteína" value={data.proteinG} />
+          <MacroTotal label="Carbohidratos" value={data.carbsG} />
+          <MacroTotal label="Grasas" value={data.fatG} />
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function MacroTotal({ label, value }: { label: string; value: number }) {
+  return (
+    <View style={styles.macroTotal}>
+      <Text style={styles.macroValue}>{formatNumber(value, 1)} g</Text>
+      <Text style={styles.macroLabel}>{label}</Text>
     </View>
   );
 }
@@ -178,5 +195,26 @@ const styles = StyleSheet.create({
   percentText: {
     color: colors.textMuted,
     fontSize: 12,
+  },
+  macroTotals: {
+    flexDirection: 'row',
+    marginTop: 14,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    gap: 8,
+  },
+  macroTotal: {
+    flex: 1,
+  },
+  macroValue: {
+    color: colors.success,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  macroLabel: {
+    color: colors.textMuted,
+    fontSize: 10,
+    marginTop: 2,
   },
 });

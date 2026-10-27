@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, Vibration } from 'react-native';
+import * as Speech from 'expo-speech';
 import type { WorkoutPlan } from '../types/workout';
 import { getItem, removeItem, setItem, StorageKeys } from '../services/storage';
 import {
-  cancelScheduledWarnings,
-  ensureNotificationPermission,
-  scheduleWorkoutWarnings,
-} from '../services/notifications';
-import { playRestWarningSound, playWorkWarningSound } from '../services/soundService';
+  playRestWarningSound,
+  playWorkWarningSound,
+  startWorkoutAudioSession,
+  stopWorkoutAudioSession,
+} from '../services/soundService';
 
 type Phase = 'series' | 'rest' | 'work' | 'done';
 
@@ -400,7 +401,7 @@ export function useWorkoutTimer(options: UseWorkoutTimerOptions) {
             running: false,
             endsAt: null,
           };
-          void cancelScheduledWarnings();
+          stopWorkoutAudioSession();
         } else {
           const { state: caught, steps } = catchUp(restored, restoredPlan, now);
           target = caught;
@@ -443,8 +444,12 @@ export function useWorkoutTimer(options: UseWorkoutTimerOptions) {
     let nextRest = current.hasPlayedRestWarning;
 
     if (current.phase === 'work' && plan.mode !== 'reps') {
-      if (seconds <= 5 && seconds > 2 && !nextWork) {
-        playWorkWarningSound();
+      if (seconds <= 5 && seconds > 4 && !nextWork) {
+        if (plan.mode === 'circuit') {
+          void Speech.speak('Cambio de ejercicio', { language: 'es-CO', rate: 0.95 });
+        } else {
+          playWorkWarningSound();
+        }
         nextWork = true;
       }
     } else {
@@ -452,7 +457,8 @@ export function useWorkoutTimer(options: UseWorkoutTimerOptions) {
     }
 
     if (current.phase === 'rest') {
-      if (seconds <= 7 && seconds > 5 && !nextRest) {
+      const warningAt = plan.mode === 'circuit' ? 4 : 5;
+      if (seconds <= warningAt && seconds > warningAt - 1 && !nextRest) {
         playRestWarningSound();
         nextRest = true;
       }
@@ -483,7 +489,7 @@ export function useWorkoutTimer(options: UseWorkoutTimerOptions) {
           Date.now() - backgroundedAt > INTERRUPT_DELAY_MS
         ) {
           commit({ ...current, interrupted: true, running: false, endsAt: null });
-          void cancelScheduledWarnings();
+          stopWorkoutAudioSession();
           return;
         }
         handleCatchUp();
@@ -496,27 +502,15 @@ export function useWorkoutTimer(options: UseWorkoutTimerOptions) {
 
   useEffect(() => {
     const current = stateRef.current;
-    const endsAt = current.endsAt;
-    const now = Date.now();
-    if (current.running && endsAt != null && endsAt > now) {
-      void (async () => {
-        await ensureNotificationPermission();
-        await scheduleWorkoutWarnings(endsAt);
-      })();
+    if (current.running && current.phase !== 'done') {
+      void startWorkoutAudioSession();
     } else {
-      void cancelScheduledWarnings();
+      stopWorkoutAudioSession();
     }
-  }, [state.phase, state.running, state.endsAt, state.pausedRemainingMs, state.currentSeries, state.workDone]);
-
-  useEffect(
-    () => () => {
-      void cancelScheduledWarnings();
-    },
-    [],
-  );
+  }, [state.phase, state.running]);
 
   const clearTimer = useCallback(() => {
-    void cancelScheduledWarnings();
+    stopWorkoutAudioSession();
     void removeItem(StorageKeys.WorkoutActiveTimer);
   }, []);
 

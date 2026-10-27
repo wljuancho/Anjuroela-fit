@@ -83,6 +83,8 @@ const UPSERT_ON_CONFLICT: Record<string, string> = {
 // columna user_id (viven en USER_SCOPED_TABLES) y se conservan aquí solo para
 // el registro de propiedad y el borrado en cascada al eliminar la cuenta.
 const OWNED_TABLES = [
+  'body_parts',
+  'exercises_v2',
   'weekly_schedule',
   'day_muscles',
   'day_exercises',
@@ -158,6 +160,8 @@ interface PendingDeletionRow {
 // weight_logs y meal_logs ya se restauran por su columna user_id (viven en
 // USER_SCOPED_TABLES): al bajarlas de ahí no se duplican por propiedad.
 const PULL_ORDER = [
+  'body_parts',
+  'exercises_v2',
   'weekly_schedule',
   'day_muscles',
   'day_exercises',
@@ -549,7 +553,41 @@ function tableColumns(table: string): string[] {
  * restaurarlas en otro dispositivo.
  */
 export async function syncLocalToRemote(tableName?: string): Promise<void> {
+  const userId = await getActiveUserId();
+  if (userId !== null) {
+    try {
+      const db = getDatabase();
+      const tables = tableName && tableName !== '*' ? [tableName] : SYNC_TABLES;
+      for (const table of tables) {
+        assertSafeIdentifier(table);
+        await db.runAsync(
+          `INSERT INTO pending_sync (table_name, user_id, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
+           ON CONFLICT(table_name, user_id) DO UPDATE SET updated_at = CURRENT_TIMESTAMP`,
+          [table, userId],
+        );
+      }
+    } catch (error) {
+      // Keep the in-memory queue as a fallback. Schema init creates pending_sync.
+      console.warn('No se pudo guardar la cola durable de sincronización local.', error);
+    }
+  }
   enqueueSync(tableName, 0);
+}
+
+async function clearPendingSync(table: string, userId: string | null): Promise<void> {
+  if (userId === null) return;
+  await getDatabase().runAsync(
+    'DELETE FROM pending_sync WHERE table_name = ? AND user_id = ?',
+    [table, userId],
+  );
+}
+
+async function hasPendingLocalChanges(table: string, userId: string): Promise<boolean> {
+  const rows = await getDatabase().getAllAsync<{ pending: number }>(
+    'SELECT 1 AS pending FROM pending_sync WHERE table_name = ? AND user_id = ? LIMIT 1',
+    [table, userId],
+  );
+  return rows.length > 0;
 }
 
 /**
@@ -592,19 +630,18 @@ export async function provisionRemoteUser(user: {
   }
 }
 
-async function executePendingSync(): Promise<void> {
+async function executePendingSync(forceSync = false): Promise<void> {
   const supabase = getSupabase();
   if (!supabase || !isSupabaseConfigured()) return;
   if (pendingSyncTables.size === 0) return;
 
   const now = Date.now();
   if (syncing) {
-    scheduleFlush(SYNC_THROTTLE_MS);
     return;
   }
 
   const timeSinceLastSync = now - lastSyncAt;
-  if (timeSinceLastSync < SYNC_THROTTLE_MS) {
+  if (!forceSync && timeSinceLastSync < SYNC_THROTTLE_MS) {
     scheduleFlush(SYNC_THROTTLE_MS - timeSinceLastSync);
     return;
   }
@@ -682,6 +719,7 @@ async function executePendingSync(): Promise<void> {
             );
           } else {
             pendingSyncTables.delete(table);
+            await clearPendingSync(table, activeUserIdValue);
             // workout_sessions y daily_calories combinan columna user_id y
             // registro de propietario: se conserva la propiedad para que el
             // borrado en cascada al eliminar la cuenta siga funcionando.
@@ -698,6 +736,7 @@ async function executePendingSync(): Promise<void> {
         );
         if (!rows.length) {
           pendingSyncTables.delete(table);
+          await clearPendingSync(table, await getActiveUserId());
           continue;
         }
         const conflictColumn = UPSERT_ON_CONFLICT[table] ?? 'id';
@@ -737,6 +776,7 @@ async function executePendingSync(): Promise<void> {
         }
 
         pendingSyncTables.delete(table);
+        await clearPendingSync(table, await getActiveUserId());
 
         // Asociar las filas subidas al usuario activo.
         if ((OWNED_TABLES as readonly string[]).includes(table)) {
@@ -759,6 +799,29 @@ async function executePendingSync(): Promise<void> {
     syncing = false;
     if (pendingSyncTables.size > 0) {
       scheduleFlush(SYNC_THROTTLE_MS);
+    }
+  }
+}
+
+/**
+ * Espera a que termine una subida activa y sube primero el outbox durable del
+ * usuario. Lo llama el pull para respetar el flujo local -> nube -> copia local.
+ */
+async function flushLocalOutboxBeforePull(userId: string): Promise<void> {
+  const db = getDatabase();
+  const pending = await db.getAllAsync<{ table_name: string }>(
+    'SELECT table_name FROM pending_sync WHERE user_id = ?',
+    [userId],
+  );
+  for (const row of pending) enqueueSync(row.table_name, 0);
+
+  while (syncing) {
+    await new Promise<void>((resolve) => setTimeout(resolve, 40));
+  }
+  if (pending.length > 0 || pendingSyncTables.size > 0) {
+    await executePendingSync(true);
+    while (syncing) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 40));
     }
   }
 }
@@ -1047,8 +1110,17 @@ export async function syncRemoteToLocal(): Promise<void> {
   const ownerId = await getActiveUserId();
   if (ownerId === null) return;
 
+  // A pull is tied to the account that started it. Login/logout can happen
+  // while a network request is in flight; never apply its response to the next
+  // account's local database.
+  const stillSameUser = async () => (await getActiveUserId()) === ownerId;
+
   const online = await isOnline();
   if (!online) return;
+
+  // Primero confirma los cambios locales pendientes. Si una tabla falla al
+  // subir, su marca durable hace que el pull de esa tabla se omita.
+  await flushLocalOutboxBeforePull(ownerId);
 
   // Si el usuario activo ya no existe en Supabase: revoca y no descarga.
   const userStillValid = await enforceRemoteUserExistence();
@@ -1064,19 +1136,10 @@ export async function syncRemoteToLocal(): Promise<void> {
   try {
     // El catálogo es necesario para que las FK locales de las rutinas y
     // sesiones tengan los mismos IDs que en Supabase al usar otro dispositivo.
-    for (const table of ['body_parts', 'exercises_v2'] as const) {
-      try {
-        const { data, error } = await supabase.from(table).select('*');
-        if (!error && data) {
-          await replaceLocalRows(table, data as Record<string, unknown>[]);
-        }
-      } catch {
-        // Catálogo opcional: se conserva el local si la tabla aún no existe.
-      }
-    }
-
     for (const [table, col] of Object.entries(USER_SCOPED_TABLES)) {
       try {
+        if (!(await stillSameUser())) return;
+        if (await hasPendingLocalChanges(table, ownerId)) continue;
         // Las tablas migradas a user_id aún pueden conservar filas legacy
         // (user_id NULL) en la nube; se incluyen con .or(...) para no perder
         // historial de instalaciones antiguas.
@@ -1091,7 +1154,7 @@ export async function syncRemoteToLocal(): Promise<void> {
               .select('*')
               .or(`user_id.eq.${ownerId},user_id.is.null`)
           : await supabase.from(table).select('*').eq(col, ownerId);
-        if (error || !data || data.length === 0) continue;
+        if (error || !data || data.length === 0 || !(await stillSameUser())) continue;
         const rows = data as Record<string, unknown>[];
         if (needsLegacyFallback || keepsLocalOffline) {
           // workout_sessions y daily_calories conservan ids estables locales:
@@ -1112,6 +1175,7 @@ export async function syncRemoteToLocal(): Promise<void> {
       .select('table_name, row_id')
       .eq('user_id', ownerId);
     if (ownersError || !owners) return;
+    if (!(await stillSameUser())) return;
 
     // Espejo LOCAL de la propiedad del usuario (para el borrado cruzado en
     // purgeUserData). Se re-sincroniza en cada restauración.
@@ -1135,11 +1199,13 @@ export async function syncRemoteToLocal(): Promise<void> {
     }
 
     for (const table of PULL_ORDER) {
+      if (!(await stillSameUser())) return;
+      if (await hasPendingLocalChanges(table, ownerId)) continue;
       const ids = rowsByTable.get(table);
       if (!ids || ids.length === 0) continue;
       try {
         const { data, error } = await supabase.from(table).select('*').in('id', ids);
-        if (error || !data || data.length === 0) continue;
+        if (error || !data || data.length === 0 || !(await stillSameUser())) continue;
         await replaceLocalRows(table, data as Record<string, unknown>[]);
       } catch {
         // Se ignora por tabla para no cortar el resto de la restauración.

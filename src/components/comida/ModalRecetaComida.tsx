@@ -1,5 +1,5 @@
 import { colors } from '../../theme/colors';
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Modal,
   View,
@@ -7,16 +7,19 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AppButton from '../AppButton';
+import AppTextInput from '../AppTextInput';
 import { formatPlanDate } from '../../services/utils';
-import type { PlanMealType, WeeklyMealPlanItem } from '../../types/nutrition';
+import type { MealIngredient, PlanMealType, WeeklyMealPlanItem } from '../../types/nutrition';
 
 interface ModalRecetaComidaProps {
   meal: WeeklyMealPlanItem | null;
   visible: boolean;
   onClose: () => void;
+  onSave?: (id: number, updates: Pick<WeeklyMealPlanItem, 'title' | 'description' | 'recipe' | 'ingredients_list' | 'servings_count'>) => Promise<void>;
 }
 
 const MEAL_TYPE_LABELS: Record<PlanMealType, string> = {
@@ -51,13 +54,61 @@ function extractSteps(recipe?: string | null): string[] {
     .filter(Boolean);
 }
 
-export default function ModalRecetaComida({ meal, visible, onClose }: ModalRecetaComidaProps) {
+export default function ModalRecetaComida({ meal, visible, onClose, onSave }: ModalRecetaComidaProps) {
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [title, setTitle] = useState(meal?.title ?? '');
+  const [description, setDescription] = useState(meal?.description ?? '');
+  const [recipe, setRecipe] = useState(meal?.recipe ?? '');
+  const [ingredientsText, setIngredientsText] = useState(
+    meal?.ingredients_list.map((item) => `${item.name} | ${item.amount}`).join('\n') ?? '',
+  );
+  const [servings, setServings] = useState(String(meal?.servings_count ?? 1));
+
   if (!meal) return null;
 
   const prepMinutes = extractPrepMinutes(meal.recipe);
   const steps = extractSteps(meal.recipe);
   const iconName = MEAL_TYPE_ICONS[meal.meal_type] ?? 'restaurant-outline';
   const mealTypeLabel = MEAL_TYPE_LABELS[meal.meal_type] ?? meal.meal_type;
+
+  const handleSave = async () => {
+    const count = Number(servings);
+    if (!title.trim() || !Number.isFinite(count) || count < 1 || !onSave) return;
+    const ingredients: MealIngredient[] = ingredientsText
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const [name, ...amount] = line.split('|');
+        return { name: name.trim(), amount: amount.join('|').trim() };
+      })
+      .filter((item) => item.name.length > 0);
+    setSaving(true);
+    try {
+      await onSave(meal.id, {
+        title: title.trim(),
+        description,
+        recipe,
+        ingredients_list: ingredients,
+        servings_count: Math.round(count),
+      });
+      setEditing(false);
+    } catch {
+      Alert.alert('No se guardaron los cambios', 'Revisa tu conexión e inténtalo de nuevo.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const startEditing = () => {
+    setTitle(meal.title);
+    setDescription(meal.description ?? '');
+    setRecipe(meal.recipe ?? '');
+    setIngredientsText(meal.ingredients_list.map((item) => `${item.name} | ${item.amount}`).join('\n'));
+    setServings(String(meal.servings_count));
+    setEditing(true);
+  };
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
@@ -71,7 +122,9 @@ export default function ModalRecetaComida({ meal, visible, onClose }: ModalRecet
               <Ionicons name={iconName} size={40} color={colors.text} />
             </View>
             <View style={styles.headerInfo}>
-              <Text style={styles.title} numberOfLines={2}>{meal.title}</Text>
+              {editing ? (
+                <AppTextInput label="Nombre" value={title} onChangeText={setTitle} />
+              ) : <Text style={styles.title} numberOfLines={2}>{meal.title}</Text>}
               <Text style={styles.meta}>
                 {mealTypeLabel} · {meal.date ? formatPlanDate(meal.date) : ''}
               </Text>
@@ -82,6 +135,27 @@ export default function ModalRecetaComida({ meal, visible, onClose }: ModalRecet
           </View>
 
           <ScrollView showsVerticalScrollIndicator={false} style={styles.body}>
+            {editing ? (
+              <>
+                <AppTextInput label="Descripción" value={description} onChangeText={setDescription} multiline />
+                <AppTextInput
+                  label="Ingredientes (uno por línea: nombre | cantidad)"
+                  placeholder={'Arroz | 100 g\nPollo | 150 g'}
+                  value={ingredientsText}
+                  onChangeText={setIngredientsText}
+                  multiline
+                  style={styles.editMultiline}
+                />
+                <AppTextInput
+                  label="Preparación"
+                  value={recipe}
+                  onChangeText={setRecipe}
+                  multiline
+                  style={styles.editMultiline}
+                />
+                <AppTextInput label="Porciones" value={servings} onChangeText={setServings} keyboardType="number-pad" />
+              </>
+            ) : <>
             {meal.description ? <Text style={styles.description}>{meal.description}</Text> : null}
 
             <View style={styles.chipsRow}>
@@ -126,9 +200,20 @@ export default function ModalRecetaComida({ meal, visible, onClose }: ModalRecet
                 <Text style={styles.stepText}>{meal.recipe || 'Sin receta detallada.'}</Text>
               </View>
             )}
+            </>}
           </ScrollView>
 
-          <AppButton title="Cerrar" onPress={onClose} style={styles.closeButton} />
+          {editing ? (
+            <View style={styles.footerActions}>
+              <AppButton title="Guardar cambios" onPress={handleSave} loading={saving} style={styles.closeButton} />
+              <AppButton title="Cancelar edición" variant="outline" onPress={() => setEditing(false)} />
+            </View>
+          ) : (
+            <View style={styles.footerActions}>
+              {onSave ? <AppButton title="Editar platillo" variant="outline" onPress={startEditing} style={styles.closeButton} /> : null}
+              <AppButton title="Cerrar" onPress={onClose} />
+            </View>
+          )}
         </View>
       </View>
     </Modal>
@@ -289,5 +374,12 @@ const styles = StyleSheet.create({
   },
   closeButton: {
     marginTop: 8,
+  },
+  footerActions: {
+    gap: 8,
+  },
+  editMultiline: {
+    minHeight: 96,
+    textAlignVertical: 'top',
   },
 });

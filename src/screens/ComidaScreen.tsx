@@ -32,6 +32,7 @@ import {
   deleteWeeklyMealPlanItem,
   getNutritionProfile,
   getWeeklyMealPlan,
+  updateWeeklyMealPlanItem,
 } from '../services/nutritionService';
 import { useAuth } from '../context';
 import { useNutritionData } from '../hooks/useNutritionData';
@@ -46,6 +47,7 @@ export default function ComidaScreen() {
     date,
   );
   const [scanVisible, setScanVisible] = useState(false);
+  const [scanSession, setScanSession] = useState(0);
   const [nutriVisible, setNutriVisible] = useState(false);
   const [plan, setPlan] = useState<WeeklyMealPlanItem[]>([]);
   const [selectedMeal, setSelectedMeal] = useState<WeeklyMealPlanItem | null>(null);
@@ -118,6 +120,16 @@ export default function ComidaScreen() {
         },
       },
     ]);
+  };
+
+  const handleUpdatePlanMeal = async (
+    id: number,
+    updates: Pick<WeeklyMealPlanItem, 'title' | 'description' | 'recipe' | 'ingredients_list' | 'servings_count'>,
+  ) => {
+    await updateWeeklyMealPlanItem(id, updates);
+    const updatedPlan = await getWeeklyMealPlan();
+    setPlan(updatedPlan);
+    setSelectedMeal(updatedPlan.find((item) => item.id === id) ?? null);
   };
 
   const handleClearPlan = () => {
@@ -197,15 +209,20 @@ export default function ComidaScreen() {
 
         <TouchableOpacity
           style={styles.scanCard}
-          onPress={() => setScanVisible(true)}
+          onPress={() => {
+            setScanSession((session) => session + 1);
+            setScanVisible(true);
+          }}
           activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel="Registrar una comida manualmente o estimarla con foto"
         >
           <View style={styles.scanIconWrap}>
-            <Ionicons name="camera-outline" size={22} color={colors.text} />
+            <Ionicons name="add-outline" size={22} color={colors.text} />
           </View>
           <View style={styles.scanInfo}>
-            <Text style={styles.scanTitle}>Escanear Comida con Foto</Text>
-            <Text style={styles.scanSubtitle}>La IA estimará las calorías de tu plato</Text>
+            <Text style={styles.scanTitle}>Registrar comida</Text>
+            <Text style={styles.scanSubtitle}>Ingresa tus datos o estima con una foto</Text>
           </View>
           <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
         </TouchableOpacity>
@@ -245,6 +262,7 @@ export default function ComidaScreen() {
       </ScrollView>
 
       <ModalEscanearComida
+        key={scanSession}
         visible={scanVisible}
         date={date}
         onClose={() => setScanVisible(false)}
@@ -253,9 +271,11 @@ export default function ComidaScreen() {
       />
 
       <ModalRecetaComida
+        key={selectedMeal?.id ?? 'closed'}
         meal={selectedMeal}
         visible={!!selectedMeal}
         onClose={() => setSelectedMeal(null)}
+        onSave={handleUpdatePlanMeal}
       />
 
       <ModalOnboardingNutricional
@@ -294,7 +314,7 @@ export default function ComidaScreen() {
 
 const COMIDA_TUTORIAL_POINTS: ScreenTutorialPoint[] = [
   {
-    text: 'Para habilitar el scanner con IA, primero crea tu API Key gratuita en Google AI Studio (https://aistudio.google.com/api-keys?project=gen-lang-client-0135307545), ve a Ajustes, pégala, prueba la conexión y guárdala.',
+    text: 'Puedes registrar una comida escribiendo sus datos. Para estimarla con IA desde una foto, configura una API Key en Ajustes.',
     icon: 'key-outline',
   },
   {
@@ -304,6 +324,10 @@ const COMIDA_TUTORIAL_POINTS: ScreenTutorialPoint[] = [
   {
     text: 'Si configuraste la API Key, tómale foto a tu plato para recibir un aproximado estimado (no verídico) de tus calorías.',
     icon: 'camera-outline',
+  },
+  {
+    text: 'Clasifica cada registro como desayuno, almuerzo, cena o snack. Si conoces los macros, puedes editarlos antes de guardar.',
+    icon: 'nutrition-outline',
   },
 ];
 

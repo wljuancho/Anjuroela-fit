@@ -1,16 +1,17 @@
 import { colors } from '../theme/colors';
 import React from 'react';
-import { View, Text, TextInput, TextInputProps, StyleSheet } from 'react-native';
+import { View, Text, TextInput, TextInputProps, StyleSheet, ViewStyle } from 'react-native';
 
 interface AppTextInputProps extends TextInputProps {
   label?: string;
   error?: string;
   accessory?: React.ReactNode;
+  containerStyle?: ViewStyle;
 }
 
-export default function AppTextInput({ label, error, style, accessory, ...rest }: AppTextInputProps) {
+export default function AppTextInput({ label, error, style, accessory, containerStyle, ...rest }: AppTextInputProps) {
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, containerStyle]}>
       {label ? <Text style={styles.label}>{label}</Text> : null}
       <View style={styles.inputWrap}>
         <TextInput

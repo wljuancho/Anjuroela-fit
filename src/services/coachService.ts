@@ -25,6 +25,7 @@ import {
 } from './progressService';
 import {
   getNutritionDayData,
+  getWeeklyMealPlan,
   replaceWeeklyMealPlan,
   getEnergySummary,
   getLast7DaysCaloriesAvg,
@@ -171,7 +172,7 @@ const SYSTEM_PROMPT =
   'y salud en anjuroela-fit."\n' +
   '3. NO eres un médico: no diagnostiques ni trates enfermedades, dolores ni síntomas graves. Ante un problema médico ' +
   'serio recomienda consultar a un profesional de la salud y ofrece solo consejos generales de bienestar.\n' +
-  '4. Basa tus recomendaciones en los DATOS REALES del contexto del usuario. Si no tienes un dato, no lo inventes.\n' +
+  '4. Basa tus recomendaciones en los DATOS REALES del contexto del usuario. Si no tienes un dato, no lo inventes. Usa el registro diario y el plan activos para responder sobre comidas, macros, recetas y lista de mercado; aclara si un valor es aproximado.\n' +
   '5. Adapta la rutina al lugar de entrenamiento que el usuario exprese: ENTRENAMIENTO EN CASA (prioriza ejercicios ' +
   'de peso corporal y mancuernas) o GIMNASIO (máquinas, barras y poleas). Si no lo indica, pregúntalo antes de crear la rutina.\n' +
   '6. Cuando el usuario pida modificar, crear o reorganizar su rutina o sus ejercicios, además de tu explicación ' +
@@ -329,10 +330,11 @@ async function buildContext(userId: string): Promise<string> {
   // ------------------------------------------------- ENERGÍA Y NUTRICIÓN
   sections.push('[ENERGÍA Y NUTRICIÓN]');
   try {
-    const [energy, today, burned7] = await Promise.all([
+    const [energy, today, burned7, mealPlan] = await Promise.all([
       getEnergySummary(userId),
       getNutritionDayData(userId, todayStr),
       getLast7DaysCaloriesAvg(userId),
+      getWeeklyMealPlan(),
     ]);
     if (energy) {
       sections.push(
@@ -357,7 +359,38 @@ async function buildContext(userId: string): Promise<string> {
     sections.push(
       `- Calorías de hoy: ${today.caloriesConsumed != null ? Math.round(today.caloriesConsumed) : 0} kcal consumidas` +
         (today.goal != null ? ` de ${today.goal} kcal de meta` : '.'),
+      `- Macros registrados hoy: proteína ${formatNumber(today.proteinG, 1)} g, carbohidratos ${formatNumber(today.carbsG, 1)} g y grasas ${formatNumber(today.fatG, 1)} g.`,
     );
+    if (today.meals.length > 0) {
+      sections.push(
+        `- Registro de comidas de hoy: ${today.meals
+          .map((meal) => {
+            const macros =
+              meal.protein_g != null || meal.carbs_g != null || meal.fat_g != null
+                ? `; P ${formatNumber(meal.protein_g ?? 0, 1)} g, C ${formatNumber(meal.carbs_g ?? 0, 1)} g, G ${formatNumber(meal.fat_g ?? 0, 1)} g`
+                : '; macros sin registrar';
+            return `${meal.meal_type ?? 'comida'}: ${meal.meal_name} (${Math.round(meal.calories)} kcal${macros})`;
+          })
+          .join(' | ')}.`,
+      );
+    } else {
+      sections.push('- Registro de comidas de hoy: todavía no hay comidas individuales registradas.');
+    }
+    if (mealPlan.length > 0) {
+      sections.push(
+        `- Plan de comidas activo: ${mealPlan
+          .slice(0, 35)
+          .map((meal) => {
+            const ingredients = meal.ingredients_list
+              .map((ingredient) => `${ingredient.name} ${ingredient.amount}`)
+              .join(', ');
+            return `${meal.date} ${meal.meal_type}: ${meal.title} (${meal.servings_count} porciones)${ingredients ? `; ingredientes: ${ingredients}` : ''}`;
+          })
+          .join(' | ')}.`,
+      );
+    } else {
+      sections.push('- Plan de comidas activo: no hay comidas planificadas.');
+    }
     if (burned7.avgBurned != null) {
       sections.push(`- Calorías quemadas promedio último 7 días: ${Math.round(burned7.avgBurned)} kcal.`);
     }

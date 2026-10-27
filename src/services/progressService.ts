@@ -241,7 +241,10 @@ export async function getGoalSummary(userId: string): Promise<GoalSummary> {
   }
 }
 
-export async function getCaloriesBurnedBySession(userId: string, limit = 30): Promise<SessionCaloriesBurned[]> {
+async function queryCaloriesBurnedBySession(
+  userId: string,
+  limit: number | null,
+): Promise<SessionCaloriesBurned[]> {
   const db = getDatabase();
   try {
     const rows = await db.getAllAsync<{
@@ -266,8 +269,8 @@ export async function getCaloriesBurnedBySession(userId: string, limit = 30): Pr
          AND (s.user_id = ? OR s.user_id IS NULL)
        GROUP BY s.id
        ORDER BY s.date DESC, s.id DESC
-       LIMIT ?`,
-      [userId, limit],
+       ${limit == null ? '' : 'LIMIT ?'}`,
+      limit == null ? [userId] : [userId, limit],
     );
     return rows.map((r) => ({
       sessionId: r.id,
@@ -283,6 +286,17 @@ export async function getCaloriesBurnedBySession(userId: string, limit = 30): Pr
   } catch {
     throw new Error('No se pudieron cargar las calorías quemadas por entrenamiento.');
   }
+}
+
+export async function getCaloriesBurnedBySession(
+  userId: string,
+  limit = 30,
+): Promise<SessionCaloriesBurned[]> {
+  return queryCaloriesBurnedBySession(userId, limit);
+}
+
+export async function getCaloriesBurnedHistory(userId: string): Promise<SessionCaloriesBurned[]> {
+  return queryCaloriesBurnedBySession(userId, null);
 }
 
 // Métricas de salud de las sesiones completadas más recientes (wearable/local)

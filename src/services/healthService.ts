@@ -21,8 +21,6 @@ import type {
   HealthPermission,
   HealthUnit,
   HealthValue,
-  HealthStatusCode,
-  HealthStatusResult,
 } from 'react-native-health';
 import { getDatabase } from './database';
 import { getStoredCurrentUserId } from './sessionStorage';
@@ -189,20 +187,6 @@ const IOS_ACTIVE_CALORIES_OPTIONS: HealthInputOptions = {
   ascending: false,
 };
 
-// HealthStatusCode.SharingAuthorized (los códigos tampoco se exportan en runtime).
-const HEALTHKIT_SHARING_AUTHORIZED: HealthStatusCode = 2 as HealthStatusCode;
-
-async function iosAuthReadStatuses(): Promise<HealthStatusCode[] | null> {
-  try {
-    const result = await iosCall<HealthStatusResult>((cb) =>
-      appleHealthKit.getAuthStatus(IOS_PERMISSIONS_CONFIG, cb),
-    );
-    return result?.permissions?.read ?? null;
-  } catch {
-    return null;
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Permisos
 // ---------------------------------------------------------------------------
@@ -248,24 +232,15 @@ async function iosInitHealth(): Promise<void> {
   );
 }
 
-async function iosHasPermissions(): Promise<boolean> {
-  if (!(await iosHealthAvailable())) return false;
-  const statuses = await iosAuthReadStatuses();
-  if (!statuses) return false;
-  return IOS_READ_PERMISSIONS.every(
-    (_, index) => statuses[index] === HEALTHKIT_SHARING_AUTHORIZED,
-  );
-}
-
 /**
  * Solicita al usuario el acceso al wearable (HealthKit en iOS, Health Connect /
- * Salud en Android). Devuelve true cuando el ritmo cardíaco y las calorías
- * activas quedaron autorizados para lectura.
+ * Salud en Android). En iOS true solo confirma que HealthKit se inicializó;
+ * Apple no permite confirmar si se concedió lectura.
  */
 export async function requestWearablePermissions(): Promise<boolean> {
   if (Platform.OS === 'ios') {
     await iosInitHealth();
-    return await iosHasPermissions();
+    return true;
   }
   if (Platform.OS === 'android') {
     return await androidRequestPermissions();
@@ -275,12 +250,29 @@ export async function requestWearablePermissions(): Promise<boolean> {
 
 export async function hasWearablePermissions(): Promise<boolean> {
   if (Platform.OS === 'ios') {
-    return await iosHasPermissions();
+    // HealthKit oculta el estado de autorizaciÃ³n de lectura por privacidad.
+    // Intentamos leer y dejamos que el resultado real confirme si hay datos.
+    return await iosHealthAvailable();
   }
   if (Platform.OS === 'android') {
     return await androidHasPermissions();
   }
   return false;
+}
+
+/** Fecha de la sesión más reciente en la que se guardó pulso del proveedor de salud. */
+export async function getLatestWearableReadDate(userId: string): Promise<string | null> {
+  try {
+    const rows = await getDatabase().getAllAsync<{ date: string }>(
+      `SELECT date FROM workout_sessions
+       WHERE user_id = ? AND completed = 1 AND heart_rate_avg IS NOT NULL
+       ORDER BY date DESC, id DESC LIMIT 1`,
+      [userId],
+    );
+    return rows[0]?.date ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -771,7 +763,9 @@ export async function applyWearableMetricsToSession(sessionId: number): Promise<
     const session = sessions[0];
     if (!session) return;
 
-    const authorized = await hasWearablePermissions().catch(() => false);
+    const authorized =
+      Platform.OS === 'ios' ||
+      (await hasWearablePermissions().catch(() => false));
     if (!authorized) return;
 
     const { startISO, endISO } = estimateSessionWindow(session.created_at, session.date);

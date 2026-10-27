@@ -261,8 +261,18 @@ export async function subtractCaloriesFromDay(
 export async function addMealLog(userId: string, data: NewMealLog): Promise<MealLog> {
   const db = getDatabase();
   const result = await db.runAsync(
-    'INSERT INTO meal_logs (date, meal_name, calories, photo_uri, user_id) VALUES (?, ?, ?, ?, ?)',
-    [data.date, data.meal_name.trim(), data.calories, data.photo_uri ?? null, userId],
+    'INSERT INTO meal_logs (date, meal_name, calories, protein_g, carbs_g, fat_g, meal_type, photo_uri, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [
+      data.date,
+      data.meal_name.trim(),
+      data.calories,
+      data.protein_g ?? null,
+      data.carbs_g ?? null,
+      data.fat_g ?? null,
+      data.meal_type ?? 'snack',
+      data.photo_uri ?? null,
+      userId,
+    ],
   );
   await addCaloriesToDay(userId, data.date, data.calories);
   void syncLocalToRemote('meal_logs');
@@ -271,6 +281,10 @@ export async function addMealLog(userId: string, data: NewMealLog): Promise<Meal
     date: data.date,
     meal_name: data.meal_name.trim(),
     calories: data.calories,
+    protein_g: data.protein_g ?? null,
+    carbs_g: data.carbs_g ?? null,
+    fat_g: data.fat_g ?? null,
+    meal_type: data.meal_type ?? 'snack',
     photo_uri: data.photo_uri ?? null,
     user_id: userId,
   };
@@ -437,6 +451,27 @@ export async function deleteWeeklyMealPlanItem(id: number): Promise<void> {
   void syncLocalToRemote('weekly_meal_plan');
 }
 
+export async function updateWeeklyMealPlanItem(
+  id: number,
+  updates: Pick<WeeklyMealPlanItem, 'title' | 'description' | 'recipe' | 'ingredients_list' | 'servings_count'>,
+): Promise<void> {
+  const db = getDatabase();
+  await db.runAsync(
+    `UPDATE weekly_meal_plan
+     SET title = ?, description = ?, recipe = ?, ingredients_list = ?, servings_count = ?
+     WHERE id = ?`,
+    [
+      updates.title.trim(),
+      updates.description?.trim() || null,
+      updates.recipe?.trim() || null,
+      JSON.stringify(updates.ingredients_list),
+      Math.max(1, Math.round(updates.servings_count)),
+      id,
+    ],
+  );
+  void syncLocalToRemote('weekly_meal_plan');
+}
+
 export async function clearWeeklyMealPlan(): Promise<void> {
   const db = getDatabase();
   const removed = await db.getAllAsync<{ id: number }>('SELECT id FROM weekly_meal_plan');
@@ -515,12 +550,21 @@ export async function getNutritionDayData(
   const remaining = goal !== null ? goal - caloriesConsumed : null;
   const percentage =
     goal !== null && goal > 0 ? Math.min(100, (caloriesConsumed / goal) * 100) : 0;
+  const macros = meals.reduce(
+    (totals, meal) => ({
+      proteinG: totals.proteinG + (meal.protein_g ?? 0),
+      carbsG: totals.carbsG + (meal.carbs_g ?? 0),
+      fatG: totals.fatG + (meal.fat_g ?? 0),
+    }),
+    { proteinG: 0, carbsG: 0, fatG: 0 },
+  );
   return {
     date,
     caloriesConsumed,
     goal,
     remaining,
     percentage,
+    ...macros,
     meals,
   };
 }

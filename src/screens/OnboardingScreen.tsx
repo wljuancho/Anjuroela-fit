@@ -18,6 +18,7 @@ import {
   validateGoal,
   MAX_WEEKLY_LOSS_KG,
   MAX_WEEKLY_GAIN_KG,
+  MIN_ADULT_AGE,
 } from '../services/utils/goalValidator';
 import type { GenderValue } from '../services/authService';
 
@@ -51,6 +52,8 @@ export default function OnboardingScreen() {
 
   const [currentWeight, setCurrentWeight] = useState('');
   const [targetWeight, setTargetWeight] = useState('');
+  const [heightCm, setHeightCm] = useState('');
+  const [age, setAge] = useState('');
   const [weeks, setWeeks] = useState('');
   const [gender, setGender] = useState<GenderValue | null>(null);
   const [goalDate, setGoalDate] = useState('');
@@ -64,6 +67,8 @@ export default function OnboardingScreen() {
   const currentWeightNum = parseFloat(currentWeight);
   const targetWeightNum = parseFloat(targetWeight);
   const weeksNum = parseInt(weeks, 10);
+  const heightCmNum = parseFloat(heightCm.replace(',', '.'));
+  const ageNum = parseInt(age, 10);
 
   function handleGoalValidation() {
     const nextWarnings: FormWarnings = {};
@@ -74,6 +79,8 @@ export default function OnboardingScreen() {
         currentWeightKg: currentWeightNum,
         targetWeightKg: targetWeightNum,
         weeks: weeksNum,
+        heightCm: heightCmNum,
+        age: ageNum,
       });
 
       if (!result.isValid) {
@@ -124,6 +131,12 @@ export default function OnboardingScreen() {
     if (!gender) {
       next.gender = 'Selecciona tu género.';
     }
+    if (!Number.isFinite(ageNum) || ageNum < MIN_ADULT_AGE || ageNum > 100) {
+      next.age = 'Esta app está diseñada para personas adultas (18+).';
+    }
+    if (!Number.isFinite(heightCmNum) || heightCmNum < 120 || heightCmNum > 250) {
+      next.heightCm = 'Ingresa tu estatura entre 120 y 250 cm para revisar tu meta.';
+    }
     if (!currentWeightNum || currentWeightNum <= 0) {
       next.currentWeight = 'Ingresa tu peso actual.';
     }
@@ -151,6 +164,8 @@ export default function OnboardingScreen() {
       currentWeightKg: currentWeightNum,
       targetWeightKg: targetWeightNum,
       weeks: weeksNum,
+      heightCm: heightCmNum,
+      age: ageNum,
     });
 
     if (!result.isValid) {
@@ -181,6 +196,8 @@ export default function OnboardingScreen() {
         targetWeight: targetWeightNum,
         goalWeeks: weeksNum,
         goalDate: finalDate,
+        age: ageNum,
+        heightCm: heightCmNum,
       });
 
       // El RootNavigator redirige automáticamente a MainTabs

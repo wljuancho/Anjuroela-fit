@@ -1,5 +1,5 @@
 import { colors } from '../theme/colors';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -12,11 +12,18 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import AppButton from '../components/AppButton';
 import AppTextInput from '../components/AppTextInput';
 import { useAuth } from '../context';
+import {
+  loadWorkoutSound,
+  previewWorkoutSound,
+  saveWorkoutSound,
+  WORKOUT_SOUNDS,
+  type WorkoutSoundId,
+} from '../services/soundService';
 import type { RootStackParamList } from '../navigation/types';
 import {
   getVisionApiKey,
@@ -33,6 +40,7 @@ import {
   revokeWearableAccess,
   getAndroidHealthConnectStatus,
   openHealthConnectPlayStore,
+  getLatestWearableReadDate,
 } from '../services/healthService';
 
 type Status = 'idle' | 'saved' | 'tested-ok' | 'tested-fail' | 'error';
@@ -47,6 +55,7 @@ export default function SettingsScreen() {
   const [testing, setTesting] = useState(false);
   const [status, setStatus] = useState<Status>('idle');
   const [testDetail, setTestDetail] = useState<string | null>(null);
+  const [workoutSound, setWorkoutSound] = useState<WorkoutSoundId>('digital');
   const { signOut, deleteAccount, user } = useAuth();
 
   const [deletingAccount, setDeletingAccount] = useState(false);
@@ -55,11 +64,26 @@ export default function SettingsScreen() {
   const [wearableStatus, setWearableStatus] = useState<WearableStatus>('checking');
   const [wearableAuthed, setWearableAuthed] = useState(false);
   const [wearableEnabled, setWearableEnabled] = useState(false);
+  const [wearableDataDate, setWearableDataDate] = useState<string | null>(null);
   const [linkingHealth, setLinkingHealth] = useState(false);
   const [unlinkingHealth, setUnlinkingHealth] = useState(false);
   const storageUserId = user?.id ?? user?.email ?? null;
 
   useEffect(() => {
+    void loadWorkoutSound().then(setWorkoutSound);
+  }, []);
+
+  const handleSelectWorkoutSound = async (sound: WorkoutSoundId) => {
+    setWorkoutSound(sound);
+    try {
+      await saveWorkoutSound(sound);
+      await previewWorkoutSound(sound);
+    } catch {
+      Alert.alert('No se pudo guardar', 'No se pudo guardar el sonido del temporizador.');
+    }
+  };
+
+  useFocusEffect(useCallback(() => {
     let cancelled = false;
     (async () => {
       const enabled = await isHealthSyncEnabled(storageUserId);
@@ -67,15 +91,19 @@ export default function SettingsScreen() {
       const authed = enabled
         ? await hasWearablePermissions().catch(() => false)
         : false;
+      const lastReadDate = enabled && authed && storageUserId
+        ? await getLatestWearableReadDate(storageUserId)
+        : null;
       if (cancelled) return;
       setWearableEnabled(enabled);
       setWearableAuthed(authed);
+      setWearableDataDate(lastReadDate);
       setWearableStatus(available ? 'available' : 'unavailable');
     })();
     return () => {
       cancelled = true;
     };
-  }, [storageUserId]);
+  }, [storageUserId]));
 
   const handleLinkWearable = async () => {
     if (!storageUserId) return;
@@ -117,19 +145,20 @@ export default function SettingsScreen() {
       // para conceder lectura de Ritmo Cardíaco y Calorías Activas.
       await requestWearablePermissions();
       const authed = await hasWearablePermissions().catch(() => false);
-      if (!authed) {
+      if (Platform.OS === 'android' && !authed) {
         Alert.alert(
           'Permiso no concedido',
-          'Para sincronizar latidos y calorías, concede el acceso al reloj, pulsera o anillo.',
+          'Concede acceso a Ritmo Cardiaco y Calorias Activas en Health Connect y vuelve a intentarlo.',
         );
         return;
       }
       await setHealthSyncEnabled(storageUserId, true);
       setWearableEnabled(true);
       setWearableAuthed(true);
+      setWearableDataDate(await getLatestWearableReadDate(storageUserId));
       Alert.alert(
-        'Dispositivo vinculado',
-        'El ritmo cardíaco y las calorías de tus sesiones se combinarán con tus series, rondas y descansos, y se registrarán automáticamente en tu Progreso.',
+        'Fuente de salud activada',
+        'Anjuroela consulta Apple Salud o Health Connect al completar una sesion. Solo incorpora pulso y calorias si la fuente tiene mediciones de ese entrenamiento.',
       );
     } catch (e) {
       const message =
@@ -143,7 +172,7 @@ export default function SettingsScreen() {
   const handleUnlinkWearable = async () => {
     if (!storageUserId) return;
     Alert.alert(
-      'Desvincular dispositivo',
+      'Desactivar lectura de salud',
       'Se detendrá la sincronización de latidos y calorías del wearable. Tu historial permanece guardado.',
       [
         { text: 'Cancelar', style: 'cancel' },
@@ -158,8 +187,9 @@ export default function SettingsScreen() {
             await setHealthSyncEnabled(storageUserId, false);
             setWearableEnabled(false);
             setWearableAuthed(false);
+            setWearableDataDate(null);
             setUnlinkingHealth(false);
-            Alert.alert('Dispositivo desvinculado', result?.message ?? '');
+            Alert.alert('Lectura desactivada', result?.message ?? '');
           },
         },
       ],
@@ -295,8 +325,8 @@ const handleTest = async () => {
 <Text style={styles.sectionSubtitle}>
             Configura tu API Key de Google Gemini o de OpenAI para activar el
             reconocimiento inteligente de alimentos por foto y al Entrenador. La
-            app detecta el proveedor automáticamente (Gemini: 'AIza...',
-            OpenAI: 'sk-...') y la clave se guarda cifrada en el dispositivo.
+            app detecta el proveedor automáticamente (Gemini: &apos;AIza...&apos;,
+            OpenAI: &apos;sk-...&apos;) y la clave se guarda cifrada en el dispositivo.
           </Text>
 
           <View>
@@ -384,7 +414,35 @@ const handleTest = async () => {
           ) : null}
         </View>
 
-<View style={styles.section}>
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Ionicons name="alarm-outline" size={22} color={colors.primary} />
+            <Text style={styles.sectionTitle}>Sonido del temporizador</Text>
+          </View>
+          <Text style={styles.sectionSubtitle}>
+            Elige y prueba el aviso que sonará durante los descansos.
+          </Text>
+          <View style={styles.soundOptions}>
+            {WORKOUT_SOUNDS.map((option) => (
+              <TouchableOpacity
+                key={option.id}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: workoutSound === option.id }}
+                style={[styles.soundOption, workoutSound === option.id && styles.soundOptionSelected]}
+                onPress={() => void handleSelectWorkoutSound(option.id)}
+              >
+                <Text style={styles.soundOptionLabel}>{option.label}</Text>
+                <Ionicons
+                  name={workoutSound === option.id ? 'volume-high-outline' : 'play-outline'}
+                  size={18}
+                  color={colors.primary}
+                />
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Ionicons name="heart-outline" size={22} color={colors.primary} />
             <Text style={styles.sectionTitle}>Dispositivos y Salud</Text>
@@ -398,6 +456,11 @@ const handleTest = async () => {
           <Text style={styles.infoText}>
             Sincroniza con cualquier marca (Samsung, Xiaomi, Garmin, Fitbit, Oura,
             etc.) que envíe datos a Health Connect o Apple Health.
+          </Text>
+          <Text style={styles.infoText}>
+            La fuente conectada es Apple Salud en iPhone o Health Connect en Android;
+            Anjuroela no identifica la marca concreta del reloj. Solo lee los datos
+            que la app del reloj haya guardado en esa fuente.
           </Text>
 
           {wearableStatus === 'checking' ? (
@@ -429,11 +492,23 @@ const handleTest = async () => {
               <View style={[styles.statusBox, styles.statusOk]}>
                 <Ionicons name="checkmark-circle" size={18} color={colors.success} />
                 <Text style={[styles.statusText, styles.statusTextOk]}>
-                  Conectado · {Platform.OS === 'ios' ? 'Salud (HealthKit)' : 'Health Connect'}
+                  {Platform.OS === 'ios' ? 'Lectura configurada - Apple Salud' : 'Permisos activos - Health Connect'}
+                </Text>
+              </View>
+              <View style={styles.wearableReadStatus}>
+                <Ionicons
+                  name={wearableDataDate ? 'checkmark-circle-outline' : 'time-outline'}
+                  size={16}
+                  color={wearableDataDate ? colors.success : colors.warning}
+                />
+                <Text style={styles.wearableReadText}>
+                  {wearableDataDate
+                    ? `Ultima sesion con pulso leido: ${wearableDataDate}`
+                    : 'Aun no se han leido datos de pulso en una sesion completada.'}
                 </Text>
               </View>
               <AppButton
-                title="Desvincular dispositivo"
+                title="Desactivar lectura de salud"
                 variant="outline"
                 onPress={handleUnlinkWearable}
                 loading={unlinkingHealth}
@@ -501,7 +576,7 @@ const handleTest = async () => {
             <Text style={styles.mono}>gemini-3.6-flash</Text>
           </Text>
           <Text style={styles.infoText}>
-            • OpenAI GPT-4o-mini — compatible, usa una clave 'sk-…' en el mismo campo.
+            • OpenAI GPT-4o-mini — compatible, usa una clave &apos;sk-…&apos; en el mismo campo.
           </Text>
         </View>
 
@@ -597,6 +672,41 @@ const styles = StyleSheet.create({
   },
   statusTextFail: {
     color: colors.primary,
+  },
+  wearableReadStatus: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    paddingHorizontal: 4,
+    marginTop: 10,
+  },
+  wearableReadText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    flex: 1,
+  },
+  soundOptions: {
+    gap: 8,
+  },
+  soundOption: {
+    minHeight: 44,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.cardAlt,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  soundOptionSelected: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySofter,
+  },
+  soundOptionLabel: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '600',
   },
   deleteRow: {
     flexDirection: 'row',
