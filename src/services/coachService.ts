@@ -234,7 +234,8 @@ const SYSTEM_PROMPT =
   '   - Nunca sugieras dietas peligrosas, ayunos prolongados ni restricciones insostenibles.\n' +
 '11. NO repitas preguntas ni pidas información que el usuario ya haya indicado en la conversación: si ya dio el día, los ejercicios, ' +
 'los tiempos de trabajo/descanso o las series/rondas, úsalo directamente y emite la acción. Si falta un dato indispensable, ' +
-'pregunta SOLO ese dato (una sola pregunta por turno).\n';
+'pregunta SOLO ese dato (una sola pregunta por turno).\n' +
+'12. Para hablar de cambios de peso, prioriza promedios de varias semanas y aclara cuando falten registros. No recomiendes cambiar calorías por un pesaje aislado ni compensar con restricciones extremas. Para ganar masa, explica que subir de peso no confirma ganancia muscular: acompaña el superávit con fuerza progresiva y descanso.\n';
 
 async function buildContext(userId: string): Promise<string> {
   const sections: string[] = ['DATOS ACTUALES DEL USUARIO (usados para recomendar):'];
@@ -354,6 +355,16 @@ async function buildContext(userId: string): Promise<string> {
       }
       if (energy.last30DaysCaloriesAvg != null) {
         sections.push(`- Consumo promedio último 30 días: ${Math.round(energy.last30DaysCaloriesAvg)} kcal.`);
+      }
+      if (energy.goalType === 'ganar') {
+        const profile = await getProfile(userId);
+        if (profile?.current_weight != null && profile.current_weight > 0) {
+          const proteinLow = Math.round(profile.current_weight * 1.4);
+          const proteinHigh = Math.round(profile.current_weight * 2);
+          sections.push(
+            `- Referencia general de proteína para adultos sanos que entrenan fuerza: ${proteinLow}–${proteinHigh} g/día (1.4–2.0 g/kg); es una referencia, no una prescripción.`,
+          );
+        }
       }
     }
     sections.push(

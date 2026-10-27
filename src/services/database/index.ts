@@ -1,5 +1,6 @@
 import * as SQLite from 'expo-sqlite';
 import { getStoredCurrentUserId } from '../sessionStorage';
+import { createLocalId } from '../utils';
 
 const DB_NAME = 'anjuroela-fit.db';
 
@@ -183,6 +184,8 @@ export async function initDatabase(): Promise<void> {
       meal_type TEXT NOT NULL DEFAULT 'snack',
       nutrition_source TEXT,
       nutrition_confidence TEXT,
+      nutrition_observed TEXT,
+      nutrition_estimate_notes TEXT,
       photo_uri TEXT,
       user_id TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -240,6 +243,13 @@ export async function initDatabase(): Promise<void> {
       user_id TEXT NOT NULL,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (table_name, user_id)
+    );
+
+    -- Cuenta local creada sin nube o con la red caída; se conserva hasta que
+    -- pueda crearse su copia remota y entonces iniciar la sincronización.
+    CREATE TABLE IF NOT EXISTS pending_remote_accounts (
+      email TEXT PRIMARY KEY,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
   `);
 
@@ -412,8 +422,8 @@ async function migrateDayMuscles(db: SQLite.SQLiteDatabase): Promise<void> {
   );
   for (const item of legacy) {
     await db.runAsync(
-      'INSERT OR IGNORE INTO day_muscles (day_of_week, body_part_id, position, completed) VALUES (?, ?, ?, 0)',
-      [item.day_of_week, item.body_part_id, 0],
+      'INSERT OR IGNORE INTO day_muscles (id, day_of_week, body_part_id, position, completed) VALUES (?, ?, ?, ?, 0)',
+      [await createLocalId(), item.day_of_week, item.body_part_id, 0],
     );
   }
 }
@@ -616,6 +626,8 @@ async function migrateMealLogNutrition(db: SQLite.SQLiteDatabase): Promise<void>
   }
   if (!names.has('nutrition_source')) await db.execAsync('ALTER TABLE meal_logs ADD COLUMN nutrition_source TEXT');
   if (!names.has('nutrition_confidence')) await db.execAsync('ALTER TABLE meal_logs ADD COLUMN nutrition_confidence TEXT');
+  if (!names.has('nutrition_observed')) await db.execAsync('ALTER TABLE meal_logs ADD COLUMN nutrition_observed TEXT');
+  if (!names.has('nutrition_estimate_notes')) await db.execAsync('ALTER TABLE meal_logs ADD COLUMN nutrition_estimate_notes TEXT');
 }
 
 // Añade weight_logs.user_id (email de la cuenta) para aislar el historial de
@@ -730,12 +742,20 @@ async function ensureUserCascadeFk(db: SQLite.SQLiteDatabase): Promise<void> {
 
     await rebuild(
       'meal_logs',
-      ['id', 'date', 'meal_name', 'calories', 'photo_uri', 'user_id', 'created_at'],
+      ['id', 'date', 'meal_name', 'calories', 'protein_g', 'carbs_g', 'fat_g', 'meal_type', 'nutrition_source', 'nutrition_confidence', 'nutrition_observed', 'nutrition_estimate_notes', 'photo_uri', 'user_id', 'created_at'],
       `
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         date TEXT NOT NULL,
         meal_name TEXT NOT NULL,
         calories REAL NOT NULL DEFAULT 0,
+        protein_g REAL,
+        carbs_g REAL,
+        fat_g REAL,
+        meal_type TEXT NOT NULL DEFAULT 'snack',
+        nutrition_source TEXT,
+        nutrition_confidence TEXT,
+        nutrition_observed TEXT,
+        nutrition_estimate_notes TEXT,
         photo_uri TEXT,
         user_id TEXT,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,

@@ -55,25 +55,14 @@ const PARENT_DEPENDENCIES: Record<string, readonly string[]> = {
   weekly_meal_plan: [],
 };
 
-// Tablas cuya clave primaria no se llama 'id'; se usa su PK para el upsert.
-// 'users' usa su UNIQUE(email) para evitar que ids AUTOINCREMENT locales
-// sobrescriban una cuenta remota existente desde otro dispositivo.
-// El resto apunta a las restricciones UNIQUE de negocio de las tablas
-// (weekly_schedule por día, day_muscles por día+músculo, etc.) para que el
-// upsert actualice en vez de duplicar.
+// Claves naturales de las tablas sin id. Las rutinas usan sus IDs locales
+// aleatorios y la propiedad de user_row_owners para no compartir UNIQUE globales.
 const UPSERT_ON_CONFLICT: Record<string, string> = {
   users: 'email',
   user_profiles: 'user_id',
   nutrition_profile: 'user_id',
-  weekly_schedule: 'day_of_week',
-  day_muscles: 'day_of_week,body_part_id',
-  day_exercises: 'day_of_week,body_part_id,exercise_id',
   workout_sessions: 'user_id,day_of_week,date,session_type',
-  workout_circuits: 'day_of_week,body_part_id',
   daily_calories: 'user_id,date',
-  // En una instalación limpia el id local se conserva también en Supabase.
-  // Así las FK de exercises_v2, sesiones y series son estables entre
-  // dispositivos del mismo usuario.
 };
 
 // Tablas cuyo contenido es POR USUARIO pero sin columna de usuario propia:
@@ -131,10 +120,6 @@ const DELETIONS_TABLE = 'pending_deletions';
 // regenerar el id en la nube). Sus borrados se localizan por estas columnas
 // (además del id local, cuando se conozca) en vez de solo por el id.
 const DELETION_COMPOSITE_KEYS: Record<string, readonly string[]> = {
-  weekly_schedule: ['day_of_week'],
-  day_muscles: ['day_of_week', 'body_part_id'],
-  day_exercises: ['day_of_week', 'body_part_id', 'exercise_id'],
-  workout_circuits: ['day_of_week', 'body_part_id'],
   workout_sessions: ['user_id', 'day_of_week', 'date', 'session_type'],
   daily_calories: ['user_id', 'date'],
 };
@@ -217,20 +202,81 @@ export function requestFullSync(): void {
 // Identidad = EMAIL del usuario (clave primaria de `users`).
 let activeUserId: string | null | undefined;
 
-// Callback que marca la sesión como revocada (usuario eliminado en Supabase).
-let sessionRevocationHandler: (() => void | Promise<void>) | null = null;
-let revocationTriggered = false;
-
-export function setSessionRevocationHandler(
-  handler: (() => void | Promise<void>) | null,
-): void {
-  sessionRevocationHandler = handler;
-}
-
 export async function setActiveUserId(userId: string | null): Promise<void> {
   activeUserId = userId ?? null;
-  if (userId !== null) {
-    revocationTriggered = false;
+}
+
+export async function queueRemoteAccount(email: string): Promise<void> {
+  const normalizedEmail = email.toLowerCase().trim();
+  await getDatabase().runAsync(
+    'INSERT OR IGNORE INTO pending_remote_accounts (email) VALUES (?)',
+    [normalizedEmail],
+  );
+}
+
+export async function clearQueuedRemoteAccount(email: string): Promise<void> {
+  await getDatabase().runAsync(
+    'DELETE FROM pending_remote_accounts WHERE email = ?',
+    [email.toLowerCase().trim()],
+  );
+}
+
+export interface LocalBackupQueueStatus {
+  configured: boolean;
+  pendingTables: number;
+  accountWaiting: boolean;
+}
+
+/** Estado de la cola local; no afirma que la nube ya tenga una copia reciente. */
+export async function getLocalBackupQueueStatus(userId: string): Promise<LocalBackupQueueStatus> {
+  const db = getDatabase();
+  const [pending, account] = await Promise.all([
+    db.getAllAsync<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM pending_sync WHERE user_id = ?',
+      [userId],
+    ),
+    db.getAllAsync<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM pending_remote_accounts WHERE email = ?',
+      [userId.toLowerCase().trim()],
+    ),
+  ]);
+  return {
+    configured: isSupabaseConfigured(),
+    pendingTables: pending[0]?.count ?? 0,
+    accountWaiting: (account[0]?.count ?? 0) > 0,
+  };
+}
+
+async function provisionQueuedRemoteAccount(userId: string): Promise<boolean> {
+  const db = getDatabase();
+  const pending = await db.getAllAsync<{ email: string }>(
+    'SELECT email FROM pending_remote_accounts WHERE email = ? LIMIT 1',
+    [userId],
+  );
+  if (!pending.length) return true;
+
+  const users = await db.getAllAsync<{
+    email: string;
+    name: string;
+    password_hash: string;
+    auth_provider: string;
+    created_at: string | null;
+  }>(
+    'SELECT email, name, password_hash, auth_provider, created_at FROM users WHERE email = ? LIMIT 1',
+    [userId],
+  );
+  if (!users[0]) {
+    await clearQueuedRemoteAccount(userId);
+    return true;
+  }
+
+  try {
+    await provisionRemoteUser(users[0]);
+    await clearQueuedRemoteAccount(userId);
+    return true;
+  } catch {
+    scheduleFlush(FLUSH_RETRY_OFFLINE_MS);
+    return false;
   }
 }
 
@@ -239,43 +285,6 @@ export async function getActiveUserId(): Promise<string | null> {
     activeUserId = await getStoredCurrentUserId();
   }
   return activeUserId;
-}
-
-/**
- * Verifica la existencia remota del usuario activo. Si la cuenta fue borrada
- * en Supabase ('absent'): elimina la fila local del usuario, purga sus datos,
- * dispara el callback de revocación y bloquea la sincronización (no se resube
- * el usuario ni sus registros). Devuelve false para abortar la sync en curso.
- * Con 'unknown' (offline/error) no revoca: no se puede concluir nada.
- */
-async function enforceRemoteUserExistence(): Promise<boolean> {
-  const userId = await getActiveUserId();
-  if (userId === null) return true;
-
-  // Importación dinámica para romper el ciclo authService <-> syncService.
-  const { checkRemoteUserExistence } = await import('./authService');
-  const status = await checkRemoteUserExistence(userId);
-  if (status === 'absent') {
-    if (!revocationTriggered) {
-      revocationTriggered = true;
-      activeUserId = null;
-      await removeLocalUserAccount(userId);
-      const handler = sessionRevocationHandler;
-      if (handler) {
-        try {
-          await handler();
-        } catch {
-          // El flujo de cierre de sesión nunca debe interrumpir el sync.
-        }
-      }
-    }
-    return false;
-  }
-
-  if (status === 'present') {
-    revocationTriggered = false;
-  }
-  return true;
 }
 
 /**
@@ -656,10 +665,8 @@ async function executePendingSync(forceSync = false): Promise<void> {
       return;
     }
 
-    // Si el usuario activo ya no existe en Supabase: revoca y no sube nada.
-    const userStillValid = await enforceRemoteUserExistence();
-    if (!userStillValid) {
-      pendingSyncTables.clear();
+    const activeAccountId = await getActiveUserId();
+    if (activeAccountId && !(await provisionQueuedRemoteAccount(activeAccountId))) {
       return;
     }
 
@@ -906,19 +913,14 @@ function sanitizeNutritionProfilePayload(
 
 // Tablas de relación con UNIQUE compuesto cuyo 'id' numérico es solo de la
 // instalación local: al subirlas se omite 'id' para que Supabase lo regenere.
-// Si se enviara, los ids locales de cada dispositivo coinciden y chocarían
-// contra la PK remota en el INSERT ('duplicate key ... day_exercises_pkey').
+// Las tablas de rutina ahora conservan IDs aleatorios para aislar respaldos.
 const IDENTITY_REGENERATED_TABLES = [] as const;
 
 // Claves de negocio (UNIQUE compuesto) de esas tablas: sirven para localizar
 // en la nube la fila recién subida y conocer su id remoto real.
 const REMOTE_ID_KEYS: Record<string, string[]> = {
-  day_exercises: ['day_of_week', 'body_part_id', 'exercise_id'],
-  day_muscles: ['day_of_week', 'body_part_id'],
   workout_sessions: ['user_id', 'day_of_week', 'date', 'session_type'],
-  weekly_schedule: ['day_of_week'],
   daily_calories: ['user_id', 'date'],
-  body_parts: ['name'],
 };
 
 function stripLocalIds(rows: Record<string, unknown>[]): Record<string, unknown>[] {
@@ -1121,10 +1123,6 @@ export async function syncRemoteToLocal(): Promise<void> {
   // Primero confirma los cambios locales pendientes. Si una tabla falla al
   // subir, su marca durable hace que el pull de esa tabla se omita.
   await flushLocalOutboxBeforePull(ownerId);
-
-  // Si el usuario activo ya no existe en Supabase: revoca y no descarga.
-  const userStillValid = await enforceRemoteUserExistence();
-  if (!userStillValid) return;
 
   // Se propagan los borrados pendientes ANTES de restaurar desde la nube: si
   // no, una fila eliminada sin conexión volvería a aparecer al reabrir la app.

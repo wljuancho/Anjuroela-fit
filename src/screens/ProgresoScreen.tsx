@@ -25,6 +25,7 @@ import {
   HistorialPromedioMuscularSesionCard,
   CardCaloriasQuemadas,
 } from '../components/progreso';
+import CardTendenciaPeso from '../components/progreso/CardTendenciaPeso';
 import AppButton from '../components/AppButton';
 import { ScreenTutorialModal } from '../components';
 import type { ScreenTutorialPoint } from '../components/ScreenTutorialModal';
@@ -191,6 +192,8 @@ export default function ProgresoScreen() {
             onEditPhysical={() => setPhysicalVisible(true)}
           />
         ) : null}
+
+        <CardTendenciaPeso logs={weightLogs} goal={summary?.direction ?? null} />
 
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Historial de Peso</Text>

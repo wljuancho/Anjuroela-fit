@@ -1,5 +1,5 @@
 import { getDatabase } from './database';
-import { formatDate } from './utils';
+import { createLocalId, formatDate } from './utils';
 import { getProfile, updateGoalStatus } from './authService';
 import { syncLocalToRemote, queueLocalDeletion } from './syncService';
 import { validateGoal } from './utils/goalValidator';
@@ -37,13 +37,14 @@ export async function addWeightLog(userId: string, data: NewWeightLog): Promise<
         user_id: userId,
       };
     }
-    const result = await db.runAsync(
-      'INSERT INTO weight_logs (date, weight_kg, notes, user_id) VALUES (?, ?, ?, ?)',
-      [data.date, data.weight_kg, data.notes?.trim() || null, userId],
+    const id = await createLocalId();
+    await db.runAsync(
+      'INSERT INTO weight_logs (id, date, weight_kg, notes, user_id) VALUES (?, ?, ?, ?, ?)',
+      [id, data.date, data.weight_kg, data.notes?.trim() || null, userId],
     );
     void syncLocalToRemote('weight_logs');
     return {
-      id: result.lastInsertRowId,
+      id,
       date: data.date,
       weight_kg: data.weight_kg,
       notes: data.notes?.trim() || null,
@@ -372,12 +373,12 @@ export async function syncDailyCaloriesBurnedForDate(
     );
     const burned = Math.max(0, Math.round(rows[0]?.total ?? 0));
     await db.runAsync(
-      `INSERT INTO daily_calories (user_id, date, calories_burned, logged_at)
-       VALUES (?, ?, ?, ?)
+      `INSERT INTO daily_calories (id, user_id, date, calories_burned, logged_at)
+       VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(user_id, date) DO UPDATE SET
          calories_burned = excluded.calories_burned,
          logged_at = excluded.logged_at`,
-      [userId, date, burned, new Date().toISOString()],
+      [await createLocalId(), userId, date, burned, new Date().toISOString()],
     );
     void syncLocalToRemote('daily_calories');
   } catch {

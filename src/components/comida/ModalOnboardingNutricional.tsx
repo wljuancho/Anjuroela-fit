@@ -93,7 +93,7 @@ export default function ModalOnboardingNutricional({
   // La edad debe ser adulta y valida para mostrar y guardar la estimacion.
 
   const effectiveAge = ageNum;
-  const canPreview = Number.isFinite(ageNum) && ageNum >= 18 && ageNum <= 100 && heightNum >= 100 && heightNum <= 250 && activity !== null && goalType !== null;
+  const canPreview = Number.isFinite(ageNum) && ageNum >= 18 && ageNum <= 100 && heightNum >= 120 && heightNum <= 250 && activity !== null && goalType !== null;
   const previewGoal = useMemo(() => {
     if (!canPreview) return null;
     const base = calculateTDEE({
@@ -108,9 +108,17 @@ export default function ModalOnboardingNutricional({
     return base;
   }, [canPreview, effectiveAge, weightKg, heightNum, activity, goalType, manualGoalNum, prefill?.sexForFormula]);
 
+  const previewSafetyError = previewGoal == null ? null : validateCalorieGoal({
+    calories: previewGoal,
+    age: effectiveAge,
+    heightCm: heightNum,
+    weightKg,
+    goalType: goalType ?? 'mantener',
+  });
+
   const handleSave = async () => {
-    if (!heightNum || heightNum < 100 || heightNum > 250) {
-      setError('Ingresa tu altura en centÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­metros (entre 100 y 250 cm)');
+    if (!heightNum || heightNum < 120 || heightNum > 250) {
+      setError('Ingresa tu estatura en centímetros (entre 120 y 250 cm)');
       return;
     }
     if (!activity) {
@@ -271,7 +279,7 @@ export default function ModalOnboardingNutricional({
               </View>
             ) : null}
 
-            {previewGoal !== null ? (
+            {previewGoal !== null && !previewSafetyError ? (
               <View style={styles.previewCard}>
                 <Ionicons name="flame-outline" size={20} color={colors.warning} />
                 <View style={styles.previewInfo}>
@@ -279,6 +287,10 @@ export default function ModalOnboardingNutricional({
                   <Text style={styles.previewValue}>{formatNumber(previewGoal)} kcal</Text>
                 </View>
               </View>
+            ) : null}
+
+            {previewSafetyError ? (
+              <Text style={styles.errorText}>{previewSafetyError}</Text>
             ) : null}
 
             {error ? <Text style={styles.errorText}>{error}</Text> : null}

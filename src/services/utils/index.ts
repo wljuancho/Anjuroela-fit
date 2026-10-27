@@ -1,8 +1,22 @@
+import * as Crypto from 'expo-crypto';
+
 export function formatDate(date: Date): string {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
   const d = String(date.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
+}
+
+// ID numérico aleatorio de 53 bits: se conserva como `number` en JS/SQLite y
+// hace extremadamente improbable que dos instalaciones offline generen la
+// misma PK antes de subir sus registros a Supabase.
+export async function createLocalId(): Promise<number> {
+  const bytes = await Crypto.getRandomBytesAsync(7);
+  let id = bytes[0] & 0x1f;
+  for (let index = 1; index < bytes.length; index += 1) {
+    id = id * 256 + bytes[index];
+  }
+  return Math.max(1, id);
 }
 
 // Devuelve la fecha (YYYY-MM-DD) del LUNES de la semana en la que cae `date`.

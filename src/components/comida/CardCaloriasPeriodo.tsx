@@ -48,8 +48,8 @@ function PeriodRow({
 export default function CardCaloriasPeriodo({ period }: CardCaloriasPeriodoProps) {
   const { weekConsumed, weekDays, monthConsumed, monthDays, goal } = period;
   const hasGoal = goal !== null && goal > 0;
-  const weekGoal = hasGoal ? goal * 7 : 1;
-  const monthGoal = hasGoal ? goal * 30 : 1;
+  const weekGoal = hasGoal ? (period.weekGoalTotal ?? goal * 7) : 1;
+  const monthGoal = hasGoal ? (period.monthGoalTotal ?? goal * 30) : 1;
 
   return (
     <View style={styles.card}>

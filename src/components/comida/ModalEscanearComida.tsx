@@ -136,6 +136,9 @@ export default function ModalEscanearComida({
   const [error, setError] = useState('');
   const [confident, setConfident] = useState<string | null>(null);
   const [confidence, setConfidence] = useState<NutritionConfidence | null>(null);
+  const [estimator, setEstimator] = useState<NutritionEstimate['estimator']>(undefined);
+  const [observed, setObserved] = useState('');
+  const [estimateNotes, setEstimateNotes] = useState('');
   const [estimateApplied, setEstimateApplied] = useState(false);
   const [descOverride, setDescOverride] = useState('');
   const [portion, setPortion] = useState<PortionSize | null>(null);
@@ -160,6 +163,9 @@ export default function ModalEscanearComida({
 
   const applyEstimate = (estimate: NutritionEstimate) => {
     setEstimateApplied(true);
+    setEstimator(estimate.estimator ?? 'ai');
+    setObserved(estimate.description ?? 'La estimación no incluyó un desglose de alimentos observados.');
+    setEstimateNotes(estimate.notes ?? 'La IA no proporcionó una explicación adicional.');
     setMealName(estimate.mealName ?? 'Comida');
     setCalories(String(Math.round(estimate.calories)));
     setProtein(String(Math.round(estimate.proteinG * 10) / 10));
@@ -179,7 +185,7 @@ export default function ModalEscanearComida({
       setConfident(label);
     } else {
       setConfidence(null);
-      setConfident(null);
+      setConfident('La IA no indicó su nivel de confianza; considera esta cifra una aproximación y revisa las porciones.');
     }
   };
 
@@ -218,6 +224,9 @@ export default function ModalEscanearComida({
     setConfident(null);
     setConfidence(null);
     setEstimateApplied(false);
+    setEstimator(undefined);
+    setObserved('');
+    setEstimateNotes('');
     try {
       const estimate = await onEstimate(buildInput(uri));
       if (estimate) {
@@ -303,6 +312,7 @@ export default function ModalEscanearComida({
         estimateApplied,
         selectedCatalogFood: selectedFood !== null,
         confidence,
+        estimator,
       });
       await onConfirm({
         date,
@@ -314,6 +324,8 @@ export default function ModalEscanearComida({
         meal_type: mealTime ?? 'snack',
         nutrition_source: provenance.source,
         nutrition_confidence: provenance.confidence,
+        nutrition_observed: provenance.source === 'photo_ai' || provenance.source === 'photo_fallback' ? observed : null,
+        nutrition_estimate_notes: provenance.source === 'photo_ai' || provenance.source === 'photo_fallback' ? estimateNotes : null,
         photo_uri: photoUri,
       });
       handleClose();
@@ -455,7 +467,21 @@ export default function ModalEscanearComida({
             ) : null}
 
             {entryMode === 'photo' && confident ? (
-              <Text style={styles.confidenceText}>{confident}</Text>
+              <View style={styles.estimateInfoCard}>
+                <Text style={styles.estimateInfoTitle}>
+                  {estimator === 'local' ? 'Estimación local · confianza baja' : `Confianza ${confidence ?? 'no indicada'}`}
+                </Text>
+                <Text style={styles.estimateInfoText}>{confident}</Text>
+                <Text style={styles.estimateInfoText}>
+                  Alimentos que identificó: {observed}
+                </Text>
+                <Text style={styles.estimateInfoText}>
+                  Cómo lo calculó: {estimateNotes}
+                </Text>
+                <Text style={styles.estimateDisclaimer}>
+                  La incertidumbre afecta tanto las calorías como los macros. La confianza es una valoración cualitativa, no un porcentaje de acierto comprobado. Porciones, aceites e ingredientes ocultos pueden cambiar los valores; revisa y corrige antes de guardar.
+                </Text>
+              </View>
             ) : null}
 
             {entryMode === 'photo' && onEstimate && !hasApiKey ? (
@@ -766,6 +792,31 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     marginBottom: 14,
     textAlign: 'center',
+  },
+  estimateInfoCard: {
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 14,
+    gap: 5,
+  },
+  estimateInfoTitle: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  estimateInfoText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  estimateDisclaimer: {
+    color: colors.warning,
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 3,
   },
   aiInfoNote: {
     backgroundColor: colors.primarySofter,

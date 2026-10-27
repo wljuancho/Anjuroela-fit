@@ -72,6 +72,11 @@ export default function CardCaloriasDiarias({ data, onEditStrategy }: CardCalori
           <MacroTotal label="Grasas" value={data.fatG} />
         </View>
       ) : null}
+      {data.meals.length > 0 ? (
+        <Text style={styles.macroCoverage}>
+          Macros completos en {data.macroCompleteMeals} de {data.meals.length} comidas; los demÃ¡s valores no estÃ¡n registrados.
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -215,5 +220,11 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 10,
     marginTop: 2,
+  },
+  macroCoverage: {
+    color: colors.textSubtle,
+    fontSize: 11,
+    lineHeight: 15,
+    marginTop: 8,
   },
 });

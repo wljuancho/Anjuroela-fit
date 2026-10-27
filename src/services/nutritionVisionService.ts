@@ -143,6 +143,7 @@ function parseEstimateJson(parsed: Record<string, unknown>): NutritionEstimate {
     fatG: Number(parsed.fat_g) || 0,
     confidence: normalizeConfidence(parsed.confidence),
     notes: typeof parsed.notes === 'string' ? parsed.notes : undefined,
+    estimator: 'ai',
   };
 }
 
@@ -328,6 +329,9 @@ const DEFAULT_ESTIMATE: NutritionEstimate = {
   carbsG: 35,
   fatG: 10,
   confidence: 'baja',
+  description: 'No se pudo identificar con precisión el alimento; se usó un valor genérico.',
+  notes: 'Estimación local de respaldo basada en palabras clave. No analiza visualmente la imagen.',
+  estimator: 'local',
 };
 
 const COOKING_FACTORS: Partial<Record<CookingMethod, number>> = {
@@ -369,7 +373,16 @@ export class MockNutritionVisionProvider implements NutritionVisionProvider {
       item.keywords.some((keyword) => text.includes(keyword)),
     );
     const base = match ? match.estimate : DEFAULT_ESTIMATE;
-    return scaleEstimate(base, input);
+    const result = scaleEstimate(base, input);
+    return {
+      ...result,
+      confidence: 'baja',
+      estimator: 'local',
+      description: match
+        ? `Coincidencia local por palabra clave: ${match.keywords.find((keyword) => text.includes(keyword)) ?? 'alimento'}.`
+        : DEFAULT_ESTIMATE.description,
+      notes: DEFAULT_ESTIMATE.notes,
+    };
   }
 }
 

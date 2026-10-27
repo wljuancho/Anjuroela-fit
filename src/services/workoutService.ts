@@ -1,5 +1,5 @@
 import { getDatabase } from './database';
-import { formatDate, getCurrentWeekMonday } from './utils';
+import { createLocalId, formatDate, getCurrentWeekMonday } from './utils';
 import { getActiveUserId, syncLocalToRemote, queueLocalDeletion } from './syncService';
 import { applyWearableMetricsToSession } from './healthService';
 import { syncDailyCaloriesBurnedForDate } from './progressService';
@@ -66,8 +66,8 @@ async function ensureDefaultSchedule(): Promise<void> {
           bodyPartId = bp[0]?.id ?? null;
         }
         await db.runAsync(
-          'INSERT INTO weekly_schedule (day_of_week, body_part_id) VALUES (?, ?)',
-          [entry.day, bodyPartId],
+          'INSERT INTO weekly_schedule (id, day_of_week, body_part_id) VALUES (?, ?, ?)',
+          [await createLocalId(), entry.day, bodyPartId],
         );
       }
     });
@@ -125,8 +125,8 @@ export async function getOrCreateSession(dayOfWeek: DayOfWeek): Promise<WorkoutS
     let session: WorkoutSession | null = null;
     await db.withTransactionAsync(async () => {
       await db.runAsync(
-        'INSERT OR IGNORE INTO workout_sessions (user_id, day_of_week, date, session_type, completed) VALUES (?, ?, ?, ?, 0)',
-        [userId, dayOfWeek, today, 'routine'],
+        'INSERT OR IGNORE INTO workout_sessions (id, user_id, day_of_week, date, session_type, completed) VALUES (?, ?, ?, ?, ?, 0)',
+        [await createLocalId(), userId, dayOfWeek, today, 'routine'],
       );
       const rows = await db.getAllAsync<WorkoutSession>(
         'SELECT * FROM workout_sessions WHERE day_of_week = ? AND date = ? AND session_type = ? AND (user_id = ? OR user_id IS NULL) ORDER BY (user_id IS NULL) LIMIT 1',
@@ -165,8 +165,8 @@ export async function getOrCreateCasualSession(): Promise<WorkoutSession> {
     let session: WorkoutSession | null = null;
     await db.withTransactionAsync(async () => {
       await db.runAsync(
-        'INSERT OR IGNORE INTO workout_sessions (user_id, day_of_week, date, session_type, completed) VALUES (?, ?, ?, ?, 0)',
-        [userId, day, today, 'casual'],
+        'INSERT OR IGNORE INTO workout_sessions (id, user_id, day_of_week, date, session_type, completed) VALUES (?, ?, ?, ?, ?, 0)',
+        [await createLocalId(), userId, day, today, 'casual'],
       );
       const rows = await db.getAllAsync<WorkoutSession>(
         'SELECT * FROM workout_sessions WHERE day_of_week = ? AND date = ? AND session_type = ? AND (user_id = ? OR user_id IS NULL) ORDER BY (user_id IS NULL) LIMIT 1',
@@ -437,8 +437,8 @@ export async function upsertSets(sessionId: number, sets: WorkoutSetInput[]): Pr
           );
         } else {
           await db.runAsync(
-            'INSERT INTO workout_sets (session_id, exercise_id, set_number, weight_kg, reps, set_type, time_seconds, rest_seconds) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            [sessionId, s.exercise_id, s.set_number, s.weight_kg, s.reps, setType, timeSeconds, s.rest_seconds ?? null],
+            'INSERT INTO workout_sets (id, session_id, exercise_id, set_number, weight_kg, reps, set_type, time_seconds, rest_seconds) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [await createLocalId(), sessionId, s.exercise_id, s.set_number, s.weight_kg, s.reps, setType, timeSeconds, s.rest_seconds ?? null],
           );
         }
       }
@@ -582,8 +582,8 @@ export async function saveCircuitToDay(
   try {
     const exercisesJson = JSON.stringify(data.exercises);
     await db.runAsync(
-      `INSERT INTO workout_circuits (day_of_week, body_part_id, name, work_seconds, rest_seconds, rounds, exercises_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO workout_circuits (id, day_of_week, body_part_id, name, work_seconds, rest_seconds, rounds, exercises_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(day_of_week, body_part_id) DO UPDATE SET
          name = excluded.name,
          work_seconds = excluded.work_seconds,
@@ -591,6 +591,7 @@ export async function saveCircuitToDay(
          rounds = excluded.rounds,
          exercises_json = excluded.exercises_json`,
       [
+        await createLocalId(),
         day,
         bodyPartId,
         data.name.trim() || 'Circuito',
@@ -676,8 +677,8 @@ export async function addExercisesToDay(
             [day],
           );
           await db.runAsync(
-            'INSERT INTO day_exercises (day_of_week, body_part_id, exercise_id, position, week_of) VALUES (?, ?, ?, ?, ?)',
-            [day, bodyPartId, exerciseId, pos[0]?.mx ?? 0, week],
+            'INSERT INTO day_exercises (id, day_of_week, body_part_id, exercise_id, position, week_of) VALUES (?, ?, ?, ?, ?, ?)',
+            [await createLocalId(), day, bodyPartId, exerciseId, pos[0]?.mx ?? 0, week],
           );
         }
         added += 1;
@@ -833,8 +834,8 @@ export async function addMusclesToDay(day: DayOfWeek, bodyPartIds: number[]): Pr
           [day],
         );
         await db.runAsync(
-          'INSERT OR IGNORE INTO day_muscles (day_of_week, body_part_id, position, completed) VALUES (?, ?, ?, 0)',
-          [day, bodyPartId, pos[0]?.mx ?? 0],
+          'INSERT OR IGNORE INTO day_muscles (id, day_of_week, body_part_id, position, completed) VALUES (?, ?, ?, ?, 0)',
+          [await createLocalId(), day, bodyPartId, pos[0]?.mx ?? 0],
         );
       }
     });

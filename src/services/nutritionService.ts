@@ -15,7 +15,7 @@ import type {
   SexForFormula,
   WeeklyMealPlanItem,
 } from '../types/nutrition';
-import { formatDate, formatNumber } from './utils';
+import { createLocalId, formatDate, formatNumber } from './utils';
 import { validateCalorieGoal, MIN_DAILY_CALORIES_GOAL } from './utils/nutritionSafety';
 
 const ACTIVITY_FACTORS: Record<ActivityLevel, number> = {
@@ -229,22 +229,31 @@ export async function getCaloriasPeriodoResumen(
   const [profile, weekRows, monthRows] = await Promise.all([
     getNutritionProfile(userId),
     db.getAllAsync<{ total: number; days: number }>(
-      `SELECT COALESCE(SUM(calories_consumed), 0) AS total, COUNT(*) AS days
+      `SELECT COALESCE(SUM(calories_consumed), 0) AS total,
+              COUNT(NULLIF(calories_consumed, 0)) AS days
        FROM daily_calories WHERE user_id = ? AND date >= ? AND date <= ?`,
       [userId, weekStart, date],
     ),
     db.getAllAsync<{ total: number; days: number }>(
-      `SELECT COALESCE(SUM(calories_consumed), 0) AS total, COUNT(*) AS days
+      `SELECT COALESCE(SUM(calories_consumed), 0) AS total,
+              COUNT(NULLIF(calories_consumed, 0)) AS days
        FROM daily_calories WHERE user_id = ? AND date >= ? AND date <= ?`,
       [userId, monthStart, date],
     ),
   ]);
+  const goal = profile?.dailyCaloriesGoal ?? null;
+  const weekElapsedDays = Math.max(1, Math.floor(
+    (Date.parse(`${date}T00:00:00Z`) - Date.parse(`${weekStart}T00:00:00Z`)) / 86400000,
+  ) + 1);
+  const monthElapsedDays = Number(date.slice(8, 10)) || 1;
   return {
     weekConsumed: Math.round(weekRows[0]?.total ?? 0),
     weekDays: weekRows[0]?.days ?? 0,
     monthConsumed: Math.round(monthRows[0]?.total ?? 0),
     monthDays: monthRows[0]?.days ?? 0,
-    goal: profile?.dailyCaloriesGoal ?? null,
+    goal,
+    weekGoalTotal: goal === null ? null : goal * weekElapsedDays,
+    monthGoalTotal: goal === null ? null : goal * monthElapsedDays,
   };
 }
 
@@ -255,12 +264,12 @@ export async function addCaloriesToDay(
 ): Promise<void> {
   const db = getDatabase();
   await db.runAsync(
-    `INSERT INTO daily_calories (user_id, date, calories_consumed, logged_at)
-     VALUES (?, ?, ?, ?)
+    `INSERT INTO daily_calories (id, user_id, date, calories_consumed, logged_at)
+     VALUES (?, ?, ?, ?, ?)
      ON CONFLICT(user_id, date) DO UPDATE SET
        calories_consumed = calories_consumed + excluded.calories_consumed,
        logged_at = excluded.logged_at`,
-    [userId, date, calories, new Date().toISOString()],
+    [await createLocalId(), userId, date, calories, new Date().toISOString()],
   );
   void syncLocalToRemote('daily_calories');
 }
@@ -280,26 +289,48 @@ export async function subtractCaloriesFromDay(
 
 export async function addMealLog(userId: string, data: NewMealLog): Promise<MealLog> {
   const db = getDatabase();
-  const result = await db.runAsync(
-    'INSERT INTO meal_logs (date, meal_name, calories, protein_g, carbs_g, fat_g, meal_type, nutrition_source, nutrition_confidence, photo_uri, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    [
-      data.date,
-      data.meal_name.trim(),
-      data.calories,
-      data.protein_g ?? null,
-      data.carbs_g ?? null,
-      data.fat_g ?? null,
-      data.meal_type ?? 'snack',
-      data.nutrition_source,
-      data.nutrition_confidence ?? null,
-      data.photo_uri ?? null,
-      userId,
-    ],
-  );
-  await addCaloriesToDay(userId, data.date, data.calories);
+  if (!Number.isFinite(data.calories) || data.calories <= 0) {
+    throw new Error('Las calorías deben ser un número mayor que cero.');
+  }
+  if ([data.protein_g, data.carbs_g, data.fat_g].some((value) =>
+    value != null && (!Number.isFinite(value) || value < 0),
+  )) {
+    throw new Error('Los macronutrientes deben ser valores válidos y no negativos.');
+  }
+  const id = await createLocalId();
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(
+      'INSERT INTO meal_logs (id, date, meal_name, calories, protein_g, carbs_g, fat_g, meal_type, nutrition_source, nutrition_confidence, nutrition_observed, nutrition_estimate_notes, photo_uri, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [
+        id,
+        data.date,
+        data.meal_name.trim(),
+        data.calories,
+        data.protein_g ?? null,
+        data.carbs_g ?? null,
+        data.fat_g ?? null,
+        data.meal_type ?? 'snack',
+        data.nutrition_source,
+        data.nutrition_confidence ?? null,
+        data.nutrition_observed ?? null,
+        data.nutrition_estimate_notes ?? null,
+        data.photo_uri ?? null,
+        userId,
+      ],
+    );
+    await db.runAsync(
+      `INSERT INTO daily_calories (id, user_id, date, calories_consumed, logged_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(user_id, date) DO UPDATE SET
+         calories_consumed = calories_consumed + excluded.calories_consumed,
+         logged_at = excluded.logged_at`,
+      [await createLocalId(), userId, data.date, data.calories, new Date().toISOString()],
+    );
+  });
+  void syncLocalToRemote('daily_calories');
   void syncLocalToRemote('meal_logs');
   return {
-    id: result.lastInsertRowId,
+    id,
     date: data.date,
     meal_name: data.meal_name.trim(),
     calories: data.calories,
@@ -309,6 +340,8 @@ export async function addMealLog(userId: string, data: NewMealLog): Promise<Meal
     meal_type: data.meal_type ?? 'snack',
     nutrition_source: data.nutrition_source,
     nutrition_confidence: data.nutrition_confidence ?? null,
+    nutrition_observed: data.nutrition_observed ?? null,
+    nutrition_estimate_notes: data.nutrition_estimate_notes ?? null,
     photo_uri: data.photo_uri ?? null,
     user_id: userId,
   };
@@ -329,12 +362,22 @@ export async function deleteMealLog(userId: string, id: number): Promise<void> {
     [id, userId],
   );
   if (rows[0]) {
-    await subtractCaloriesFromDay(userId, rows[0].date, rows[0].calories);
-    await db.runAsync(
-      'DELETE FROM meal_logs WHERE id = ? AND (user_id = ? OR user_id IS NULL)',
-      [id, userId],
-    );
+    await db.withTransactionAsync(async () => {
+      await db.runAsync(
+        'DELETE FROM meal_logs WHERE id = ? AND (user_id = ? OR user_id IS NULL)',
+        [id, userId],
+      );
+      const totals = await db.getAllAsync<{ calories: number }>(
+        'SELECT COALESCE(SUM(calories), 0) AS calories FROM meal_logs WHERE user_id = ? AND date = ?',
+        [userId, rows[0].date],
+      );
+      await db.runAsync(
+        'UPDATE daily_calories SET calories_consumed = ?, logged_at = ? WHERE user_id = ? AND date = ?',
+        [totals[0]?.calories ?? 0, new Date().toISOString(), userId, rows[0].date],
+      );
+    });
     await queueLocalDeletion({ table: 'meal_logs', rowId: id });
+    void syncLocalToRemote('daily_calories');
     void syncLocalToRemote('meal_logs');
   }
   const photoUri = rows[0]?.photo_uri;
@@ -446,9 +489,10 @@ export async function replaceWeeklyMealPlan(rows: WeeklyMealPlanInput[]): Promis
     if (!row.title?.trim()) continue;
     await db.runAsync(
       `INSERT INTO weekly_meal_plan
-        (day_of_week, date, meal_type, title, description, recipe, ingredients_list, servings_count, expires_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, day_of_week, date, meal_type, title, description, recipe, ingredients_list, servings_count, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
+        await createLocalId(),
         row.day_of_week,
         row.date || null,
         row.meal_type,
@@ -582,6 +626,9 @@ export async function getNutritionDayData(
     }),
     { proteinG: 0, carbsG: 0, fatG: 0 },
   );
+  const macroCompleteMeals = meals.filter((meal) =>
+    meal.protein_g != null && meal.carbs_g != null && meal.fat_g != null,
+  ).length;
   return {
     date,
     caloriesConsumed,
@@ -589,6 +636,7 @@ export async function getNutritionDayData(
     remaining,
     percentage,
     ...macros,
+    macroCompleteMeals,
     meals,
   };
 }

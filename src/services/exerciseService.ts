@@ -1,5 +1,6 @@
 import { getDatabase } from './database';
 import { syncLocalToRemote } from './syncService';
+import { createLocalId } from './utils';
 import type {
   BodyPart,
   ExerciseWithBodyPart,
@@ -34,12 +35,13 @@ export async function addBodyPart(data: NewBodyPart): Promise<BodyPart> {
     void syncLocalToRemote('body_parts');
     return rows[0];
   }
-  const result = await db.runAsync(
-    'INSERT INTO body_parts (name, icon) VALUES (?, ?)',
-    [data.name.trim(), data.icon ?? null],
+  const id = await createLocalId();
+  await db.runAsync(
+    'INSERT INTO body_parts (id, name, icon) VALUES (?, ?, ?)',
+    [id, data.name.trim(), data.icon ?? null],
   );
   void syncLocalToRemote('body_parts');
-  return { id: result.lastInsertRowId, name: data.name.trim(), icon: data.icon ?? null };
+  return { id, name: data.name.trim(), icon: data.icon ?? null };
 }
 
 export async function deleteBodyPart(bodyPartId: number): Promise<void> {
@@ -137,9 +139,10 @@ export async function addExercise(data: NewExercise): Promise<ExerciseWithBodyPa
     );
     return rows[0];
   }
-  const result = await db.runAsync(
-    'INSERT INTO exercises_v2 (name, body_part_id, description, equipment, mode) VALUES (?, ?, ?, ?, ?)',
-    [data.name.trim(), data.body_part_id, data.description?.trim() ?? null, data.equipment?.trim() ?? null, data.mode ?? null],
+  const id = await createLocalId();
+  await db.runAsync(
+    'INSERT INTO exercises_v2 (id, name, body_part_id, description, equipment, mode) VALUES (?, ?, ?, ?, ?, ?)',
+    [id, data.name.trim(), data.body_part_id, data.description?.trim() ?? null, data.equipment?.trim() ?? null, data.mode ?? null],
   );
   void syncLocalToRemote('exercises_v2');
   const rows = await db.getAllAsync<ExerciseWithBodyPart>(
@@ -147,7 +150,7 @@ export async function addExercise(data: NewExercise): Promise<ExerciseWithBodyPa
      FROM exercises_v2 e
      INNER JOIN body_parts bp ON bp.id = e.body_part_id
      WHERE e.id = ?`,
-    [result.lastInsertRowId],
+    [id],
   );
   return rows[0];
 }

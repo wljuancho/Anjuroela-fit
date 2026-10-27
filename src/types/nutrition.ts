@@ -45,6 +45,8 @@ export interface MealLog {
   meal_type?: PlanMealType | null;
   nutrition_source?: NutritionDataSource | null;
   nutrition_confidence?: NutritionConfidence | null;
+  nutrition_observed?: string | null;
+  nutrition_estimate_notes?: string | null;
   photo_uri?: string | null;
   user_id?: string | null;
   created_at?: string;
@@ -60,10 +62,12 @@ export interface NewMealLog {
   meal_type?: PlanMealType | null;
   nutrition_source: NutritionDataSource;
   nutrition_confidence?: NutritionConfidence | null;
+  nutrition_observed?: string | null;
+  nutrition_estimate_notes?: string | null;
   photo_uri?: string | null;
 }
 
-export type NutritionDataSource = 'manual' | 'catalog' | 'photo_ai' | 'unknown';
+export type NutritionDataSource = 'manual' | 'catalog' | 'photo_ai' | 'photo_fallback' | 'unknown';
 export type NutritionConfidence = 'alta' | 'media' | 'baja';
 
 export interface NutritionEstimate {
@@ -75,6 +79,7 @@ export interface NutritionEstimate {
   description?: string;
   confidence?: 'alta' | 'media' | 'baja';
   notes?: string;
+  estimator?: 'ai' | 'local';
 }
 
 export interface NutritionDayData {
@@ -86,6 +91,7 @@ export interface NutritionDayData {
   proteinG: number;
   carbsG: number;
   fatG: number;
+  macroCompleteMeals: number;
   meals: MealLog[];
 }
 
@@ -95,6 +101,8 @@ export interface CaloriasPeriodoResumen {
   monthConsumed: number;
   monthDays: number;
   goal: number | null;
+  weekGoalTotal: number | null;
+  monthGoalTotal: number | null;
 }
 
 export interface MealIngredient {

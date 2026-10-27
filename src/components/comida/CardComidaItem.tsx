@@ -33,6 +33,7 @@ export default function CardComidaItem({ meal, onDelete }: CardComidaItemProps) 
     manual: 'Dato ingresado por ti',
     catalog: 'Catálogo · referencia aproximada',
     photo_ai: `Foto con IA · confianza ${meal.nutrition_confidence ?? 'no indicada'}`,
+    photo_fallback: 'Estimación local de respaldo · confianza baja',
     unknown: 'Origen no registrado',
   }[meal.nutrition_source ?? 'unknown'];
   return (
@@ -54,6 +55,14 @@ export default function CardComidaItem({ meal, onDelete }: CardComidaItemProps) 
         </View>
         {macros ? <Text style={styles.macros} numberOfLines={1}>{macros}</Text> : null}
         <Text style={styles.source} numberOfLines={1}>{sourceLabel}</Text>
+        {meal.nutrition_observed ? (
+          <Text style={styles.detail} numberOfLines={2}>
+            {meal.nutrition_source === 'photo_fallback' ? 'Coincidencia local:' : 'IA identificó:'} {meal.nutrition_observed}
+          </Text>
+        ) : null}
+        {meal.nutrition_estimate_notes ? (
+          <Text style={styles.detail} numberOfLines={2}>Estimación: {meal.nutrition_estimate_notes}</Text>
+        ) : null}
       </View>
       <Text style={styles.calories}>{formatNumber(meal.calories)} kcal</Text>
       <TouchableOpacity style={styles.action} onPress={() => onDelete(meal.id)}>
@@ -123,6 +132,12 @@ const styles = StyleSheet.create({
     color: colors.textSubtle,
     fontSize: 10,
     marginTop: 3,
+  },
+  detail: {
+    color: colors.textMuted,
+    fontSize: 10,
+    lineHeight: 14,
+    marginTop: 2,
   },
   calories: {
     color: colors.primary,

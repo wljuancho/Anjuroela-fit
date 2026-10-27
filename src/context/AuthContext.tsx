@@ -25,12 +25,11 @@ import {
 } from '../services/authService';
 import {
   setActiveUserId,
-  syncRemoteToLocal,
   purgeUserData,
   syncLocalToRemote,
   requestFullSync,
   removeLocalUserAccount,
-  setSessionRevocationHandler,
+  syncRemoteToLocal,
   discardPendingDeletionsForUser,
 } from '../services/syncService';
 import { setSupabaseAppUser } from '../services/supabaseClient';
@@ -113,22 +112,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Registra el callback de revocación remota: si el usuario fue eliminado en
-  // Supabase, la sync fuerza el cierre de sesión limpio (purga + estado React).
-  useEffect(() => {
-    setSessionRevocationHandler(() => {
-      void performSignOut();
-    });
-    return () => setSessionRevocationHandler(null);
-  }, []);
-
-  // Escuchador de primer plano (AppState): vacía los pendientes acumulados offline
-  // y actualiza los datos desde Supabase al reabrir o volver a la app.
+  // Al volver al primer plano se reintenta respaldar los cambios locales.
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
       if (nextAppState === 'active') {
         requestFullSync();
-        void syncRemoteToLocal();
       }
     });
     return () => subscription.remove();
@@ -152,11 +140,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setProfile(nextProfile);
         await setActiveUserId(nextUser.id);
         setSupabaseAppUser(nextUser.id);
-        // Los cambios hechos sin conexión viven en SQLite. Al reabrir la app
-        // se solicita una pasada completa para que se suban en cuanto haya
-        // red, incluso si Android cerró los temporizadores de reintento.
+        // SQLite es la fuente principal: al reabrir se reintenta la copia local
+        // hacia Supabase, sin descargar datos que puedan reemplazar cambios del dispositivo.
         requestFullSync();
-        void syncRemoteToLocal();
         if (nextUser.id !== storedUser.id) {
           await persistSession(nextUser, nextProfile);
         }
@@ -203,16 +189,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return null;
   }
 
-  // Cierre de sesión completo: limpia el estado en memoria de React, purga las
-  // tablas locales de SQLite del usuario, elimina su cuenta local para evitar
-  // resubirla y limpia la sesión/current_user_id de SecureStore/AsyncStorage.
+  // Cerrar sesión conserva cuenta e historial en SQLite. La limpieza permanente
+  // solo se realiza desde la acción explícita de eliminar cuenta.
   async function performSignOut() {
     setSupabaseAppUser(null);
-    const currentUserId = await getStoredCurrentUserId();
-    if (currentUserId !== null) {
-      await purgeUserData(currentUserId);
-      await removeLocalUserAccount(currentUserId);
-    }
     setUser(null);
     setProfile(null);
     await setActiveUserId(null);
@@ -254,11 +234,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(nextUser);
         setProfile(null);
         await persistSession(nextUser, null);
+        requestFullSync();
       },
 
       async signIn(email: string, password: string) {
         const localRecord = await verifyLocalCredentials(email, password);
         let record = localRecord;
+        const restoringFromRemote = !localRecord;
 
         if (!record) {
           const remoteRecord = await verifyRemoteCredentials(email, password);
@@ -282,8 +264,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           await purgeUserData(previousUserId);
         }
 
-        // Siempre se descargan los datos frescos del usuario desde Supabase.
-        await syncRemoteToLocal();
+        // Solo se restaura desde la nube si la cuenta no existía en este
+        // dispositivo. En el uso normal, SQLite sigue siendo la fuente principal.
+        if (restoringFromRemote) await syncRemoteToLocal();
 
         let nextProfile: UserProfile | null = null;
         try {
@@ -412,7 +395,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // 2) Los borrados pendientes de esa cuenta quedan huérfanos: se
         //    descartan para que no se apliquen con otra sesión.
         await discardPendingDeletionsForUser(user.id);
-        // 3) Limpieza local completa (datos, cuenta local y sesión).
+        // 3) La purga local se reserva a la eliminación explícita de la cuenta.
+        await purgeUserData(user.id);
+        await removeLocalUserAccount(user.id);
         await performSignOut();
       },
     }),

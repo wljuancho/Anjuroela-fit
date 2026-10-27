@@ -17,6 +17,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import AppButton from '../components/AppButton';
 import AppTextInput from '../components/AppTextInput';
 import { useAuth } from '../context';
+import { getLocalBackupQueueStatus } from '../services/syncService';
 import {
   loadWorkoutSound,
   previewWorkoutSound,
@@ -67,6 +68,7 @@ export default function SettingsScreen() {
   const [wearableDataDate, setWearableDataDate] = useState<string | null>(null);
   const [linkingHealth, setLinkingHealth] = useState(false);
   const [unlinkingHealth, setUnlinkingHealth] = useState(false);
+  const [backupStatus, setBackupStatus] = useState('Tus datos se guardan primero en este dispositivo.');
   const storageUserId = user?.id ?? user?.email ?? null;
 
   useEffect(() => {
@@ -103,6 +105,25 @@ export default function SettingsScreen() {
     return () => {
       cancelled = true;
     };
+  }, [storageUserId]));
+
+  useFocusEffect(useCallback(() => {
+    let cancelled = false;
+    if (!storageUserId) return;
+    void getLocalBackupQueueStatus(storageUserId).then((status) => {
+      if (cancelled) return;
+      if (!status.configured) {
+        setBackupStatus('Copia en la nube desactivada. Los datos permanecen en este celular.');
+      } else if (status.accountWaiting || status.pendingTables > 0) {
+        const pendingCount = status.pendingTables + (status.accountWaiting ? 1 : 0);
+        setBackupStatus(`Copia opcional activada. ${pendingCount} elemento(s) esperan conexión para respaldarse.`);
+      } else {
+        setBackupStatus('Copia opcional activada. No hay cambios pendientes en la cola local.');
+      }
+    }).catch(() => {
+      if (!cancelled) setBackupStatus('Tus datos se guardan localmente; no se pudo consultar la cola de respaldo.');
+    });
+    return () => { cancelled = true; };
   }, [storageUserId]));
 
   const handleLinkWearable = async () => {
@@ -203,7 +224,7 @@ export default function SettingsScreen() {
   const handleSignOut = () => {
     Alert.alert(
       'Cerrar sesión',
-      '¿Seguro que deseas cerrar sesión? Tu historial permanece guardado en la nube y tu cuenta se purgará de forma segura del dispositivo. Al volver a iniciar sesión se descargará de nuevo.',
+      '¿Seguro que deseas cerrar sesión? Tus datos locales se conservarán en este dispositivo. Supabase se usa como respaldo cuando hay conexión.',
       [
         { text: 'Cancelar', style: 'cancel' },
         { text: 'Cerrar sesión', style: 'destructive', onPress: () => signOut() },
@@ -540,10 +561,9 @@ const handleTest = async () => {
             <Text style={styles.sectionTitle}>Sesión</Text>
           </View>
           <Text style={styles.sectionSubtitle}>
-            Tu sesión se mantiene activa al cerrar o reiniciar la app. Al cerrar
-            sesión, tu cuenta se purga de forma segura de este dispositivo, pero tu
-            historial permanece intacto en la nube y se descarga de nuevo al volver
-            a iniciar sesión.
+            {backupStatus} Supabase funciona como respaldo opcional cuando hay conexión. Cerrar
+            sesión conserva los datos locales; para recuperar un respaldo en otro
+            celular, inicia sesión con la cuenta respaldada.
           </Text>
           <AppButton title="Cerrar Sesión" variant="outline" onPress={handleSignOut} />
         </View>

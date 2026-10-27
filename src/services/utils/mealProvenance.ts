@@ -6,6 +6,7 @@ export interface MealProvenanceInput {
   estimateApplied: boolean;
   selectedCatalogFood: boolean;
   confidence: NutritionConfidence | null;
+  estimator?: 'ai' | 'local' | null;
 }
 
 export interface MealProvenance {
@@ -15,7 +16,10 @@ export interface MealProvenance {
 
 export function resolveMealProvenance(input: MealProvenanceInput): MealProvenance {
   if (input.entryMode === 'photo' && input.hasPhoto && input.estimateApplied) {
-    return { source: 'photo_ai', confidence: input.confidence };
+    return {
+      source: input.estimator === 'local' ? 'photo_fallback' : 'photo_ai',
+      confidence: input.confidence ?? 'baja',
+    };
   }
   if (input.entryMode === 'catalog' && input.selectedCatalogFood) {
     return { source: 'catalog', confidence: 'media' };

@@ -1,7 +1,12 @@
 import * as Crypto from 'expo-crypto';
 import { getDatabase } from './database';
-import { formatDate, assertSafeIdentifier } from './utils';
-import { provisionRemoteUser, syncLocalToRemote } from './syncService';
+import { createLocalId, formatDate, assertSafeIdentifier } from './utils';
+import {
+  clearQueuedRemoteAccount,
+  provisionRemoteUser,
+  queueRemoteAccount,
+  syncLocalToRemote,
+} from './syncService';
 import { getSupabase, setSupabaseAppUser, isSupabaseConfigured } from './supabaseClient';
 import { validateGoal } from './utils/goalValidator';
 
@@ -131,25 +136,27 @@ export async function createLocalUser(
     'INSERT INTO users (name, email, password_hash, auth_provider) VALUES (?, ?, ?, ?)',
     [name, normalizedEmail, passwordHash, 'local'],
   );
-  // La cuenta recién creada se asume como usuario activo en la nube para que
-  // las políticas RLS del upsert de Registro acepten la fila (email=header).
+  await queueRemoteAccount(normalizedEmail);
   setSupabaseAppUser(normalizedEmail);
-  // El registro no puede pasar por la cola ordinaria: esa cola comprueba si
-  // una cuenta ya existe en la nube para detectar eliminaciones remotas. Una
-  // cuenta nueva todavía no existe y sería revocada antes de subirla.
-  try {
-    await provisionRemoteUser({
-      email: normalizedEmail,
-      name,
-      password_hash: passwordHash,
-      auth_provider: 'local',
-    });
-  } catch (error) {
-    // No dejamos una cuenta local huérfana: de otro modo un reintento diría
-    // erróneamente que el correo ya está registrado aunque nunca llegó a la
-    // nube. Aún no existen datos dependientes de una cuenta recién creada.
-    await db.runAsync('DELETE FROM users WHERE email = ?', [normalizedEmail]);
-    throw error;
+  if (isSupabaseConfigured()) {
+    try {
+      await provisionRemoteUser({
+        email: normalizedEmail,
+        name,
+        password_hash: passwordHash,
+        auth_provider: 'local',
+      });
+      await clearQueuedRemoteAccount(normalizedEmail);
+    } catch (error) {
+      // Una falla de red no bloquea el alta local; la cola durable intentará
+      // crear el respaldo al volver la conexión. Conflictos reales se muestran.
+      const message = error instanceof Error ? error.message : '';
+      if (/duplicate key|already exists|ya existe/i.test(message)) {
+        await db.runAsync('DELETE FROM users WHERE email = ?', [normalizedEmail]);
+        await clearQueuedRemoteAccount(normalizedEmail);
+        throw new Error('Ya existe una cuenta con este correo. Inicia sesión o recupera tu respaldo.');
+      }
+    }
   }
   return {
     id: normalizedEmail,
@@ -278,12 +285,12 @@ export async function saveProfile(userId: string, data: {
   );
 
   await db.runAsync(
-    `INSERT INTO weight_logs (date, weight_kg, notes)
-     SELECT ?, ?, 'Peso inicial'
+    `INSERT INTO weight_logs (id, date, weight_kg, notes, user_id)
+     SELECT ?, ?, ?, 'Peso inicial', ?
      WHERE NOT EXISTS (
-       SELECT 1 FROM weight_logs WHERE date = ?
+       SELECT 1 FROM weight_logs WHERE user_id = ? AND date = ?
      )`,
-    [formatDate(new Date()), data.currentWeight, formatDate(new Date())],
+    [await createLocalId(), formatDate(new Date()), data.currentWeight, userId, userId, formatDate(new Date())],
   );
 
   void syncLocalToRemote('user_profiles');

@@ -18,6 +18,7 @@ import type { ScreenTutorialPoint } from '../components/ScreenTutorialModal';
 import {
   CardCaloriasDiarias,
   CardCaloriasPeriodo,
+  CardGuiaGanancia,
   CardComidaItem,
   CardListaMercado,
   ModalEscanearComida,
@@ -206,6 +207,13 @@ export default function ComidaScreen() {
         ) : null}
 
         {period ? <CardCaloriasPeriodo period={period} /> : null}
+
+        {nutritionProfile?.goalType === 'ganar' && profile?.currentWeight ? (
+          <CardGuiaGanancia
+            weightKg={profile.currentWeight}
+            proteinLoggedG={data?.proteinG ?? 0}
+          />
+        ) : null}
 
         <TouchableOpacity
           style={styles.scanCard}

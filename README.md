@@ -1,6 +1,6 @@
 ﻿# Anjuroela Fit
 
-Aplicación de fitness y nutrición construida con React Native, Expo y TypeScript. Incluye rutinas, biblioteca de ejercicios, registro de comidas, objetivos y seguimiento del progreso. Los datos se guardan localmente en SQLite y pueden sincronizarse con Supabase.
+Aplicación de fitness y nutrición construida con React Native, Expo y TypeScript. Incluye rutinas, biblioteca de ejercicios, registro de comidas, objetivos y seguimiento del progreso. SQLite en el dispositivo es la fuente principal: las funciones de registro y seguimiento no dependen de Supabase y los cambios se conservan sin conexión. Supabase es una copia de seguridad opcional para sincronizar y recuperar datos al iniciar sesión en otro dispositivo con conexión.
 
 ## Funciones
 
@@ -42,7 +42,7 @@ npm run android
 npm run ios
 ```
 
-Configura `EXPO_PUBLIC_SUPABASE_URL` y `EXPO_PUBLIC_SUPABASE_ANON_KEY` en `.env` para sincronización. Las claves de proveedores de IA se configuran en la app. Revisa la política de privacidad antes de enviar fotos o información de salud a servicios externos.
+Configura `EXPO_PUBLIC_SUPABASE_URL` y `EXPO_PUBLIC_SUPABASE_ANON_KEY` en `.env` para activar la copia de seguridad. Sin estas variables, la app utiliza SQLite localmente; la copia/restauración entre dispositivos no estará disponible. El análisis de fotos y los servicios de IA sí requieren conexión y su proveedor configurado. Revisa la política de privacidad antes de enviar fotos o información de salud a servicios externos.
 
 ## Base de datos
 
@@ -58,7 +58,11 @@ npm test
 npx tsc --noEmit
 ```
 
-Las pruebas actuales cubren las reglas puras de seguridad de objetivos de peso y calorías. Todavía falta una suite de integración con SQLite, sincronización y pantallas.
+Las pruebas automatizadas cubren límites de calorías manuales (incluido el rechazo de 500 kcal), validación de metas de peso y ritmo semanal, edad adulta y procedencia de estimaciones de comida. Ejecuta `npm test`, `npm run lint` y `npx tsc --noEmit` antes de publicar.
+
+El escaneo de comida puede usar un proveedor de IA o una estimación local de respaldo. La confianza es cualitativa y no está calibrada como porcentaje de acierto. La app guarda y muestra el origen, los alimentos que la IA dice haber identificado y su explicación cuando esos datos están disponibles. Las imágenes no permiten confirmar con exactitud ingredientes, aceites ni cantidades; revisa los valores antes de guardarlos. Los datos explicativos se guardan en SQLite y se sincronizan con las nuevas columnas `nutrition_observed` y `nutrition_estimate_notes` de `meal_logs`.
+
+La validación se ejecuta en la interfaz y en los servicios que guardan metas; mantener ambas capas evita que un formulario alternativo o una llamada directa omita los límites preventivos. La suite actual cubre reglas de dominio, pero no automatiza todavía los recorridos integrados de SQLite, sincronización offline/online ni navegación de pantallas.
 
 ## Estructura
 
