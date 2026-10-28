@@ -322,7 +322,7 @@ Sistema **anti-obsolescencia** apalancado en la tabla remota `app_versions` (Sup
 
 > **Nota de despliegue (transparencia de la auditoría):** el *framework* OTA está completo y funcional. Para producción hay dos valores a configurar desde el panel de Supabase / la config de la app: (a) la URL del registro activo en `app_versions` (la semilla del script usa un marcador `https://drive.google.com/tu-enlace-de-drive`), y (b) el manifiesto JSON de `APP_UPDATE_CONFIG.MANIFEST_URL` (actualmente placeholder `https://example.com/...`, `config.ts:11-16`).
 >
-> **Versión local de la build:** `app.json` y `android/app/build.gradle` quedan sincronizados en **versionCode 10 · versionName "1.0.10"** con `minSdkVersion 26`. Para que esa build detecte la actualización, el registro **activo** de `app_versions` en Supabase debe publicar un `latest_version_code > 10` con su `download_url` real.
+> **Versión local de la build:** `app.json` y `android/app/build.gradle` quedan sincronizados en **versionCode 14 · versionName "1.0.14"** con `minSdkVersion 26`. Para que esa build detecte la actualización, el registro **activo** de `app_versions` en Supabase debe publicar un `latest_version_code > 14` con su `download_url` real.
 
 ---
 

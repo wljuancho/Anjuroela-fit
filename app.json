@@ -2,14 +2,14 @@
   "expo": {
     "name": "Anjuroela Fit",
     "slug": "anjuroela-fit",
-    "version": "1.0.13",
+    "version": "1.0.14",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.anjuroela.fit",
-      "buildNumber": "1",
+      "buildNumber": "14",
       "infoPlist": {
         "NSHealthShareUsageDescription": "Anjuroela Fit sincroniza tu ritmo cardíaco y las calorías quemadas con tu reloj, pulsera o anillo inteligente (HealthKit) para registrarlas automáticamente en tu progreso.",
         "NSHealthUpdateUsageDescription": "Anjuroela Fit guarda el ritmo cardíaco y las calorías que el wearable reporta durante tus entrenamientos."
@@ -21,7 +21,7 @@
         "backgroundColor": "#1a1a2e"
       },
       "package": "com.anjuroela.fit",
-      "versionCode": 13,
+      "versionCode": 14,
       "softwareKeyboardLayoutMode": "resize",
       "permissions": [
         "android.permission.health.READ_HEART_RATE",
